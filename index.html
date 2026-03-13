@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FTP Model · light & spacious · bank</title>
+    <!-- Font Awesome 5 (clean icons) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <!-- Google Font: Inter for modern, airy typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600&display=swap" rel="stylesheet">
+    <!-- Chart.js for clean line chart -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f8f5f5;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .app-container {
+            max-width: 1500px;
+            width: 100%;
+            background: #ffffff;
+            border-radius: 36px;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.05), 0 3px 10px rgba(0, 0, 0, 0.02);
+            padding: 32px 36px;
+            color: #2e1a1a;
+            border: 1px solid #ffe2e2;
+        }
+
+        .header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 32px;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+
+        .logo-icon {
+            font-size: 46px;
+            color: #b33a3a;
+            background: #fff1f1;
+            width: 70px;
+            height: 70px;
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #e0b6b6;
+            box-shadow: 0 4px 8px rgba(180, 60, 60, 0.1);
+        }
+
+        .logo-text h1 {
+            font-weight: 600;
+            font-size: 26px;
+            letter-spacing: 1px;
+            color: #4d2626;
+        }
+
+        .logo-text span {
+            font-size: 14px;
+            color: #ac6f6f;
+            background: #fff3f3;
+            padding: 4px 12px;
+            border-radius: 40px;
+            font-weight: 500;
+            display: inline-block;
+            margin-top: 6px;
+            border: 1px solid #f0cdcd;
+        }
+
+        .ftp-singular-btn {
+            background: #921f1f;
+            border: none;
+            color: white;
+            padding: 14px 28px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 17px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(146, 31, 31, 0.25);
+            transition: all 0.15s ease;
+            border: 1px solid #d99;
+        }
+
+        .ftp-singular-btn:hover {
+            background: #a52a2a;
+            box-shadow: 0 8px 18px rgba(170, 50, 50, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 0.8fr 1.6fr;
+            gap: 28px;
+            margin-top: 12px;
+        }
+
+        .left-panel {
+            background: #ffffff;
+            border-radius: 28px;
+            padding: 28px 24px;
+            border: 1px solid #f0d7d7;
+            box-shadow: 0 8px 18px rgba(100, 40, 40, 0.03);
+        }
+
+        .section-label {
+            text-transform: uppercase;
+            font-size: 13px;
+            letter-spacing: 1.5px;
+            font-weight: 600;
+            color: #b06969;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .upload-area {
+            border: 2px dashed #c48b8b;
+            background: #fefafa;
+            border-radius: 24px;
+            padding: 36px 20px;
+            text-align: center;
+            transition: 0.2s;
+            margin-bottom: 30px;
+            cursor: pointer;
+        }
+
+        .upload-area:hover {
+            border-color: #b33a3a;
+            background: #fff5f5;
+        }
+
+        .upload-area i {
+            font-size: 40px;
+            color: #b25757;
+            margin-bottom: 12px;
+        }
+
+        .upload-area p {
+            font-size: 16px;
+            font-weight: 500;
+            color: #5e3a3a;
+        }
+
+        .upload-area small {
+            color: #a16f6f;
+            font-size: 13px;
+        }
+
+        .download-btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            margin-top: 18px;
+        }
+
+        .btn-download {
+            background: #ffffff;
+            border: 2px solid #c97c7c;
+            width: 100%;
+            padding: 18px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 18px;
+            color: #632424;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            box-shadow: 0 4px 8px rgba(140, 60, 60, 0.1);
+            transition: 0.15s ease;
+            cursor: pointer;
+        }
+
+        .btn-download:hover {
+            background: #fcecec;
+            border-color: #b15454;
+            color: #4f1e1e;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(170, 70, 70, 0.15);
+        }
+
+        .preview-pane {
+            background: #ffffff;
+            border-radius: 28px;
+            padding: 28px 28px;
+            border: 1px solid #f0d7d7;
+            box-shadow: 0 8px 22px rgba(120, 60, 60, 0.05);
+            display: flex;
+            flex-direction: column;
+            min-height: 460px;
+        }
+
+        .preview-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 22px;
+            align-items: center;
+        }
+
+        .preview-header h3 {
+            font-weight: 500;
+            color: #542d2d;
+            font-size: 20px;
+        }
+
+        .preview-badge {
+            background: #f0dddd;
+            padding: 6px 14px;
+            border-radius: 40px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #741f1f;
+        }
+
+        .preview-content {
+            background: #fefbfb;
+            border-radius: 24px;
+            padding: 32px 28px;
+            flex: 1;
+            min-height: 340px;
+            border: 1px solid #f5dfdf;
+            color: #3f2323;
+            font-size: 16px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 245, 245, 0.7);
+            backdrop-filter: blur(4px);
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+        }
+
+        .modal-card {
+            background: #ffffff;
+            width: 500px;
+            max-width: 94%;
+            border-radius: 48px;
+            padding: 34px;
+            border: 2px solid #d99;
+            box-shadow: 0 30px 45px rgba(150, 60, 60, 0.15);
+            color: #412626;
+        }
+
+        .modal-card.large-modal {
+            width: 800px;  /* wider for chart */
+            max-width: 90vw;
+        }
+
+        .modal-card h2 {
+            font-size: 26px;
+            font-weight: 600;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 28px;
+            color: #921f1f;
+        }
+
+        .input-group {
+            margin-bottom: 24px;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 15px;
+            font-weight: 500;
+            color: #854f4f;
+            margin-bottom: 6px;
+        }
+
+        .input-group input {
+            width: 100%;
+            background: #fffbfb;
+            border: 2px solid #f0cccc;
+            border-radius: 30px;
+            padding: 15px 22px;
+            font-size: 16px;
+            color: #2f1a1a;
+            outline: none;
+            transition: 0.2s;
+        }
+
+        .input-group input:focus {
+            border-color: #b95858;
+            box-shadow: 0 0 0 4px rgba(185, 80, 80, 0.1);
+        }
+
+        .calculate-btn {
+            background: #921f1f;
+            color: white;
+            border: none;
+            padding: 18px;
+            width: 100%;
+            border-radius: 60px;
+            font-weight: 700;
+            font-size: 18px;
+            letter-spacing: 0.5px;
+            border: 1px solid #d99;
+            box-shadow: 0 4px 12px rgba(146, 31, 31, 0.3);
+            cursor: pointer;
+            transition: 0.15s;
+            margin: 16px 0 26px;
+        }
+
+        .calculate-btn:hover {
+            background: #aa2b2b;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 18px rgba(170, 50, 50, 0.3);
+        }
+
+        .result-box-triple {
+            background: #fff6f6;
+            border-radius: 28px;
+            padding: 22px 16px;
+            border: 2px solid #f0cfcf;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .result-item {
+            text-align: center;
+            flex: 1;
+        }
+
+        .result-item .label {
+            font-size: 14px;
+            color: #ad6f6f;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .result-item .value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #921f1f;
+            line-height: 1.2;
+        }
+
+        .result-item .unit {
+            font-size: 14px;
+            color: #b28181;
+            margin-left: 3px;
+        }
+
+        .result-footer-note {
+            font-size: 13px;
+            color: #b08585;
+            text-align: center;
+            margin-top: 12px;
+        }
+
+        .close-modal {
+            margin-top: 22px;
+            background: transparent;
+            border: 2px solid #e2baba;
+            color: #784a4a;
+            padding: 14px;
+            border-radius: 40px;
+            font-weight: 600;
+            width: 100%;
+            cursor: pointer;
+        }
+
+        .close-modal:hover {
+            background: #ffecec;
+            border-color: #c67a7a;
+        }
+
+        .footer-note {
+            margin-top: 30px;
+            font-size: 13px;
+            color: #ba9f9f;
+            text-align: right;
+            border-top: 1px solid #ffdfdf;
+            padding-top: 18px;
+        }
+
+        #dynamicPreviewText {
+            background: #ffffff;
+            border-radius: 20px;
+            padding: 18px;
+            border: 1px solid #fed7d7;
+            color: #4f2d2d;
+            font-size: 16px;
+            box-shadow: 0 4px 12px rgba(190, 130, 130, 0.05);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 350px;
+            width: 100%;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header with logo & singular button -->
+        <div class="header-row">
+            <div class="logo-section">
+                <div class="logo-icon">
+                    <i class="fas fa-landmark"></i>
+                </div>
+                <div class="logo-text">
+                    <h1>FTP • CENTRAL</h1>
+                    <span>funds transfer pricing</span>
+                </div>
+            </div>
+            <button class="ftp-singular-btn" id="openFtpModalBtn">
+                <i class="fas fa-calculator"></i> Singular FTP tool
+            </button>
+        </div>
+
+        <!-- Main grid -->
+        <div class="dashboard-grid">
+            <!-- left panel -->
+            <div class="left-panel">
+                <div class="section-label">
+                    <i class="fas fa-upload"></i> data import
+                </div>
+                <div class="upload-area" id="uploadArea">
+                    <i class="fas fa-file-excel"></i>
+                    <p>Upload XLSX worksheet</p>
+                    <small>drag & drop or click · max 50 MB</small>
+                    <input type="file" id="fileInput" accept=".xlsx, .xls" style="display: none;">
+                </div>
+
+                <div class="download-btn-group">
+                    <button class="btn-download" id="downloadResultsBtn">
+                        <i class="fas fa-table"></i> Download FTP Results
+                    </button>
+                    <!-- Transformed button: View FTP Curve (opens modal with chart) -->
+                    <button class="btn-download" id="viewCurveBtn">
+                        <i class="fas fa-chart-line"></i> View FTP Curve
+                    </button>
+                </div>
+
+                <div style="margin-top: 32px; color: #b58b8b; font-size: 13px; border-left: 3px solid #d99; padding-left: 16px;">
+                    <i class="fas fa-shield-alt"></i>  Bank-grade encryption · audited model
+                </div>
+            </div>
+
+            <!-- preview pane - initially EMPTY -->
+            <div class="preview-pane">
+                <div class="preview-header">
+                    <h3><i class="fas fa-eye" style="margin-right: 8px;"></i>preview pane · enlarged view</h3>
+                    <span class="preview-badge">ready</span>
+                </div>
+                <div class="preview-content" id="previewContent"></div>
+            </div>
+        </div>
+
+        <div class="footer-note">
+            <i class="fas fa-lock-open" style="color:#a16666;"></i>  transparent environment · FTP v.2.3.1
+        </div>
+    </div>
+
+    <!-- MODAL 1: Singular FTP tool -->
+    <div class="modal" id="ftpModal">
+        <div class="modal-card">
+            <h2><i class="fas fa-funnel-dollar"></i> Singular FTP</h2>
+            
+            <div class="input-group">
+                <label><i class="fas fa-coins"></i> Deposit amount ($)</label>
+                <input type="number" id="depositAmount" placeholder="e.g. 500000" value="250000">
+            </div>
+            <div class="input-group">
+                <label><i class="fas fa-hand-holding-usd"></i> Loan amount ($)</label>
+                <input type="number" id="loanAmount" placeholder="e.g. 400000" value="300000">
+            </div>
+            <div class="input-group">
+                <label><i class="fas fa-calendar-alt"></i> Loan tenure (years)</label>
+                <input type="number" id="loanTenure" placeholder="e.g. 15" value="10">
+            </div>
+
+            <button class="calculate-btn" id="calculateFtpBtn">
+                <i class="fas fa-sync-alt"></i> Calculate
+            </button>
+
+            <div class="result-box-triple" id="resultBoxTriple">
+                <div class="result-item">
+                    <div class="label">FTP Charge</div>
+                    <div><span class="value" id="ftpChargeValue">1.12</span><span class="unit">%</span></div>
+                </div>
+                <div class="result-item">
+                    <div class="label">FTP Gain</div>
+                    <div><span class="value" id="ftpGainValue">0.72</span><span class="unit">%</span></div>
+                </div>
+                <div class="result-item">
+                    <div class="label">Net FTP</div>
+                    <div><span class="value" id="netFtpValue">1.84</span><span class="unit">%</span></div>
+                </div>
+            </div>
+            <div class="result-footer-note">charge · gain · net (illustrative)</div>
+
+            <button class="close-modal" id="closeModalBtn">Close</button>
+        </div>
+    </div>
+
+    <!-- MODAL 2: View FTP Curve (line chart) -->
+    <div class="modal" id="curveModal">
+        <div class="modal-card large-modal">
+            <h2><i class="fas fa-chart-line"></i> FTP Curve · Tenor vs Rate</h2>
+            <div class="chart-container">
+                <canvas id="ftpChart"></canvas>
+            </div>
+            <div style="text-align: center; margin: 10px 0 20px; color: #854f4f;">
+                <span class="result-footer-note">illustrative yield curve · source: internal FTP</span>
+            </div>
+            <button class="close-modal" id="closeCurveModalBtn">Close</button>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            // DOM elements
+            const modal = document.getElementById('ftpModal');
+            const curveModal = document.getElementById('curveModal');
+            const openModalBtn = document.getElementById('openFtpModalBtn');
+            const closeModalBtn = document.getElementById('closeModalBtn');
+            const closeCurveBtn = document.getElementById('closeCurveModalBtn');
+            const viewCurveBtn = document.getElementById('viewCurveBtn'); // new button
+            
+            const calculateBtn = document.getElementById('calculateFtpBtn');
+            
+            const depositInput = document.getElementById('depositAmount');
+            const loanInput = document.getElementById('loanAmount');
+            const tenureInput = document.getElementById('loanTenure');
+            
+            const ftpChargeSpan = document.getElementById('ftpChargeValue');
+            const ftpGainSpan = document.getElementById('ftpGainValue');
+            const netFtpSpan = document.getElementById('netFtpValue');
+
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+            const previewContent = document.getElementById('previewContent');
+            const downloadResultsBtn = document.getElementById('downloadResultsBtn');
+
+            // Chart instance variable
+            let ftpChart = null;
+
+            // Ensure preview is EMPTY on load
+            previewContent.innerHTML = '';
+
+            // --- Modal 1 controls (Singular FTP) ---
+            openModalBtn.addEventListener('click', () => {
+                modal.style.display = 'flex';
+            });
+
+            closeModalBtn.addEventListener('click', () => {
+                modal.style.display = 'none';
+            });
+
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.style.display = 'none';
+            });
+
+            // --- Modal 2 controls (Curve Chart) ---
+            viewCurveBtn.addEventListener('click', () => {
+                curveModal.style.display = 'flex';
+                // Initialize or update chart when modal opens
+                initChart();
+            });
+
+            closeCurveBtn.addEventListener('click', () => {
+                curveModal.style.display = 'none';
+            });
+
+            curveModal.addEventListener('click', (e) => {
+                if (e.target === curveModal) curveModal.style.display = 'none';
+            });
+
+            // Chart initialization function
+            function initChart() {
+                const ctx = document.getElementById('ftpChart').getContext('2d');
+                
+                // Destroy previous chart instance if it exists
+                if (ftpChart) {
+                    ftpChart.destroy();
+                }
+
+                // Sample FTP curve data (tenor in months, rates in %)
+                const tenors = ['1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y'];
+                const rates = [1.12, 1.28, 1.45, 1.84, 2.16, 2.58, 2.96];
+
+                ftpChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: tenors,
+                        datasets: [{
+                            label: 'FTP Rate (%)',
+                            data: rates,
+                            borderColor: '#921f1f',
+                            backgroundColor: 'rgba(146, 31, 31, 0.1)',
+                            borderWidth: 3,
+                            pointBackgroundColor: '#b33a3a',
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 2,
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            tension: 0.2,
+                            fill: false
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { backgroundColor: '#921f1f' }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: false,
+                                min: 0.5,
+                                max: 3.5,
+                                grid: { color: '#f0d7d7' },
+                                title: {
+                                    display: true,
+                                    text: 'Rate (%)',
+                                    color: '#854f4f'
+                                }
+                            },
+                            x: {
+                                grid: { display: false },
+                                title: {
+                                    display: true,
+                                    text: 'Tenor',
+                                    color: '#854f4f'
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Compute FTP components
+            function computeFtpComponents(deposit, loan, tenure) {
+                const d = parseFloat(deposit) || 0;
+                const l = parseFloat(loan) || 0;
+                const t = parseFloat(tenure) || 1;
+                
+                let riskFactor = Math.min(l / (d || 1), 2.0);
+                let tenureFactor = Math.min(t * 0.07, 1.2);
+                
+                let charge = (1.0 + (riskFactor * 0.3) + (tenureFactor * 0.2)).toFixed(2);
+                let gain = (0.6 + (Math.min(d / 200000, 1.5) * 0.3) + (t * 0.04)).toFixed(2);
+                let net = (parseFloat(gain) - parseFloat(charge)).toFixed(2);
+                
+                return { charge, gain, net };
+            }
+
+            // Update modal results and preview pane
+            function refreshFtpResult() {
+                const deposit = depositInput.value;
+                const loan = loanInput.value;
+                const tenure = tenureInput.value;
+                
+                const { charge, gain, net } = computeFtpComponents(deposit, loan, tenure);
+                
+                ftpChargeSpan.innerText = charge;
+                ftpGainSpan.innerText = gain;
+                netFtpSpan.innerText = net;
+
+                updatePreviewWithData(
+                    `<i class="fas fa-calculator" style="margin-right:8px;"></i> 
+                    <strong>Singular FTP breakdown</strong><br>
+                    <span style="display: flex; gap: 20px; margin-top: 10px;">
+                        <span><span style="color:#921f1f;">Charge</span> ${charge}%</span>
+                        <span><span style="color:#921f1f;">Gain</span> ${gain}%</span>
+                        <span><span style="color:#921f1f;">Net</span> ${net}%</span>
+                    </span>
+                    <span style="color: #855050; display:block; margin-top:12px;">deposit $${Number(deposit).toLocaleString()}, 
+                    loan $${Number(loan).toLocaleString()}, ${tenure} years</span>`
+                );
+            }
+
+            function updatePreviewWithData(htmlMessage) {
+                previewContent.innerHTML = '';
+                const dynamicDiv = document.createElement('div');
+                dynamicDiv.setAttribute('id', 'dynamicPreviewText');
+                dynamicDiv.innerHTML = htmlMessage;
+                previewContent.appendChild(dynamicDiv);
+            }
+
+            calculateBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                refreshFtpResult();
+            });
+
+            // Upload handler
+            function handleFileSelect(file) {
+                if (!file) return;
+                updatePreviewWithData(`
+                    <i class="fas fa-file-excel" style="color:#921f1f; margin-right:8px;"></i> 
+                    <strong>FTP curve from:</strong> ${file.name} <br>
+                    <span style="color:#704343;">• 1Y spread 1.84%  • 5Y 2.58% • liquidity premium 0.42%</span>
+                `);
+            }
+
+            uploadArea.addEventListener('click', () => fileInput.click());
+
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files[0]) handleFileSelect(e.target.files[0]);
+            });
+
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.style.borderColor = '#b33a3a';
+                uploadArea.style.background = '#fff0f0';
+            });
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.style.borderColor = '#c48b8b';
+                uploadArea.style.background = '#fefafa';
+            });
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.style.borderColor = '#c48b8b';
+                uploadArea.style.background = '#fefafa';
+                const file = e.dataTransfer.files[0];
+                if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+                    handleFileSelect(file);
+                    fileInput.files = e.dataTransfer.files;
+                } else {
+                    alert('Please drop an Excel XLSX file.');
+                }
+            });
+
+            // Download FTP Results button
+            downloadResultsBtn.addEventListener('click', () => {
+                const deposit = depositInput.value;
+                const loan = loanInput.value;
+                const tenure = tenureInput.value;
+                const { charge, gain, net } = computeFtpComponents(deposit, loan, tenure);
+                
+                const resultsContent = `FTP Calculation Results (detailed)
+--------------------------------
+Date: ${new Date().toLocaleDateString()}
+Deposit Amount: $${Number(deposit).toLocaleString()}
+Loan Amount: $${Number(loan).toLocaleString()}
+Loan Tenure: ${tenure} years
+
+FTP Charge: ${charge}%
+FTP Gain: ${gain}%
+Net FTP: ${net}%
+
+Methodology: risk-adjusted spread (illustrative)`;
+                
+                const blob = new Blob([resultsContent], { type: 'text/plain' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `FTP_Results_${new Date().toISOString().slice(0,10)}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+
+                updatePreviewWithData(`📊 <strong>FTP results downloaded</strong><br>Charge ${charge}% · Gain ${gain}% · Net ${net}%`);
+            });
+        })();
+    </script>
+</body>
+</html>
