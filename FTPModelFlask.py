@@ -189,7 +189,7 @@ def ftp_curve_data():
     """Return FTP curve data for USD and ZWG"""
     
     # Define the tenor points (in days)
-    tenors = [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800]
+    tenors = [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1460, 1800]
     
     # USD FTP curve data (matching your provided values)
     usd_rates = [3.29, 3.36, 6.15, 10.97, 11.02, 11.13, 12.22, 12.22, 12.22, 13.96, 15.41, 18.32, 18.32]
