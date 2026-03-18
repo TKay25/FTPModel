@@ -207,17 +207,17 @@ def ftp_curve_data():
     
     return jsonify({
         'tenors': tenors,
-        'usd': {
-            'name': 'USD FTP Curve',
-            'rates': usd_rates,
-            'color': '#2563eb',  # Blue
-            'borderColor': '#1d4ed8'
-        },
         'zwg': {
             'name': 'ZWG FTP Curve',
             'rates': zwg_rates,
             'color': '#b33a3a',  # Red/burgundy to match your theme
             'borderColor': '#921f1f'
+        },
+        'usd': {
+            'name': 'USD FTP Curve',
+            'rates': usd_rates,
+            'color': '#2563eb',  # Blue
+            'borderColor': '#1d4ed8'
         }
     })
 
