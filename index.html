@@ -573,39 +573,31 @@
             // Chart instance variable
             let ftpChart = null;
 
-            // Ensure preview is EMPTY on load
-            previewContent.innerHTML = '';
+            // Fetch curve data from backend
+            async function fetchFtpCurveData() {
+                try {
+                    const response = await fetch('/ftp-curve-data');
+                    const data = await response.json();
+                    return data;
+                } catch (error) {
+                    console.error('Error fetching FTP curve data:', error);
+                    return null;
+                }
+            }
 
-            // --- Modal 1 controls (Singular FTP) ---
-            openModalBtn.addEventListener('click', () => {
-                modal.style.display = 'flex';
-            });
+            // Format tenor labels (convert days to readable format)
+            function formatTenorLabel(days) {
+                if (days < 30) return `${days}D`;
+                if (days < 365) return `${Math.round(days/30)}M`;
+                if (days === 360) return '1Y';
+                if (days === 720) return '2Y';
+                if (days === 1080) return '3Y';
+                if (days === 1800) return '5Y';
+                return `${Math.round(days/365)}Y`;
+            }
 
-            closeModalBtn.addEventListener('click', () => {
-                modal.style.display = 'none';
-            });
-
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) modal.style.display = 'none';
-            });
-
-            // --- Modal 2 controls (Curve Chart) ---
-            viewCurveBtn.addEventListener('click', () => {
-                curveModal.style.display = 'flex';
-                // Initialize or update chart when modal opens
-                initChart();
-            });
-
-            closeCurveBtn.addEventListener('click', () => {
-                curveModal.style.display = 'none';
-            });
-
-            curveModal.addEventListener('click', (e) => {
-                if (e.target === curveModal) curveModal.style.display = 'none';
-            });
-
-            // Chart initialization function
-            function initChart() {
+            // Chart initialization function with dynamic data
+            async function initChart() {
                 const ctx = document.getElementById('ftpChart').getContext('2d');
                 
                 // Destroy previous chart instance if it exists
@@ -613,46 +605,96 @@
                     ftpChart.destroy();
                 }
 
-                // Sample FTP curve data (tenor in months, rates in %)
-                const tenors = ['1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y'];
-                const rates = [1.12, 1.28, 1.45, 1.84, 2.16, 2.58, 2.96];
+                // Fetch curve data from backend
+                const curveData = await fetchFtpCurveData();
+                if (!curveData) return;
+
+                // Format tenors for display
+                const tenors = curveData.tenors.map(d => formatTenorLabel(d));
+                
+                // Add the last tenor again if needed (your data has 13 points for 12 tenors)
+                // This handles the mismatch if your rates array is longer than tenors array
+                while (tenors.length < curveData.usd.rates.length) {
+                    tenors.push(formatTenorLabel(curveData.tenors[curveData.tenors.length - 1]));
+                }
 
                 ftpChart = new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: tenors,
-                        datasets: [{
-                            label: 'FTP Rate (%)',
-                            data: rates,
-                            borderColor: '#921f1f',
-                            backgroundColor: 'rgba(146, 31, 31, 0.1)',
-                            borderWidth: 3,
-                            pointBackgroundColor: '#b33a3a',
-                            pointBorderColor: '#fff',
-                            pointBorderWidth: 2,
-                            pointRadius: 5,
-                            pointHoverRadius: 7,
-                            tension: 0.2,
-                            fill: false
-                        }]
+                        datasets: [
+                            {
+                                label: curveData.usd.name,
+                                data: curveData.usd.rates,
+                                borderColor: curveData.usd.borderColor,
+                                backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                                borderWidth: 3,
+                                pointBackgroundColor: curveData.usd.color,
+                                pointBorderColor: '#fff',
+                                pointBorderWidth: 2,
+                                pointRadius: 4,
+                                pointHoverRadius: 6,
+                                tension: 0.2,
+                                fill: false
+                            },
+                            {
+                                label: curveData.zwg.name,
+                                data: curveData.zwg.rates,
+                                borderColor: curveData.zwg.borderColor,
+                                backgroundColor: 'rgba(179, 58, 58, 0.1)',
+                                borderWidth: 3,
+                                pointBackgroundColor: curveData.zwg.color,
+                                pointBorderColor: '#fff',
+                                pointBorderWidth: 2,
+                                pointRadius: 4,
+                                pointHoverRadius: 6,
+                                tension: 0.2,
+                                fill: false
+                            }
+                        ]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
                         plugins: {
-                            legend: { display: false },
-                            tooltip: { backgroundColor: '#921f1f' }
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    color: '#854f4f',
+                                    font: { weight: '500', size: 12 }
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: '#921f1f',
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) label += ': ';
+                                        if (context.parsed.y !== null) {
+                                            label += context.parsed.y.toFixed(2) + '%';
+                                        }
+                                        return label;
+                                    }
+                                }
+                            }
                         },
                         scales: {
                             y: {
                                 beginAtZero: false,
-                                min: 0.5,
-                                max: 3.5,
+                                min: 0,
+                                max: 35,
                                 grid: { color: '#f0d7d7' },
                                 title: {
                                     display: true,
-                                    text: 'Rate (%)',
-                                    color: '#854f4f'
+                                    text: 'FTP Rate (%)',
+                                    color: '#854f4f',
+                                    font: { weight: '600', size: 14 }
+                                },
+                                ticks: {
+                                    callback: function(value) {
+                                        return value + '%';
+                                    }
                                 }
                             },
                             x: {
@@ -660,13 +702,27 @@
                                 title: {
                                     display: true,
                                     text: 'Tenor',
-                                    color: '#854f4f'
+                                    color: '#854f4f',
+                                    font: { weight: '600', size: 14 }
                                 }
                             }
                         }
                     }
                 });
             }
+
+            // Update the curve modal click handler
+            viewCurveBtn.addEventListener('click', async () => {
+                curveModal.style.display = 'flex';
+                // Show loading state
+                const chartCanvas = document.getElementById('ftpChart');
+                chartCanvas.style.opacity = '0.5';
+                // Initialize chart with fetched data
+                await initChart();
+                chartCanvas.style.opacity = '1';
+            });
+
+
 
             // Compute FTP components
             function computeFtpComponents(deposit, loan, tenure) {

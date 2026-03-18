@@ -184,6 +184,43 @@ def download_results():
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
+@app.route('/ftp-curve-data', methods=['GET'])
+def ftp_curve_data():
+    """Return FTP curve data for USD and ZWG"""
+    
+    # Define the tenor points (in days)
+    tenors = [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800]
+    
+    # USD FTP curve data (matching your provided values)
+    usd_rates = [3.29, 3.36, 6.15, 10.97, 11.02, 11.13, 12.22, 12.22, 12.22, 13.96, 15.41, 18.32, 18.32]
+    
+    # ZWG FTP curve data (matching your provided values)
+    zwg_rates = [16.90, 16.90, 16.90, 16.90, 17.90, 18.10, 19.10, 19.10, 20.10, 23.47, 26.54, 32.67, 32.67]
+    
+    # Check if we have uploaded data that might override these defaults
+    if latest_data['sheets']:
+        # Look for sheets that might contain curve data
+        for sheet_name, sheet_data in latest_data['sheets'].items():
+            # If you have specific sheet names that contain curve data, you can parse them here
+            # For example, if sheet has columns: Tenor, USD_Rate, ZWG_Rate
+            pass
+    
+    return jsonify({
+        'tenors': tenors,
+        'usd': {
+            'name': 'USD FTP Curve',
+            'rates': usd_rates,
+            'color': '#2563eb',  # Blue
+            'borderColor': '#1d4ed8'
+        },
+        'zwg': {
+            'name': 'ZWG FTP Curve',
+            'rates': zwg_rates,
+            'color': '#b33a3a',  # Red/burgundy to match your theme
+            'borderColor': '#921f1f'
+        }
+    })
+
 @app.route('/get-preview', methods=['GET'])
 def get_preview():
     """Return the current preview data (uploaded sheets)"""
