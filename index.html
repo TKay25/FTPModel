@@ -839,22 +839,23 @@
                     <div class="input-group">
                         <label><i class="fas fa-money-bill-wave"></i> Currency</label>
                         <select id="currencySelect" class="currency-select">
-                            <option value="USD" selected>USD - US Dollar</option>
+                            <option value="" disabled selected>-- Select Currency --</option>
+                            <option value="USD">USD - US Dollar</option>
                             <option value="ZWG">ZWG - Zimbabwe Gold</option>
                         </select>
                     </div>
                     
                     <div class="input-group">
                         <label><i class="fas fa-coins"></i> Deposit amount (<span id="depositCurrency">$</span>)</label>
-                        <input type="number" id="depositAmount" placeholder="e.g. 500000">
+                        <input type="number" id="depositAmount" placeholder="e.g. 500000" disabled>
                     </div>
                     <div class="input-group">
                         <label><i class="fas fa-hand-holding-usd"></i> Loan amount (<span id="loanCurrency">$</span>)</label>
-                        <input type="number" id="loanAmount" placeholder="e.g. 400000">
+                        <input type="number" id="loanAmount" placeholder="e.g. 400000" disabled>
                     </div>
                     <div class="input-group">
                         <label><i class="fas fa-calendar-alt"></i> Loan Tenure/ Days to Maturity</label>
-                        <input type="number" id="loanTenure" placeholder="e.g. 15">
+                        <input type="number" id="loanTenure" placeholder="e.g. 15" disabled>
                     </div>
 
                     <button class="calculate-btn" id="calculateFtpBtn" disabled>
@@ -947,8 +948,7 @@
             <button class="close-modal" id="closeUploadModalBtn">Close</button>
         </div>
     </div>
-
-    <script>
+<script>
         (function() {
             // DOM elements
             const modal = document.getElementById('ftpModal');
@@ -1005,10 +1005,33 @@
             // Currency change handler
             currencySelect.addEventListener('change', function() {
                 const currency = this.value;
-                const symbol = currency === 'USD' ? '$' : 'ZWG$';
-                depositCurrency.textContent = symbol;
-                loanCurrency.textContent = symbol;
-                console.log(`Currency changed to: ${currency}`);
+                
+                if (currency) {
+                    // Enable input fields
+                    depositInput.disabled = false;
+                    loanInput.disabled = false;
+                    tenureInput.disabled = false;
+                    
+                    // Update currency symbols
+                    const symbol = currency === 'USD' ? 'USD' : 'ZWG';
+                    depositCurrency.textContent = symbol;
+                    loanCurrency.textContent = symbol;
+                    
+                    console.log(`Currency changed to: ${currency}`);
+                } else {
+                    // Disable input fields if no currency selected
+                    depositInput.disabled = true;
+                    loanInput.disabled = true;
+                    tenureInput.disabled = true;
+                    calculateBtn.disabled = true;
+                    
+                    // Reset symbols to default
+                    depositCurrency.textContent = '$';
+                    loanCurrency.textContent = '$';
+                }
+                
+                // Trigger validation
+                validateFtpInputs();
             });
 
             // Function to extract month and year from filename
@@ -1100,12 +1123,13 @@
 
             // Function to validate Singular FTP inputs
             function validateFtpInputs() {
+                const currency = currencySelect.value;
                 const deposit = depositInput.value.trim();
                 const loan = loanInput.value.trim();
                 const tenure = tenureInput.value.trim();
                 
-                // Check if all fields have values
-                const isValid = deposit !== '' && loan !== '' && tenure !== '';
+                // Check if currency is selected AND all fields have values
+                const isValid = currency !== '' && deposit !== '' && loan !== '' && tenure !== '';
                 
                 calculateBtn.disabled = !isValid;
             }
@@ -1113,6 +1137,29 @@
             // --- Modal 1 controls (Singular FTP) ---
             openModalBtn.addEventListener('click', () => {
                 modal.style.display = 'flex';
+                
+                // Reset currency selection
+                currencySelect.value = '';
+                
+                // Disable input fields
+                depositInput.disabled = true;
+                loanInput.disabled = true;
+                tenureInput.disabled = true;
+                
+                // Reset currency symbols
+                depositCurrency.textContent = '$';
+                loanCurrency.textContent = '$';
+                
+                // Clear any existing values
+                depositInput.value = '';
+                loanInput.value = '';
+                tenureInput.value = '';
+                
+                // Reset result displays
+                ftpChargeSpan.innerText = '—';
+                ftpGainSpan.innerText = '—';
+                netFtpSpan.innerText = '—';
+                
                 validateFtpInputs(); // Check initial validation state
             });
 
@@ -1546,7 +1593,13 @@ Detailed results would be generated from the uploaded Excel file.`;
                 const loan = loanInput.value;
                 const tenure = tenureInput.value;
                 const currency = currencySelect.value;
-                const symbol = currency === 'USD' ? '$' : 'ZWG$';
+                
+                if (!currency) {
+                    alert('Please select a currency');
+                    return;
+                }
+                
+                const symbol = currency === 'USD' ? 'USD' : 'ZWG';
                 
                 // Only calculate if all fields have values
                 if (deposit && loan && tenure) {
@@ -1583,9 +1636,15 @@ Detailed results would be generated from the uploaded Excel file.`;
             calculateBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 
+                const currency = currencySelect.value;
                 const deposit = depositInput.value.trim();
                 const loan = loanInput.value.trim();
                 const tenure = tenureInput.value.trim();
+                
+                if (!currency) {
+                    alert('Please select a currency');
+                    return;
+                }
                 
                 if (deposit === '' || loan === '' || tenure === '') {
                     alert('Please fill in all fields');

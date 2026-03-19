@@ -108,7 +108,7 @@ def upload_file():
             print(f"  Original shape: {original_shape}")
             
             # Special handling for ZWG LOANS sheet
-            if sheet in ["ZWG LOANS", "USD LOANS"]:
+            if sheet in ["ZWG LOANS", "FX LOANS"]:
                 print(f"  Applying {sheet} special handling...")
                 
                 # Make a copy to avoid warnings
