@@ -13,6 +13,7 @@ latest_data = {
     'ftp_results': None  # store latest calculated results
 }
 
+
 def compute_ftp_components(deposit, loan, tenure):
     """Helper to compute FTP charge, gain, net (matches frontend logic)"""
     try:
@@ -58,29 +59,355 @@ def upload_file():
         return jsonify({'error': 'Please upload an Excel file (.xlsx or .xls)'}), 400
     
     try:
-        # Read all sheets from Excel
+        # Extract month and year from filename (expected format: "FTP Input File Month Year.xlsx")
+        import re
+        from datetime import datetime, timedelta
+        import pandas as pd
+        
+        # Parse filename to get month and year
+        filename_match = re.search(r'FTP Input File (\w+) (\d{4})', file.filename)
+        if not filename_match:
+            return jsonify({'error': 'Filename must be in format: FTP Input File Month Year.xlsx'}), 400
+        
+        month_name = filename_match.group(1)
+        year = int(filename_match.group(2))
+        
+        # Convert month name to month number
+        month_map = {
+            'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
+            'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12
+        }
+        month_num = month_map.get(month_name.lower())
+        if not month_num:
+            return jsonify({'error': f'Invalid month name: {month_name}'}), 400
+        
+        # Get first day of the month
+        first_day = datetime(year, month_num, 1)
+        
+        # Get last day of the month
+        if month_num == 12:
+            last_day = datetime(year + 1, 1, 1) - timedelta(days=1)
+        else:
+            last_day = datetime(year, month_num + 1, 1) - timedelta(days=1)
+        
+        # Read all sheet names first (fast)
         excel_file = pd.ExcelFile(file)
         sheet_names = excel_file.sheet_names
+        print(f"Found sheets: {sheet_names}")
+        
+        # Dictionary to store processed data for each sheet
         sheets_data = {}
         
-        # Store first 10 rows of each sheet as preview
+        # Process each sheet separately
         for sheet in sheet_names:
-            print(f"Reading sheet: {sheet}")
-            #df = pd.read_excel(file, sheet_name=sheet)
-            # Convert to dict with records and limit to 10 rows for preview
+            print(f"Processing sheet: {sheet}")
+            
+            # Read the sheet
+            df = pd.read_excel(file, sheet_name=sheet)
+            original_shape = df.shape
+            print(f"  Original shape: {original_shape}")
+            
+            # Special handling for ZWG LOANS sheet
+            if sheet in ["ZWG LOANS", "USD LOANS"]:
+                print(f"  Applying {sheet} special handling...")
+                
+                # Make a copy to avoid warnings
+                df_processed = df.copy()
+                
+                # --- ADD BRANCH MAPPING FOR ACC MANAGEMENT UNIT ---
+                # Create branch mapping dataframe
+                branch_data = """
+                BR CODE	AGENCIES
+                106	Agribusiness
+                118	Bureau De Change Hre
+                45	Business Banking
+                108	Business Banking
+                47	Private Sector
+                113	Custodial Services
+                48	Private Sector
+                53	Private Sector
+                602	Mortgage Finance
+                107	Institutional Banking
+                66	Treasury
+                601	Treasury
+                0	Shared Services
+                35	Shared Services
+                36	Shared Services
+                37	Shared Services
+                38	Shared Services
+                39	Shared Services
+                40	Shared Services
+                41	Shared Services
+                43	Shared Services
+                46	Shared Services
+                49	Shared Services
+                50	Shared Services
+                54	Shared Services
+                56	Shared Services
+                57	Shared Services
+                58	Shared Services
+                61	Shared Services
+                65	Shared Services
+                67	Shared Services
+                68	Shared Services
+                69	Shared Services
+                70	Shared Services
+                105	Shared Services
+                115	Shared Services
+                117	Shared Services
+                123	Shared Services
+                124	Shared Services
+                600	Shared Services
+                141	Shared Services
+                116	Shared Services
+                11	Kwame Nkrumah
+                12	8Th Avenue
+                13	Mutare
+                14	Kwekwe
+                15	Chitungwiza
+                17	Gokwe
+                18	Gweru
+                20	Chivhu
+                21	Selous
+                23	Southerton
+                24	Sapphire
+                25	Masvingo
+                26	Belmont
+                27	Cash Depot Bulawayo
+                28	Chiredzi
+                29	Borrowdale
+                30	Avondale
+                31	Chinhoyi
+                32	Kwekwe
+                33	Sapphire
+                34	Cash Depot Harare
+                44	Wealth Management
+                87	Chipinge
+                88	8Th Avenue
+                89	Highfield
+                90	Marondera
+                91	Chitungwiza
+                92	Gokwe
+                93	Beitbridge
+                95	Kariba
+                96	Kariba
+                97	Karoi
+                98	Chinhoyi
+                99	Masvingo
+                100	Mvurwi
+                101	Chipinge
+                102	Rusape
+                103	Murehwa
+                104	Victoria Falls
+                109	Chiredzi
+                110	Selous
+                111	Selous
+                112	Mvurwi
+                51	Retail Head Office
+                52	Kwame Nkrumah
+                55	Shared Services
+                62	8Th Avenue
+                114	Retail Head Office
+                120	Sapphire
+                121	Retail Centraslised Back Office
+                122	Mta Centre Fife Street
+                611	Masvingo
+                612	Chiredzi
+                613	Masvingo
+                614	Zvishavane
+                615	Gweru
+                616	Kwekwe
+                617	Kadoma
+                618	Kadoma
+                619	Gokwe
+                629	Chipinge
+                630	Chipinge
+                631	Mutare
+                632	Mutare
+                633	Mutare
+                634	Rusape
+                644	8Th Avenue
+                645	8Th Avenue
+                646	Belmont
+                647	Belmont
+                648	Belmont
+                649	Gwanda
+                650	Cash Depot Bulawayo
+                660	Samora Machel
+                661	Avondale
+                662	Bindura
+                663	Msasa
+                664	Chinhoyi
+                665	Sapphire
+                667	Karoi
+                668	Murehwa
+                669	Samora Machel
+                670	Samora Machel
+                671	Cash Depot Harare
+                672	Kariba
+                681	Sapphire
+                682	Cripps
+                683	Chitungwiza
+                684	Chivhu
+                685	Sapphire
+                686	Highfield
+                687	Marondera
+                688	Msasa
+                689	Msasa
+                690	Sapphire
+                125	Passport Centre Harare
+                127	Passport Centre Bulawayo
+                126	Virtual Branch
+                128	Passport Centre Chitungwiza
+                129	Passport Centre Lupane
+                130	Passport Centre Hwange
+                131	Passport Centre Gweru
+                132	Passport Centre Beitbridge
+                133	Passport Centre Chinhoyi
+                134	Passport Centre Marondera
+                135	Passport Centre Bindura
+                136	Passport Centre Gwanda
+                137	Passport Centre Mutare
+                138	Passport Centre Masvingo
+                139	Passport Centre Zvishavane
+                140	Passport Centre Murehwa
+                142	Retail Centralised Byo
+                145	Borrowdale
+                146	Passport Centre Mwenezi
+                200	Shared Services
+                147	Passport Centre Gokwe
+                143	Retail Head Office
+                144	Retail Head Office
+                """
+                
+                from io import StringIO
+                branch_df = pd.read_csv(StringIO(branch_data), sep='\t')
+                branch_df['BR CODE'] = branch_df['BR CODE'].astype(str).str.strip()
+                branch_df['AGENCIES'] = branch_df['AGENCIES'].str.strip()
+                branch_map = branch_df.drop_duplicates(subset=['BR CODE'], keep='first').set_index('BR CODE')['AGENCIES'].to_dict()
+                print(f"  Created branch mapping with {len(branch_map)} unique branch codes")
+                
+                # Add ACC MANAGEMENT UNIT column based on BRANCH CODE
+                # Look for branch code column with various possible names
+                branch_code_col = None
+                possible_names = ['BR CODE', 'BRANCH CODE', 'BRANCH_CODE', 'BRANCH', 'BR_CODE']
+                for col in possible_names:
+                    if col in df_processed.columns:
+                        branch_code_col = col
+                        break
+                
+                if branch_code_col:
+                    # Convert branch codes to string for matching
+                    df_processed[branch_code_col] = df_processed[branch_code_col].astype(str).str.strip()
+                    
+                    # Map to ACC MANAGEMENT UNIT using branch_map
+                    df_processed['ACC MANAGEMENT UNIT'] = df_processed[branch_code_col].map(branch_map)
+                    
+                    # For codes not found in mapping, mark as 'Unknown'
+                    unknown_count = df_processed['ACC MANAGEMENT UNIT'].isna().sum()
+                    df_processed['ACC MANAGEMENT UNIT'].fillna('Unknown', inplace=True)
+                    
+                    print(f"  Added ACC MANAGEMENT UNIT column")
+                    print(f"  Found {len(df_processed) - unknown_count} matching branch codes")
+                    print(f"  {unknown_count} rows with unknown branch codes")
+                    
+                    # Get unique ACC MANAGEMENT UNIT values for summary
+                    unique_units = df_processed['ACC MANAGEMENT UNIT'].unique()
+                    unit_counts = df_processed['ACC MANAGEMENT UNIT'].value_counts().to_dict()
+                else:
+                    print(f"  Warning: No branch code column found in {sheet}. Available columns: {df_processed.columns.tolist()}")
+                    df_processed['ACC MANAGEMENT UNIT'] = 'Unknown'
+                    unknown_count = len(df_processed)
+                    unique_units = ['Unknown']
+                    unit_counts = {'Unknown': unknown_count}
+                
+                # --- DATE PROCESSING (applies to both ZWG LOANS and USD LOANS) ---
+                # Check if required columns exist
+                required_cols = ['BOOKING_DATE', 'MATURITY_DATE']
+                missing_cols = [col for col in required_cols if col not in df_processed.columns]
+                
+                if missing_cols:
+                    print(f"  Warning: Missing columns {missing_cols} in {sheet}")
+                    # Add missing columns with NaN
+                    for col in missing_cols:
+                        df_processed[col] = pd.NaT
+                
+                # For blank or None in BOOKING_DATE, put first day of the month
+                if 'BOOKING_DATE' in df_processed.columns:
+                    booking_date_mask = df_processed['BOOKING_DATE'].isna()
+                    df_processed.loc[booking_date_mask, 'BOOKING_DATE'] = first_day
+                    print(f"  Updated {booking_date_mask.sum()} rows with BOOKING_DATE = {first_day.strftime('%Y-%m-%d')}")
+                else:
+                    booking_date_mask = pd.Series([False] * len(df_processed))
+                    print(f"  BOOKING_DATE column not found, skipping updates")
+                
+                # For blank or None in MATURITY_DATE, put first day + 365 days
+                if 'MATURITY_DATE' in df_processed.columns:
+                    maturity_date_mask = df_processed['MATURITY_DATE'].isna()
+                    maturity_default = first_day + timedelta(days=365)
+                    df_processed.loc[maturity_date_mask, 'MATURITY_DATE'] = maturity_default
+                    print(f"  Updated {maturity_date_mask.sum()} rows with MATURITY_DATE = {maturity_default.strftime('%Y-%m-%d')}")
+                else:
+                    maturity_date_mask = pd.Series([False] * len(df_processed))
+                    print(f"  MATURITY_DATE column not found, skipping updates")
+                
+                # Store processed data for preview (first 10 rows)
+                sheets_data[sheet] = {
+                    'columns': df_processed.columns.tolist(),
+                    'data': df_processed.head(10).to_dict(orient='records'),
+                    'shape': df_processed.shape,
+                    'processed': True,
+                    'booking_date_updates': int(booking_date_mask.sum()) if 'booking_date_mask' in locals() else 0,
+                    'maturity_date_updates': int(maturity_date_mask.sum()) if 'maturity_date_mask' in locals() else 0,
+                    'branch_code_column': branch_code_col if branch_code_col else 'Not found',
+                    'unknown_branch_codes': int(unknown_count),
+                    'acc_management_units': list(unique_units),
+                    'unit_counts': unit_counts,
+                    'period': {
+                        'first_day': first_day.strftime('%d %B %Y'),
+                        'last_day': last_day.strftime('%d %B %Y')
+                    }
+                }
+                
+                # Store the full processed dataframe with sheet name as key
+                latest_data[f'{sheet.lower().replace(" ", "_")}_processed'] = df_processed
+                
+                print(f"  Completed processing {sheet}")
+                
+                    
+            else:
+                # For other sheets, just store preview without processing
+                sheets_data[sheet] = {
+                    'columns': df.columns.tolist(),
+                    'data': df.head(10).to_dict(orient='records'),
+                    'shape': df.shape,
+                    'processed': False
+                }
+            
+            print(f"  Completed processing {sheet}")
         
         # Store in global variable
         latest_data['filename'] = file.filename
         latest_data['sheets'] = sheets_data
+        latest_data['period'] = {
+            'first_day': first_day.strftime('%d %B %Y'),
+            'last_day': last_day.strftime('%d %B %Y'),
+            'month': month_name,
+            'year': year
+        }
         
         return jsonify({
             'success': True,
             'filename': file.filename,
             'sheets': sheets_data,
+            'period': latest_data['period'],
             'message': f'Successfully loaded {len(sheet_names)} sheet(s)'
         })
     
     except Exception as e:
+        print(f"Error processing upload: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/calculate', methods=['POST'])
