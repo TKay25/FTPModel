@@ -726,15 +726,15 @@
             <h2><i class="fas fa-file-excel"></i> Upload Worksheet</h2>
             
             <div class="input-group">
-                <label><i class="fas fa-calendar"></i> Select any day of the month</label>
-                <input type="text" id="datePicker" placeholder="Click to select a date">
+                <label><i class="fas fa-calendar"></i> Select any day of the month of FTP computation</label>
+                <input type="text" id="datePicker" placeholder="Click to select a date" style="cursor: pointer;">
             </div>
 
             <div class="date-range-display" id="dateRangeDisplay">
                 <span id="firstDay">—</span> to <span id="lastDay">—</span>
             </div>
 
-            <!-- Fancy file upload area - hidden when file selected -->
+            <!-- Fancy file upload area - shown when no file selected -->
             <div class="fancy-file-upload" id="fancyFileUpload">
                 <div class="fancy-file-content">
                     <i class="fas fa-cloud-upload-alt"></i>
@@ -742,12 +742,12 @@
                         <span class="fancy-file-title">Choose an Excel file</span>
                         <span class="fancy-file-subtitle">Click to browse or drag & drop</span>
                     </div>
-                    <span class="fancy-file-badge">XLSX / XLS</span>
+                    <span class="fancy-file-badge">XLSX</span>
                 </div>
                 <input type="file" id="modalFileInput" accept=".xlsx, .xls" hidden>
             </div>
 
-            <!-- Selected file info (appears when file chosen) -->
+            <!-- Selected file info (shown when file chosen) -->
             <div class="file-info" id="fileInfo">
                 <div class="file-info-content">
                     <i class="fas fa-check-circle"></i>
@@ -819,7 +819,7 @@
             // Function to update UI based on file selection
             function updateFileUploadUI() {
                 if (selectedFile) {
-                    // File is selected - hide fancy upload, show file info
+                    // File selected - hide fancy upload, show file info
                     fancyFileUpload.classList.add('hidden');
                     fileInfo.classList.add('show');
                 } else {
