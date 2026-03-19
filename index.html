@@ -339,18 +339,143 @@
             font-weight: 600;
         }
 
-        .file-info {
-            background: #f0e6e6;
-            border-radius: 16px;
-            padding: 12px;
-            margin-top: 10px;
-            font-size: 14px;
+        /* Fancy file upload area */
+        .fancy-file-upload {
+            border: 2px dashed #c48b8b;
+            background: #fefafa;
+            border-radius: 24px;
+            padding: 24px;
+            text-align: center;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            margin: 20px 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .fancy-file-upload:hover {
+            border-color: #b33a3a;
+            background: #fff5f5;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(180, 60, 60, 0.15);
+        }
+
+        .fancy-file-upload.dragover {
+            border-color: #921f1f;
+            background: #ffe5e5;
+            transform: scale(1.02);
+        }
+
+        .fancy-file-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .fancy-file-upload i {
+            font-size: 48px;
+            color: #b25757;
+            margin-bottom: 5px;
+            filter: drop-shadow(0 4px 6px rgba(180, 60, 60, 0.2));
+        }
+
+        .fancy-file-text {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .fancy-file-title {
+            font-size: 18px;
+            font-weight: 600;
             color: #632424;
+        }
+
+        .fancy-file-subtitle {
+            font-size: 14px;
+            color: #a16f6f;
+        }
+
+        .fancy-file-badge {
+            background: #921f1f;
+            color: white;
+            padding: 6px 16px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            margin-top: 8px;
+            display: inline-block;
+            box-shadow: 0 4px 8px rgba(146, 31, 31, 0.3);
+        }
+
+        /* Selected file info */
+        .file-info {
+            background: linear-gradient(135deg, #f0e6e6, #ffe5e5);
+            border-radius: 18px;
+            padding: 16px 20px;
+            margin: 15px 0;
+            border-left: 5px solid #28a745;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
             display: none;
+            animation: slideIn 0.3s ease;
         }
 
         .file-info.show {
             display: block;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .file-info-content {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .file-info-content i {
+            font-size: 28px;
+            color: #28a745;
+        }
+
+        .file-info-details {
+            flex: 1;
+        }
+
+        .file-name {
+            font-weight: 600;
+            color: #2f1a1a;
+            font-size: 16px;
+            word-break: break-all;
+        }
+
+        .file-meta {
+            font-size: 13px;
+            color: #a16f6f;
+            margin-top: 4px;
+        }
+
+        .file-remove {
+            color: #dc3545;
+            cursor: pointer;
+            font-size: 20px;
+            transition: 0.2s;
+            padding: 5px;
+        }
+
+        .file-remove:hover {
+            transform: scale(1.1);
+            color: #bd2130;
         }
 
         .calculate-btn {
@@ -374,6 +499,13 @@
             background: #aa2b2b;
             transform: translateY(-2px);
             box-shadow: 0 8px 18px rgba(170, 50, 50, 0.3);
+        }
+
+        .calculate-btn:disabled {
+            background: #c49a9a;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
         .result-box-triple {
@@ -598,16 +730,34 @@
                 <span id="firstDay">—</span> to <span id="lastDay">—</span>
             </div>
 
-            <div class="input-group">
-                <label><i class="fas fa-file-upload"></i> Choose XLSX file</label>
-                <input type="file" id="modalFileInput" accept=".xlsx, .xls">
+            <!-- Fancy file upload area -->
+            <div class="fancy-file-upload" id="fancyFileUpload">
+                <div class="fancy-file-content">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <div class="fancy-file-text">
+                        <span class="fancy-file-title">Choose an Excel file</span>
+                        <span class="fancy-file-subtitle">Click to browse or drag & drop</span>
+                    </div>
+                    <span class="fancy-file-badge">XLSX / XLS</span>
+                </div>
+                <input type="file" id="modalFileInput" accept=".xlsx, .xls" hidden>
             </div>
 
+            <!-- Selected file info (appears when file chosen) -->
             <div class="file-info" id="fileInfo">
-                <i class="fas fa-check-circle" style="color: #28a745;"></i> Selected: <span id="fileName"></span>
+                <div class="file-info-content">
+                    <i class="fas fa-check-circle"></i>
+                    <div class="file-info-details">
+                        <div class="file-name" id="fileName"></div>
+                        <div class="file-meta" id="fileMeta"></div>
+                    </div>
+                    <div class="file-remove" id="removeFileBtn">
+                        <i class="fas fa-times-circle"></i>
+                    </div>
+                </div>
             </div>
 
-            <button class="calculate-btn" id="computeFtpRangeBtn">
+            <button class="calculate-btn" id="computeFtpRangeBtn" disabled>
                 <i class="fas fa-calculator"></i> Compute FTP for <span id="rangeX">—</span> to <span id="rangeY">—</span>
             </button>
 
@@ -652,11 +802,15 @@
             const rangeXSpan = document.getElementById('rangeX');
             const rangeYSpan = document.getElementById('rangeY');
             const modalFileInput = document.getElementById('modalFileInput');
+            const fancyFileUpload = document.getElementById('fancyFileUpload');
             const fileInfo = document.getElementById('fileInfo');
             const fileNameSpan = document.getElementById('fileName');
+            const fileMetaSpan = document.getElementById('fileMeta');
+            const removeFileBtn = document.getElementById('removeFileBtn');
 
             // Chart instance variable
             let ftpChart = null;
+            let selectedFile = null;
 
             // --- Modal 1 controls (Singular FTP) ---
             openModalBtn.addEventListener('click', () => {
@@ -698,6 +852,8 @@
                 // Reset file input
                 modalFileInput.value = '';
                 fileInfo.classList.remove('show');
+                selectedFile = null;
+                computeRangeBtn.disabled = true;
                 // Reset date picker
                 if (datePicker._flatpickr) {
                     datePicker._flatpickr.clear();
@@ -739,26 +895,76 @@
                         lastDaySpan.textContent = lastDayStr;
                         rangeXSpan.textContent = firstDayStr;
                         rangeYSpan.textContent = lastDayStr;
+                        
+                        // Enable button if file is also selected
+                        computeRangeBtn.disabled = !selectedFile;
                     }
                 },
                 dateFormat: "d F Y",
                 allowInput: true
             });
 
+            // Fancy file upload click handler
+            fancyFileUpload.addEventListener('click', () => {
+                modalFileInput.click();
+            });
+
+            // Drag and drop handlers
+            fancyFileUpload.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                fancyFileUpload.classList.add('dragover');
+            });
+
+            fancyFileUpload.addEventListener('dragleave', () => {
+                fancyFileUpload.classList.remove('dragover');
+            });
+
+            fancyFileUpload.addEventListener('drop', (e) => {
+                e.preventDefault();
+                fancyFileUpload.classList.remove('dragover');
+                
+                const file = e.dataTransfer.files[0];
+                if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+                    handleFileSelection(file);
+                    modalFileInput.files = e.dataTransfer.files;
+                } else {
+                    alert('Please drop a valid Excel file (.xlsx or .xls)');
+                }
+            });
+
             // File selection handler
             modalFileInput.addEventListener('change', (e) => {
                 if (e.target.files[0]) {
-                    const file = e.target.files[0];
-                    fileNameSpan.textContent = file.name;
-                    fileInfo.classList.add('show');
-                } else {
-                    fileInfo.classList.remove('show');
+                    handleFileSelection(e.target.files[0]);
                 }
+            });
+
+            function handleFileSelection(file) {
+                selectedFile = file;
+                fileNameSpan.textContent = file.name;
+                
+                // Format file size
+                const fileSize = (file.size / 1024).toFixed(2);
+                fileMetaSpan.textContent = `${fileSize} KB · ${file.type || 'Excel file'}`;
+                
+                fileInfo.classList.add('show');
+                
+                // Enable button if date is also selected
+                computeRangeBtn.disabled = (firstDaySpan.textContent === '—');
+            }
+
+            // Remove file handler
+            removeFileBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                modalFileInput.value = '';
+                fileInfo.classList.remove('show');
+                selectedFile = null;
+                computeRangeBtn.disabled = true;
             });
 
             // Compute FTP for range button
             computeRangeBtn.addEventListener('click', () => {
-                const file = modalFileInput.files[0];
+                const file = selectedFile;
                 const firstDay = firstDaySpan.textContent;
                 const lastDay = lastDaySpan.textContent;
                 
