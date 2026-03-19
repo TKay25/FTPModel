@@ -65,6 +65,7 @@ def upload_file():
         
         # Store first 10 rows of each sheet as preview
         for sheet in sheet_names:
+            print(f"Reading sheet: {sheet}")
             df = pd.read_excel(file, sheet_name=sheet)
             # Convert to dict with records and limit to 10 rows for preview
             sheets_data[sheet] = {
