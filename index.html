@@ -207,7 +207,7 @@
             display: flex;
             flex-direction: column;
             min-height: 460px;
-            max-height: 700px; /* Added max height */
+            max-height: 700px;
         }
 
         .preview-header {
@@ -215,7 +215,7 @@
             justify-content: space-between;
             margin-bottom: 22px;
             align-items: center;
-            flex-shrink: 0; /* Prevent header from shrinking */
+            flex-shrink: 0;
         }
 
         .preview-header h3 {
@@ -239,8 +239,8 @@
             padding: 32px 28px;
             flex: 1;
             min-height: 340px;
-            max-height: 450px; /* Control content height */
-            overflow-y: auto; /* Make it scrollable */
+            max-height: 450px;
+            overflow-y: auto;
             border: 1px solid #f5dfdf;
             color: #3f2323;
             font-size: 16px;
@@ -291,7 +291,7 @@
             box-shadow: 0 4px 8px rgba(40, 167, 69, 0.1);
             transition: 0.15s ease;
             cursor: pointer;
-            flex-shrink: 0; /* Prevent button from shrinking */
+            flex-shrink: 0;
         }
 
         .preview-download-btn:hover:not(:disabled) {
@@ -334,12 +334,18 @@
         }
 
         .modal-card.large-modal {
-            width: 800px;  /* wider for chart */
+            width: 800px;
             max-width: 90vw;
         }
 
         .modal-card.upload-modal {
-            width: 600px;  /* medium for upload */
+            width: 600px;
+        }
+
+        /* New style for singular FTP modal with two columns */
+        .modal-card.singular-ftp-modal {
+            width: 750px;
+            max-width: 95%;
         }
 
         .modal-card h2 {
@@ -350,6 +356,22 @@
             align-items: center;
             margin-bottom: 28px;
             color: #921f1f;
+        }
+
+        /* Two-column layout for singular FTP */
+        .ftp-two-column {
+            display: flex;
+            gap: 25px;
+        }
+
+        .ftp-left-column {
+            flex: 1.2;
+        }
+
+        .ftp-right-column {
+            flex: 0.9;
+            display: flex;
+            flex-direction: column;
         }
 
         .input-group {
@@ -381,9 +403,30 @@
             box-shadow: 0 0 0 4px rgba(185, 80, 80, 0.1);
         }
 
-        .input-group input[readonly] {
-            background: #f5eaea;
-            cursor: default;
+        /* Currency dropdown styling */
+        .currency-select {
+            width: 100%;
+            background: #fffbfb;
+            border: 2px solid #f0cccc;
+            border-radius: 30px;
+            padding: 15px 22px;
+            font-size: 16px;
+            color: #2f1a1a;
+            outline: none;
+            transition: 0.2s;
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23921f1f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+            background-repeat: no-repeat;
+            background-position: right 20px center;
+            background-size: 16px;
+            cursor: pointer;
+        }
+
+        .currency-select:focus {
+            border-color: #b95858;
+            box-shadow: 0 0 0 4px rgba(185, 80, 80, 0.1);
         }
 
         .filename-hint {
@@ -600,24 +643,26 @@
             box-shadow: none;
         }
 
-        .result-box-triple {
+        /* Vertical result box styling */
+        .result-box-vertical {
             background: #fff6f6;
             border-radius: 28px;
-            padding: 22px 16px;
+            padding: 25px 15px;
             border: 2px solid #f0cfcf;
             display: flex;
-            justify-content: space-around;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 8px;
+            flex-direction: column;
+            gap: 20px;
+            height: 100%;
+            min-height: 280px;
+            justify-content: center;
         }
 
-        .result-item {
+        .result-item-vertical {
             text-align: center;
-            flex: 1;
+            padding: 5px 0;
         }
 
-        .result-item .label {
+        .result-item-vertical .label {
             font-size: 14px;
             color: #ad6f6f;
             text-transform: uppercase;
@@ -625,24 +670,25 @@
             font-weight: 500;
         }
 
-        .result-item .value {
-            font-size: 28px;
+        .result-item-vertical .value {
+            font-size: 32px;
             font-weight: 700;
             color: #921f1f;
             line-height: 1.2;
         }
 
-        .result-item .unit {
-            font-size: 14px;
+        .result-item-vertical .unit {
+            font-size: 16px;
             color: #b28181;
-            margin-left: 3px;
+            margin-left: 5px;
         }
 
-        .result-footer-note {
+        .result-footer-note-vertical {
             font-size: 13px;
             color: #b08585;
             text-align: center;
-            margin-top: 12px;
+            margin-top: 15px;
+            font-style: italic;
         }
 
         .close-modal {
@@ -782,43 +828,59 @@
         </div>
     </div>
 
-    <!-- MODAL 1: Singular FTP tool -->
+    <!-- MODAL 1: Singular FTP tool with currency dropdown and right-side results -->
     <div class="modal" id="ftpModal">
-        <div class="modal-card">
+        <div class="modal-card singular-ftp-modal">
             <h2><i class="fas fa-funnel-dollar"></i> SINGULAR FTP</h2>
             
-            <div class="input-group">
-                <label><i class="fas fa-coins"></i> Deposit amount ($)</label>
-                <input type="number" id="depositAmount" placeholder="e.g. 500000">
-            </div>
-            <div class="input-group">
-                <label><i class="fas fa-hand-holding-usd"></i> Loan amount ($)</label>
-                <input type="number" id="loanAmount" placeholder="e.g. 400000">
-            </div>
-            <div class="input-group">
-                <label><i class="fas fa-calendar-alt"></i> Loan Tenure/ Days to Maturity</label>
-                <input type="number" id="loanTenure" placeholder="e.g. 15">
-            </div>
+            <div class="ftp-two-column">
+                <!-- Left column: Input fields -->
+                <div class="ftp-left-column">
+                    <div class="input-group">
+                        <label><i class="fas fa-money-bill-wave"></i> Currency</label>
+                        <select id="currencySelect" class="currency-select">
+                            <option value="USD" selected>USD - US Dollar</option>
+                            <option value="ZWG">ZWG - Zimbabwe Gold</option>
+                        </select>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label><i class="fas fa-coins"></i> Deposit amount (<span id="depositCurrency">$</span>)</label>
+                        <input type="number" id="depositAmount" placeholder="e.g. 500000">
+                    </div>
+                    <div class="input-group">
+                        <label><i class="fas fa-hand-holding-usd"></i> Loan amount (<span id="loanCurrency">$</span>)</label>
+                        <input type="number" id="loanAmount" placeholder="e.g. 400000">
+                    </div>
+                    <div class="input-group">
+                        <label><i class="fas fa-calendar-alt"></i> Loan Tenure/ Days to Maturity</label>
+                        <input type="number" id="loanTenure" placeholder="e.g. 15">
+                    </div>
 
-            <button class="calculate-btn" id="calculateFtpBtn" disabled>
-                <i class="fas fa-sync-alt"></i> Calculate
-            </button>
-
-            <div class="result-box-triple" id="resultBoxTriple">
-                <div class="result-item">
-                    <div class="label">FTP Charge</div>
-                    <div><span class="value" id="ftpChargeValue">—</span><span class="unit">%</span></div>
+                    <button class="calculate-btn" id="calculateFtpBtn" disabled>
+                        <i class="fas fa-sync-alt"></i> Calculate
+                    </button>
                 </div>
-                <div class="result-item">
-                    <div class="label">FTP Gain</div>
-                    <div><span class="value" id="ftpGainValue">—</span><span class="unit">%</span></div>
-                </div>
-                <div class="result-item">
-                    <div class="label">Net FTP</div>
-                    <div><span class="value" id="netFtpValue">—</span><span class="unit">%</span></div>
+                
+                <!-- Right column: Results box -->
+                <div class="ftp-right-column">
+                    <div class="result-box-vertical" id="resultBoxVertical">
+                        <div class="result-item-vertical">
+                            <div class="label">FTP Charge</div>
+                            <div><span class="value" id="ftpChargeValue">—</span><span class="unit">%</span></div>
+                        </div>
+                        <div class="result-item-vertical">
+                            <div class="label">FTP Gain</div>
+                            <div><span class="value" id="ftpGainValue">—</span><span class="unit">%</span></div>
+                        </div>
+                        <div class="result-item-vertical">
+                            <div class="label">Net FTP</div>
+                            <div><span class="value" id="netFtpValue">—</span><span class="unit">%</span></div>
+                        </div>
+                    </div>
+                    <div class="result-footer-note-vertical">charge · gain · net</div>
                 </div>
             </div>
-            <div class="result-footer-note">charge · gain · net</div>
 
             <button class="close-modal" id="closeModalBtn">Close</button>
         </div>
@@ -913,6 +975,11 @@
             const ftpGainSpan = document.getElementById('ftpGainValue');
             const netFtpSpan = document.getElementById('netFtpValue');
 
+            // Currency elements
+            const currencySelect = document.getElementById('currencySelect');
+            const depositCurrency = document.getElementById('depositCurrency');
+            const loanCurrency = document.getElementById('loanCurrency');
+
             const previewContent = document.getElementById('previewContent');
             const downloadResultsBtn = document.getElementById('downloadResultsBtn');
             const downloadRangeX = document.getElementById('downloadRangeX');
@@ -934,6 +1001,15 @@
             let ftpChart = null;
             let selectedFile = null;
             let lastComputedRange = { firstDay: null, lastDay: null, fileName: null };
+
+            // Currency change handler
+            currencySelect.addEventListener('change', function() {
+                const currency = this.value;
+                const symbol = currency === 'USD' ? '$' : 'ZWG$';
+                depositCurrency.textContent = symbol;
+                loanCurrency.textContent = symbol;
+                console.log(`Currency changed to: ${currency}`);
+            });
 
             // Function to extract month and year from filename
             function extractMonthYearFromFilename(filename) {
@@ -1464,11 +1540,13 @@ Detailed results would be generated from the uploaded Excel file.`;
                 return { charge, gain, net };
             }
 
-            // Update modal results and preview pane
+            // Update modal results and preview pane with currency
             function refreshFtpResult() {
                 const deposit = depositInput.value;
                 const loan = loanInput.value;
                 const tenure = tenureInput.value;
+                const currency = currencySelect.value;
+                const symbol = currency === 'USD' ? '$' : 'ZWG$';
                 
                 // Only calculate if all fields have values
                 if (deposit && loan && tenure) {
@@ -1480,14 +1558,16 @@ Detailed results would be generated from the uploaded Excel file.`;
 
                     updatePreviewWithData(
                         `<i class="fas fa-calculator" style="margin-right:8px;"></i> 
-                        <strong>Singular FTP breakdown</strong><br>
+                        <strong>Singular FTP breakdown (${currency})</strong><br>
                         <span style="display: flex; gap: 20px; margin-top: 10px;">
                             <span><span style="color:#921f1f;">Charge</span> ${charge}%</span>
                             <span><span style="color:#921f1f;">Gain</span> ${gain}%</span>
                             <span><span style="color:#921f1f;">Net</span> ${net}%</span>
                         </span>
-                        <span style="color: #855050; display:block; margin-top:12px;">deposit $${Number(deposit).toLocaleString()}, 
-                        loan $${Number(loan).toLocaleString()}, ${tenure} years</span>`
+                        <span style="color: #855050; display:block; margin-top:12px;">
+                            deposit ${symbol}${Number(deposit).toLocaleString()}, 
+                            loan ${symbol}${Number(loan).toLocaleString()}, ${tenure} years
+                        </span>`
                     );
                 }
             }
