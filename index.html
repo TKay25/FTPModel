@@ -8,9 +8,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <!-- Google Font: Inter for modern, airy typography -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600&display=swap" rel="stylesheet">
-    <!-- Flatpickr for calendar (lightweight, 6kB) -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <!-- Chart.js for clean line chart -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
@@ -387,6 +384,30 @@
         .input-group input[readonly] {
             background: #f5eaea;
             cursor: default;
+        }
+
+        .filename-hint {
+            background: #fff6f6;
+            border-radius: 16px;
+            padding: 12px 16px;
+            margin: 10px 0 20px;
+            border: 1px solid #f0cfcf;
+            font-size: 14px;
+            color: #632424;
+            text-align: center;
+        }
+
+        .filename-hint i {
+            color: #921f1f;
+            margin-right: 8px;
+        }
+
+        .filename-hint strong {
+            color: #921f1f;
+            font-family: monospace;
+            background: #fff1f1;
+            padding: 4px 8px;
+            border-radius: 8px;
         }
 
         .date-range-display {
@@ -814,18 +835,15 @@
         </div>
     </div>
 
-    <!-- MODAL 3: Upload XLSX with Date Range -->
+    <!-- MODAL 3: Upload XLSX - Month/year extracted from filename -->
     <div class="modal" id="uploadModal">
         <div class="modal-card upload-modal">
             <h2><i class="fas fa-file-excel"></i> UPLOAD WORKSHEET</h2>
             
-            <div class="input-group">
-                <label><i class="fas fa-calendar"></i> Select any day of the month of FTP computation</label>
-                <input type="text" id="datePicker" placeholder="Click to select a date" style="cursor: pointer;">
-            </div>
-
-            <div class="date-range-display" id="dateRangeDisplay" style="display:none;">
-                <span id="firstDay">—</span> to <span id="lastDay">—</span>
+            <div class="filename-hint">
+                <i class="fas fa-info-circle"></i> 
+                File must be named: <strong>FTP Input File Month Year.xlsx</strong><br>
+                <span style="font-size: 12px; color: #a16f6f;">Example: FTP Input File January 2026.xlsx</span>
             </div>
 
             <!-- Fancy file upload area - shown when no file selected -->
@@ -853,6 +871,11 @@
                         <i class="fas fa-times-circle"></i>
                     </div>
                 </div>
+            </div>
+
+            <!-- Date range display (auto-populated from filename) -->
+            <div class="date-range-display" id="dateRangeDisplay" style="display:none;">
+                <span id="firstDay">—</span> to <span id="lastDay">—</span>
             </div>
 
             <button class="calculate-btn" id="computeFtpRangeBtn" disabled>
@@ -896,7 +919,6 @@
             const downloadRangeY = document.getElementById('downloadRangeY');
 
             // Upload modal elements
-            const datePicker = document.getElementById('datePicker');
             const firstDaySpan = document.getElementById('firstDay');
             const lastDaySpan = document.getElementById('lastDay');
             const rangeXSpan = document.getElementById('rangeX');
@@ -913,19 +935,91 @@
             let selectedFile = null;
             let lastComputedRange = { firstDay: null, lastDay: null, fileName: null };
 
+            // Function to extract month and year from filename
+            function extractMonthYearFromFilename(filename) {
+                // Expected format: "FTP Input File January 2026.xlsx"
+                const match = filename.match(/FTP Input File (\w+) (\d{4})/);
+                if (match) {
+                    return { month: match[1], year: parseInt(match[2]) };
+                }
+                return null;
+            }
+
+            // Function to convert month name to month number (0-11)
+            function monthNameToNumber(monthName) {
+                const months = {
+                    'january': 0, 'february': 1, 'march': 2, 'april': 3, 'may': 4, 'june': 5,
+                    'july': 6, 'august': 7, 'september': 8, 'october': 9, 'november': 10, 'december': 11
+                };
+                return months[monthName.toLowerCase()];
+            }
+
+            // Function to get first and last day of month from filename
+            function getDateRangeFromFilename(filename) {
+                const extracted = extractMonthYearFromFilename(filename);
+                if (!extracted) return null;
+                
+                const monthNum = monthNameToNumber(extracted.month);
+                if (monthNum === undefined) return null;
+                
+                const year = extracted.year;
+                
+                // Get first day of month
+                const firstDay = new Date(year, monthNum, 1);
+                
+                // Get last day of month
+                const lastDay = new Date(year, monthNum + 1, 0);
+                
+                // Format dates: 29 September 2026
+                const options = { day: 'numeric', month: 'long', year: 'numeric' };
+                const firstDayStr = firstDay.toLocaleDateString('en-GB', options);
+                const lastDayStr = lastDay.toLocaleDateString('en-GB', options);
+                
+                return { firstDay: firstDayStr, lastDay: lastDayStr };
+            }
+
             // Function to update UI based on file selection
             function updateFileUploadUI() {
                 if (selectedFile) {
                     // File selected - hide fancy upload, show file info
                     fancyFileUpload.classList.add('hidden');
                     fileInfo.classList.add('show');
+                    
+                    // Try to extract date range from filename
+                    const dateRange = getDateRangeFromFilename(selectedFile.name);
+                    if (dateRange) {
+                        firstDaySpan.textContent = dateRange.firstDay;
+                        lastDaySpan.textContent = dateRange.lastDay;
+                        rangeXSpan.textContent = dateRange.firstDay;
+                        rangeYSpan.textContent = dateRange.lastDay;
+                        
+                        // Enable button
+                        computeRangeBtn.disabled = false;
+                    } else {
+                        // Invalid filename format
+                        firstDaySpan.textContent = 'Invalid filename';
+                        lastDaySpan.textContent = 'Invalid filename';
+                        rangeXSpan.textContent = 'Invalid';
+                        rangeYSpan.textContent = 'Invalid';
+                        
+                        // Disable button
+                        computeRangeBtn.disabled = true;
+                        
+                        // Show error in file meta
+                        fileMetaSpan.textContent = '⚠️ Filename must be: FTP Input File Month Year.xlsx';
+                    }
                 } else {
                     // No file - show fancy upload, hide file info
                     fancyFileUpload.classList.remove('hidden');
                     fileInfo.classList.remove('show');
+                    firstDaySpan.textContent = '—';
+                    lastDaySpan.textContent = '—';
+                    rangeXSpan.textContent = '—';
+                    rangeYSpan.textContent = '—';
+                    
+                    // Disable button
+                    computeRangeBtn.disabled = true;
                 }
-                // Update button state
-                computeRangeBtn.disabled = !(selectedFile && firstDaySpan.textContent !== '—');
             }
 
             // Function to validate Singular FTP inputs
@@ -987,14 +1081,6 @@
                 modalFileInput.value = '';
                 selectedFile = null;
                 updateFileUploadUI();
-                // Reset date picker
-                if (datePicker._flatpickr) {
-                    datePicker._flatpickr.clear();
-                }
-                firstDaySpan.textContent = '—';
-                lastDaySpan.textContent = '—';
-                rangeXSpan.textContent = '—';
-                rangeYSpan.textContent = '—';
             });
 
             closeUploadModalBtn.addEventListener('click', () => {
@@ -1005,36 +1091,6 @@
                 if (e.target === uploadModal) {
                     uploadModal.style.display = 'none';
                 }
-            });
-
-            // Initialize date picker with Flatpickr
-            flatpickr(datePicker, {
-                onChange: function(selectedDates, dateStr, instance) {
-                    if (selectedDates.length > 0) {
-                        const selectedDate = selectedDates[0];
-                        
-                        // Get first day of month
-                        const firstDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-                        
-                        // Get last day of month
-                        const lastDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0);
-                        
-                        // Format dates: 29 September 2026
-                        const options = { day: 'numeric', month: 'long', year: 'numeric' };
-                        const firstDayStr = firstDay.toLocaleDateString('en-GB', options);
-                        const lastDayStr = lastDay.toLocaleDateString('en-GB', options);
-                        
-                        firstDaySpan.textContent = firstDayStr;
-                        lastDaySpan.textContent = lastDayStr;
-                        rangeXSpan.textContent = firstDayStr;
-                        rangeYSpan.textContent = lastDayStr;
-                        
-                        // Update button state
-                        updateFileUploadUI();
-                    }
-                },
-                dateFormat: "d F Y",
-                allowInput: true
             });
 
             // Fancy file upload click handler
@@ -1078,7 +1134,7 @@
                 
                 // Format file size
                 const fileSize = (file.size / 1024).toFixed(2);
-                fileMetaSpan.textContent = `${fileSize} KB · ${file.type || 'Excel file'}`;
+                fileMetaSpan.textContent = `${fileSize} KB`;
                 
                 updateFileUploadUI();
             }
@@ -1103,8 +1159,8 @@
                     return;
                 }
                 
-                if (firstDay === '—' || lastDay === '—') {
-                    alert('Please select a date');
+                if (firstDay === '—' || firstDay === 'Invalid filename') {
+                    alert('Invalid filename format. File must be named: FTP Input File Month Year.xlsx');
                     return;
                 }
                 
