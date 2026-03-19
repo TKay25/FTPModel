@@ -617,7 +617,7 @@
                 </div>
                 <div class="logo-text">
                     <h1>FTP • CENTRAL</h1>
-                    <span>funds transfer pricing</span>
+                    <span>FUNDS TRANSFER PRICING</span>
                 </div>
             </div>
             <button class="ftp-singular-btn" id="openFtpModalBtn">
@@ -635,12 +635,12 @@
                 
                 <!-- New button that opens upload modal -->
                 <button class="btn-upload" id="openUploadModalBtn">
-                    <i class="fas fa-file-excel"></i> Upload XLSX Worksheet
+                    <i class="fas fa-file-excel"></i> Upload Monthly FTP Input Data
                 </button>
 
                 <div class="download-btn-group">
                     <button class="btn-download" id="downloadResultsBtn">
-                        <i class="fas fa-table"></i> Download FTP Results
+                        <i class="fas fa-download"></i> Download FTP Results
                     </button>
                     <button class="btn-download" id="viewCurveBtn">
                         <i class="fas fa-chart-line"></i> View FTP Curve
@@ -648,22 +648,22 @@
                 </div>
 
                 <div style="margin-top: 32px; color: #b58b8b; font-size: 13px; border-left: 3px solid #d99; padding-left: 16px;">
-                    <i class="fas fa-shield-alt"></i>  Bank-grade encryption · audited model
+                    <i class="fas fa-shield-alt"></i>  100% data privacy · No database · No third-party access
                 </div>
             </div>
 
             <!-- preview pane - initially EMPTY -->
             <div class="preview-pane">
                 <div class="preview-header">
-                    <h3><i class="fas fa-eye" style="margin-right: 8px;"></i>preview pane · enlarged view</h3>
-                    <span class="preview-badge">ready</span>
+                    <h3><i class="fas fa-table" style="margin-right: 8px;"></i>PREVIEW PANE</h3>
+                    <span class="preview-badge">READY</span>
                 </div>
                 <div class="preview-content" id="previewContent"></div>
             </div>
         </div>
 
         <div class="footer-note">
-            <i class="fas fa-lock-open" style="color:#a16666;"></i>  transparent environment · FTP v.2.3.1
+            <i class="fas fa-lock-open" style="color:#a16666;"></i>  transparent environment · FTP v.1.1.1
         </div>
     </div>
 
@@ -674,36 +674,36 @@
             
             <div class="input-group">
                 <label><i class="fas fa-coins"></i> Deposit amount ($)</label>
-                <input type="number" id="depositAmount" placeholder="e.g. 500000" value="250000">
+                <input type="number" id="depositAmount" placeholder="e.g. 500000">
             </div>
             <div class="input-group">
                 <label><i class="fas fa-hand-holding-usd"></i> Loan amount ($)</label>
-                <input type="number" id="loanAmount" placeholder="e.g. 400000" value="300000">
+                <input type="number" id="loanAmount" placeholder="e.g. 400000">
             </div>
             <div class="input-group">
-                <label><i class="fas fa-calendar-alt"></i> Loan tenure (years)</label>
-                <input type="number" id="loanTenure" placeholder="e.g. 15" value="10">
+                <label><i class="fas fa-calendar-alt"></i> Loan Tenure/ Days to Maturity</label>
+                <input type="number" id="loanTenure" placeholder="e.g. 15">
             </div>
 
-            <button class="calculate-btn" id="calculateFtpBtn">
+            <button class="calculate-btn" id="calculateFtpBtn" disabled>
                 <i class="fas fa-sync-alt"></i> Calculate
             </button>
 
             <div class="result-box-triple" id="resultBoxTriple">
                 <div class="result-item">
                     <div class="label">FTP Charge</div>
-                    <div><span class="value" id="ftpChargeValue">1.12</span><span class="unit">%</span></div>
+                    <div><span class="value" id="ftpChargeValue">—</span><span class="unit">%</span></div>
                 </div>
                 <div class="result-item">
                     <div class="label">FTP Gain</div>
-                    <div><span class="value" id="ftpGainValue">0.72</span><span class="unit">%</span></div>
+                    <div><span class="value" id="ftpGainValue">—</span><span class="unit">%</span></div>
                 </div>
                 <div class="result-item">
                     <div class="label">Net FTP</div>
-                    <div><span class="value" id="netFtpValue">1.84</span><span class="unit">%</span></div>
+                    <div><span class="value" id="netFtpValue">—</span><span class="unit">%</span></div>
                 </div>
             </div>
-            <div class="result-footer-note">charge · gain · net (illustrative)</div>
+            <div class="result-footer-note">charge · gain · net</div>
 
             <button class="close-modal" id="closeModalBtn">Close</button>
         </div>
@@ -831,9 +831,22 @@
                 computeRangeBtn.disabled = !(selectedFile && firstDaySpan.textContent !== '—');
             }
 
+            // Function to validate Singular FTP inputs
+            function validateFtpInputs() {
+                const deposit = depositInput.value.trim();
+                const loan = loanInput.value.trim();
+                const tenure = tenureInput.value.trim();
+                
+                // Check if all fields have values
+                const isValid = deposit !== '' && loan !== '' && tenure !== '';
+                
+                calculateBtn.disabled = !isValid;
+            }
+
             // --- Modal 1 controls (Singular FTP) ---
             openModalBtn.addEventListener('click', () => {
                 modal.style.display = 'flex';
+                validateFtpInputs(); // Check initial validation state
             });
 
             closeModalBtn.addEventListener('click', () => {
@@ -845,6 +858,11 @@
                     modal.style.display = 'none';
                 }
             });
+
+            // Add input event listeners for validation
+            depositInput.addEventListener('input', validateFtpInputs);
+            loanInput.addEventListener('input', validateFtpInputs);
+            tenureInput.addEventListener('input', validateFtpInputs);
 
             // --- Modal 2 controls (Curve Chart) ---
             closeCurveBtn.addEventListener('click', () => {
@@ -1170,23 +1188,26 @@
                 const loan = loanInput.value;
                 const tenure = tenureInput.value;
                 
-                const { charge, gain, net } = computeFtpComponents(deposit, loan, tenure);
-                
-                ftpChargeSpan.innerText = charge;
-                ftpGainSpan.innerText = gain;
-                netFtpSpan.innerText = net;
+                // Only calculate if all fields have values
+                if (deposit && loan && tenure) {
+                    const { charge, gain, net } = computeFtpComponents(deposit, loan, tenure);
+                    
+                    ftpChargeSpan.innerText = charge;
+                    ftpGainSpan.innerText = gain;
+                    netFtpSpan.innerText = net;
 
-                updatePreviewWithData(
-                    `<i class="fas fa-calculator" style="margin-right:8px;"></i> 
-                    <strong>Singular FTP breakdown</strong><br>
-                    <span style="display: flex; gap: 20px; margin-top: 10px;">
-                        <span><span style="color:#921f1f;">Charge</span> ${charge}%</span>
-                        <span><span style="color:#921f1f;">Gain</span> ${gain}%</span>
-                        <span><span style="color:#921f1f;">Net</span> ${net}%</span>
-                    </span>
-                    <span style="color: #855050; display:block; margin-top:12px;">deposit $${Number(deposit).toLocaleString()}, 
-                    loan $${Number(loan).toLocaleString()}, ${tenure} years</span>`
-                );
+                    updatePreviewWithData(
+                        `<i class="fas fa-calculator" style="margin-right:8px;"></i> 
+                        <strong>Singular FTP breakdown</strong><br>
+                        <span style="display: flex; gap: 20px; margin-top: 10px;">
+                            <span><span style="color:#921f1f;">Charge</span> ${charge}%</span>
+                            <span><span style="color:#921f1f;">Gain</span> ${gain}%</span>
+                            <span><span style="color:#921f1f;">Net</span> ${net}%</span>
+                        </span>
+                        <span style="color: #855050; display:block; margin-top:12px;">deposit $${Number(deposit).toLocaleString()}, 
+                        loan $${Number(loan).toLocaleString()}, ${tenure} years</span>`
+                    );
+                }
             }
 
             function updatePreviewWithData(htmlMessage) {
@@ -1199,6 +1220,16 @@
 
             calculateBtn.addEventListener('click', (e) => {
                 e.preventDefault();
+                
+                const deposit = depositInput.value.trim();
+                const loan = loanInput.value.trim();
+                const tenure = tenureInput.value.trim();
+                
+                if (deposit === '' || loan === '' || tenure === '') {
+                    alert('Please fill in all fields');
+                    return;
+                }
+                
                 refreshFtpResult();
             });
 
