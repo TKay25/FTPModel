@@ -366,6 +366,10 @@
             transform: scale(1.02);
         }
 
+        .fancy-file-upload.hidden {
+            display: none;
+        }
+
         .fancy-file-content {
             display: flex;
             flex-direction: column;
@@ -726,7 +730,11 @@
                 <input type="text" id="datePicker" placeholder="Click to select a date">
             </div>
 
-            <!-- Fancy file upload area -->
+            <div class="date-range-display" id="dateRangeDisplay">
+                <span id="firstDay">—</span> to <span id="lastDay">—</span>
+            </div>
+
+            <!-- Fancy file upload area - hidden when file selected -->
             <div class="fancy-file-upload" id="fancyFileUpload">
                 <div class="fancy-file-content">
                     <i class="fas fa-cloud-upload-alt"></i>
@@ -808,6 +816,21 @@
             let ftpChart = null;
             let selectedFile = null;
 
+            // Function to update UI based on file selection
+            function updateFileUploadUI() {
+                if (selectedFile) {
+                    // File is selected - hide fancy upload, show file info
+                    fancyFileUpload.classList.add('hidden');
+                    fileInfo.classList.add('show');
+                } else {
+                    // No file - show fancy upload, hide file info
+                    fancyFileUpload.classList.remove('hidden');
+                    fileInfo.classList.remove('show');
+                }
+                // Update button state
+                computeRangeBtn.disabled = !(selectedFile && firstDaySpan.textContent !== '—');
+            }
+
             // --- Modal 1 controls (Singular FTP) ---
             openModalBtn.addEventListener('click', () => {
                 modal.style.display = 'flex';
@@ -847,9 +870,8 @@
                 uploadModal.style.display = 'flex';
                 // Reset file input
                 modalFileInput.value = '';
-                fileInfo.classList.remove('show');
                 selectedFile = null;
-                computeRangeBtn.disabled = true;
+                updateFileUploadUI();
                 // Reset date picker
                 if (datePicker._flatpickr) {
                     datePicker._flatpickr.clear();
@@ -892,8 +914,8 @@
                         rangeXSpan.textContent = firstDayStr;
                         rangeYSpan.textContent = lastDayStr;
                         
-                        // Enable button if file is also selected
-                        computeRangeBtn.disabled = !selectedFile;
+                        // Update button state
+                        updateFileUploadUI();
                     }
                 },
                 dateFormat: "d F Y",
@@ -943,19 +965,15 @@
                 const fileSize = (file.size / 1024).toFixed(2);
                 fileMetaSpan.textContent = `${fileSize} KB · ${file.type || 'Excel file'}`;
                 
-                fileInfo.classList.add('show');
-                
-                // Enable button if date is also selected
-                computeRangeBtn.disabled = (firstDaySpan.textContent === '—');
+                updateFileUploadUI();
             }
 
             // Remove file handler
             removeFileBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 modalFileInput.value = '';
-                fileInfo.classList.remove('show');
                 selectedFile = null;
-                computeRangeBtn.disabled = true;
+                updateFileUploadUI();
             });
 
             // Compute FTP for range button
