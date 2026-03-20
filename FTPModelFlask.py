@@ -116,8 +116,7 @@ def upload_file():
                 
                 # --- ADD BRANCH MAPPING FOR ACC MANAGEMENT UNIT ---
                 # Create branch mapping dataframe
-                branch_data = """
-                BRANCHCODE,AGENCIES
+                branch_data = """BRANCHCODE,AGENCIES
                 106,Agribusiness
                 118,Bureau De Change Hre
                 45,Business Banking
@@ -277,8 +276,7 @@ def upload_file():
                 200,Shared Services
                 147,Passport Centre Gokwe
                 143,Retail Head Office
-                144,Retail Head Office
-                """
+                144,Retail Head Office"""
                 
                 from io import StringIO
                 branch_df = pd.read_csv(StringIO(branch_data), sep=',')
