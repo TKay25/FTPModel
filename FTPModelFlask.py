@@ -351,6 +351,21 @@ def upload_file():
                     maturity_date_mask = pd.Series([False] * len(df_processed))
                     print(f"  MATURITY_DATE column not found, skipping updates")
                 
+                # Create TENOR column (maturity date minus booking date) in days
+                if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
+                    # Ensure both columns are datetime
+                    df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'])
+                    df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'])
+                    
+                    # Calculate tenor in days
+                    df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days
+                    
+                    # For any negative tenors (shouldn't happen, but just in case), set to 0
+                    df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
+                    
+                    print(f"  Created TENOR column with values ranging from {df_processed['TENOR'].min()} to {df_processed['TENOR'].max()} days")
+                    
+
                 # Store processed data for preview (first 10 rows)
                 sheets_data[sheet] = {
                     'columns': df_processed.columns.tolist(),
