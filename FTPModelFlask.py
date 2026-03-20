@@ -117,41 +117,41 @@ def upload_file():
                 # --- ADD BRANCH MAPPING FOR ACC MANAGEMENT UNIT ---
                 # Create branch mapping dataframe
                 branch_data = """
-                BRANCHCODE	AGENCIES
-                106	Agribusiness
+                BRANCHCODE AGENCIES
+                106 Agribusiness
                 118	Bureau De Change Hre
-                45	Business Banking
+                45 Business Banking
                 108	Business Banking
-                47	Private Sector
+                47 Private Sector
                 113	Custodial Services
-                48	Private Sector
-                53	Private Sector
+                48 Private Sector
+                53 Private Sector
                 602	Mortgage Finance
                 107	Institutional Banking
-                66	Treasury
-                601	Treasury
-                0	Shared Services
-                35	Shared Services
-                36	Shared Services
-                37	Shared Services
-                38	Shared Services
-                39	Shared Services
-                40	Shared Services
-                41	Shared Services
-                43	Shared Services
-                46	Shared Services
-                49	Shared Services
-                50	Shared Services
-                54	Shared Services
-                56	Shared Services
-                57	Shared Services
-                58	Shared Services
-                61	Shared Services
-                65	Shared Services
-                67	Shared Services
-                68	Shared Services
-                69	Shared Services
-                70	Shared Services
+                66 Treasury
+                601 Treasury
+                0 Shared Services
+                35 Shared Services
+                36 Shared Services
+                37 Shared Services
+                38 Shared Services
+                39 Shared Services
+                40 Shared Services
+                41 Shared Services
+                43 Shared Services
+                46 Shared Services
+                49 Shared Services
+                50 Shared Services
+                54 Shared Services
+                56 Shared Services
+                57 Shared Services
+                58 Shared Services
+                61 Shared Services
+                65 Shared Services
+                67 Shared Services
+                68 Shared Services
+                69 Shared Services
+                70 Shared Services
                 105	Shared Services
                 115	Shared Services
                 117	Shared Services
@@ -160,40 +160,40 @@ def upload_file():
                 600	Shared Services
                 141	Shared Services
                 116	Shared Services
-                11	Kwame Nkrumah
-                12	8Th Avenue
-                13	Mutare
-                14	Kwekwe
-                15	Chitungwiza
-                17	Gokwe
-                18	Gweru
-                20	Chivhu
-                21	Selous
-                23	Southerton
-                24	Sapphire
-                25	Masvingo
-                26	Belmont
-                27	Cash Depot Bulawayo
-                28	Chiredzi
-                29	Borrowdale
-                30	Avondale
-                31	Chinhoyi
-                32	Kwekwe
-                33	Sapphire
-                34	Cash Depot Harare
-                44	Wealth Management
-                87	Chipinge
-                88	8Th Avenue
-                89	Highfield
-                90	Marondera
-                91	Chitungwiza
-                92	Gokwe
-                93	Beitbridge
-                95	Kariba
-                96	Kariba
-                97	Karoi
-                98	Chinhoyi
-                99	Masvingo
+                11 Kwame Nkrumah
+                12 8Th Avenue
+                13 Mutare
+                14 Kwekwe
+                15 Chitungwiza
+                17 Gokwe
+                18 Gweru
+                20 Chivhu
+                21 Selous
+                23 Southerton
+                24 Sapphire
+                25 Masvingo
+                26 Belmont
+                27 Cash Depot Bulawayo
+                28 Chiredzi
+                29 Borrowdale
+                30 Avondale
+                31 Chinhoyi
+                32 Kwekwe
+                33 Sapphire
+                34 Cash Depot Harare
+                44 Wealth Management
+                87 Chipinge
+                88 8Th Avenue
+                89 Highfield
+                90 Marondera
+                91 Chitungwiza
+                92 Gokwe
+                93 Beitbridge
+                95 Kariba
+                96 Kariba
+                97 Karoi
+                98 Chinhoyi
+                99 Masvingo
                 100	Mvurwi
                 101	Chipinge
                 102	Rusape
@@ -203,10 +203,10 @@ def upload_file():
                 110	Selous
                 111	Selous
                 112	Mvurwi
-                51	Retail Head Office
-                52	Kwame Nkrumah
-                55	Shared Services
-                62	8Th Avenue
+                51 Retail Head Office
+                52 Kwame Nkrumah
+                55 Shared Services
+                62 8Th Avenue
                 114	Retail Head Office
                 120	Sapphire
                 121	Retail Centraslised Back Office
