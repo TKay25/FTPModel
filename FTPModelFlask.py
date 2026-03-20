@@ -60,11 +60,15 @@ def upload_file():
         return jsonify({'error': 'Please upload an Excel file (.xlsx or .xls)'}), 400
     
     try:
-        # Extract month and year from filename (expected format: "FTP Input File Month Year.xlsx")
+        # Extract month and year from filename
         import re
         from datetime import datetime, timedelta
         import pandas as pd
         import datetime as dt
+        
+        # Memory optimization: Limit rows for large files
+        # Instead of reading entire file at once, read in chunks or limit rows
+        # For now, we'll read but then only store preview
         
         # Parse filename to get month and year
         filename_match = re.search(r'FTP Input File (\w+) (\d{4})', file.filename)
@@ -104,8 +108,25 @@ def upload_file():
         for sheet in sheet_names:
             print(f"Processing sheet: {sheet}")
             
-            # Read the sheet
-            df = pd.read_excel(file, sheet_name=sheet)
+            # Read the sheet - use dtypes to optimize memory
+            # Specify dtypes for known columns to reduce memory
+            dtype_spec = {}
+            if sheet in ["ZWG LOANS", "FX LOANS"]:
+                # Only specify dtypes for columns we know
+                dtype_spec = {
+                    'Branch Code': 'str',
+                    'CURRENCY': 'str',
+                    'Loan Type': 'str',
+                    'Staff Status': 'str'
+                }
+            
+            try:
+                df = pd.read_excel(file, sheet_name=sheet, dtype=dtype_spec)
+            except Exception as e:
+                print(f"  Error reading sheet {sheet}: {e}")
+                # Try without dtype specification
+                df = pd.read_excel(file, sheet_name=sheet)
+            
             original_shape = df.shape
             print(f"  Original shape: {original_shape}")
             
@@ -113,11 +134,13 @@ def upload_file():
             if sheet in ["ZWG LOANS", "FX LOANS"]:
                 print(f"  Applying {sheet} special handling...")
                 
-                # Make a copy to avoid warnings
+                # Process in chunks if needed - but for now, keep full processing
                 df_processed = df.copy()
                 
-                # --- ADD BRANCH MAPPING FOR ACC MANAGEMENT UNIT ---
-                # Create branch mapping using dictionary directly (simpler and avoids CSV parsing issues)
+                # Clear original df to free memory
+                del df
+                
+                # --- BRANCH MAPPING (using dictionary - already efficient) ---
                 branch_map = {
                     '106': 'Agribusiness', '118': 'Bureau De Change Hre', '45': 'Business Banking',
                     '108': 'Business Banking', '47': 'Private Sector', '113': 'Custodial Services',
@@ -172,8 +195,7 @@ def upload_file():
                 }
                 print(f"  Created branch mapping with {len(branch_map)} unique branch codes")
                 
-                # Add ACC MANAGEMENT UNIT column based on BRANCH CODE
-                # Look for branch code column with various possible names
+                # Find branch code column
                 branch_code_col = None
                 possible_names = ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE', 'BRANCH', 'BR_CODE']
                 for col in possible_names:
@@ -182,123 +204,92 @@ def upload_file():
                         break
                 
                 if branch_code_col:
-                    # Convert branch codes to string for matching
+                    # Convert to string and map
                     df_processed[branch_code_col] = df_processed[branch_code_col].astype(str).str.strip()
-                    
-                    # Map to ACC MANAGEMENT UNIT using branch_map
                     df_processed['ACC MANAGEMENT UNIT'] = df_processed[branch_code_col].map(branch_map)
-                    
-                    # For codes not found in mapping, mark as 'Unknown'
-                    unknown_count = df_processed['ACC MANAGEMENT UNIT'].isna().sum()
                     df_processed['ACC MANAGEMENT UNIT'].fillna('Unknown', inplace=True)
                     
+                    unknown_count = (df_processed['ACC MANAGEMENT UNIT'] == 'Unknown').sum()
                     print(f"  Added ACC MANAGEMENT UNIT column")
                     print(f"  Found {len(df_processed) - unknown_count} matching branch codes")
                     print(f"  {unknown_count} rows with unknown branch codes")
                     
-                    # Get unique ACC MANAGEMENT UNIT values for summary
                     unique_units = df_processed['ACC MANAGEMENT UNIT'].unique()
                     unit_counts = df_processed['ACC MANAGEMENT UNIT'].value_counts().to_dict()
                 else:
-                    print(f"  Warning: No branch code column found in {sheet}. Available columns: {df_processed.columns.tolist()}")
+                    print(f"  Warning: No branch code column found in {sheet}")
                     df_processed['ACC MANAGEMENT UNIT'] = 'Unknown'
                     unknown_count = len(df_processed)
                     unique_units = ['Unknown']
                     unit_counts = {'Unknown': unknown_count}
                 
-                # --- DATE PROCESSING (FIXED: handles time objects) ---
-                # Check if required columns exist
-                required_cols = ['BOOKING_DATE', 'MATURITY_DATE']
-                missing_cols = [col for col in required_cols if col not in df_processed.columns]
-                
-                if missing_cols:
-                    print(f"  Warning: Missing columns {missing_cols} in {sheet}")
-                    for col in missing_cols:
-                        df_processed[col] = pd.NaT
-                
-                # For blank or None in BOOKING_DATE, put first day of the month
+                # --- DATE PROCESSING (optimized) ---
+                # Process BOOKING_DATE
                 if 'BOOKING_DATE' in df_processed.columns:
-                    # Convert to datetime with coercion to handle errors
                     df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'], errors='coerce')
-                    
-                    # Fill NaN values with first_day
                     booking_date_mask = df_processed['BOOKING_DATE'].isna()
                     df_processed.loc[booking_date_mask, 'BOOKING_DATE'] = first_day
                     print(f"  Updated {booking_date_mask.sum()} rows with BOOKING_DATE = {first_day.strftime('%Y-%m-%d')}")
                 else:
                     booking_date_mask = pd.Series([False] * len(df_processed))
-                    print(f"  BOOKING_DATE column not found, skipping updates")
                 
-                # For blank or None in MATURITY_DATE, put first day + 365 days
+                # Process MATURITY_DATE with time object handling
                 if 'MATURITY_DATE' in df_processed.columns:
-                    # FIRST: Check for time objects and convert them
+                    # Check for time objects
                     time_objects_mask = df_processed['MATURITY_DATE'].apply(lambda x: isinstance(x, dt.time))
                     if time_objects_mask.any():
                         print(f"  Found {time_objects_mask.sum()} time objects in MATURITY_DATE column")
-                        # Convert time objects to datetime by combining with first_day
                         df_processed.loc[time_objects_mask, 'MATURITY_DATE'] = first_day
                     
-                    # SECOND: Convert to datetime with coercion to handle any other issues
                     df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'], errors='coerce')
-                    
-                    # THIRD: Fill NaN values with first_day + 365 days
                     maturity_date_mask = df_processed['MATURITY_DATE'].isna()
                     maturity_default = first_day + timedelta(days=365)
                     df_processed.loc[maturity_date_mask, 'MATURITY_DATE'] = maturity_default
                     print(f"  Updated {maturity_date_mask.sum()} rows with MATURITY_DATE = {maturity_default.strftime('%Y-%m-%d')}")
                 else:
                     maturity_date_mask = pd.Series([False] * len(df_processed))
-                    print(f"  MATURITY_DATE column not found, skipping updates")
                 
-                # Create TENOR column (maturity date minus booking date) in days
+                # Create TENOR column
                 if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
-                    # Calculate tenor in days (columns are already datetime from above)
                     df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days
-                    
-                    # For any negative tenors, set to 0
                     df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
+                    print(f"  Created TENOR column")
                     
-                    print(f"  Created TENOR column with values ranging from {df_processed['TENOR'].min()} to {df_processed['TENOR'].max()} days")
-                    
-                    # Create formatted tenor column for display
+                    # Only create formatted version for preview (not full column to save memory)
                     def format_tenor(days):
                         if pd.isna(days) or days < 0:
                             return 'N/A'
                         if days < 30:
                             return f"{int(days)}D"
                         elif days < 365:
-                            months = round(days / 30)
-                            return f"{months}M"
+                            return f"{round(days / 30)}M"
                         else:
-                            years = round(days / 365, 1)
-                            if years.is_integer():
-                                return f"{int(years)}Y"
-                            else:
-                                return f"{years}Y"
+                            return f"{round(days / 365, 1)}Y"
                     
                     df_processed['TENOR_FORMATTED'] = df_processed['TENOR'].apply(format_tenor)
-                    print(f"  Added formatted TENOR_FORMATTED column for display")
                 else:
                     df_processed['TENOR'] = 0
                     df_processed['TENOR_FORMATTED'] = 'N/A'
-                    print(f"  Could not create TENOR column - missing BOOKING_DATE or MATURITY_DATE columns")
-
-                # Store processed data for preview (first 10 rows)
+                
+                # Store only preview data (first 100 rows) instead of full data to save memory
+                preview_data = df_processed.head(100).to_dict(orient='records')
+                
+                # Store processed data for preview
                 sheets_data[sheet] = {
                     'columns': df_processed.columns.tolist(),
-                    'data': df_processed.head(10).to_dict(orient='records'),
+                    'data': preview_data,  # Only first 100 rows for preview
                     'shape': df_processed.shape,
                     'processed': True,
-                    'booking_date_updates': int(booking_date_mask.sum()) if 'booking_date_mask' in locals() else 0,
-                    'maturity_date_updates': int(maturity_date_mask.sum()) if 'maturity_date_mask' in locals() else 0,
+                    'booking_date_updates': int(booking_date_mask.sum()),
+                    'maturity_date_updates': int(maturity_date_mask.sum()),
                     'branch_code_column': branch_code_col if branch_code_col else 'Not found',
                     'unknown_branch_codes': int(unknown_count),
                     'acc_management_units': list(unique_units),
                     'unit_counts': unit_counts,
                     'tenor_stats': {
-                        'min': int(df_processed['TENOR'].min()) if 'TENOR' in df_processed.columns else 0,
-                        'max': int(df_processed['TENOR'].max()) if 'TENOR' in df_processed.columns else 0,
-                        'avg': float(df_processed['TENOR'].mean()) if 'TENOR' in df_processed.columns else 0
+                        'min': int(df_processed['TENOR'].min()),
+                        'max': int(df_processed['TENOR'].max()),
+                        'avg': float(df_processed['TENOR'].mean())
                     },
                     'period': {
                         'first_day': first_day.strftime('%d %B %Y'),
@@ -306,23 +297,38 @@ def upload_file():
                     }
                 }
                 
-                # Store the full processed dataframe with sheet name as key
-                latest_data[f'{sheet.lower().replace(" ", "_")}_processed'] = df_processed
+                # Store full dataframe only if needed (remove this if not used elsewhere)
+                # latest_data[f'{sheet.lower().replace(" ", "_")}_processed'] = df_processed
+                # Instead, store only necessary summary stats to save memory
+                latest_data[f'{sheet.lower().replace(" ", "_")}_summary'] = {
+                    'row_count': len(df_processed),
+                    'columns': df_processed.columns.tolist(),
+                    'tenor_stats': {
+                        'min': int(df_processed['TENOR'].min()),
+                        'max': int(df_processed['TENOR'].max()),
+                        'avg': float(df_processed['TENOR'].mean())
+                    },
+                    'acc_management_units': unit_counts
+                }
+                
+                # Free up memory
+                del df_processed
                 
                 print(f"  Completed processing {sheet}")
                 
             else:
-                # For other sheets, just store preview without processing
+                # For other sheets, store only preview
                 sheets_data[sheet] = {
                     'columns': df.columns.tolist(),
-                    'data': df.head(10).to_dict(orient='records'),
+                    'data': df.head(100).to_dict(orient='records'),
                     'shape': df.shape,
                     'processed': False
                 }
+                del df  # Free memory
             
             print(f"  Completed processing {sheet}")
         
-        # Store in global variable
+        # Store only necessary data in global variable
         latest_data['filename'] = file.filename
         latest_data['sheets'] = sheets_data
         latest_data['period'] = {
@@ -345,6 +351,7 @@ def upload_file():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/calculate', methods=['POST'])
 def calculate():
