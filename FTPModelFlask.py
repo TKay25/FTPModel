@@ -140,60 +140,171 @@ def upload_file():
                 # Clear original df to free memory
                 del df
                 
-                # --- BRANCH MAPPING (using dictionary - already efficient) ---
-                branch_map = {
-                    '106': 'Agribusiness', '118': 'Bureau De Change Hre', '45': 'Business Banking',
-                    '108': 'Business Banking', '47': 'Private Sector', '113': 'Custodial Services',
-                    '48': 'Private Sector', '53': 'Private Sector', '602': 'Mortgage Finance',
-                    '107': 'Institutional Banking', '66': 'Treasury', '601': 'Treasury',
-                    '0': 'Shared Services', '35': 'Shared Services', '36': 'Shared Services',
-                    '37': 'Shared Services', '38': 'Shared Services', '39': 'Shared Services',
-                    '40': 'Shared Services', '41': 'Shared Services', '43': 'Shared Services',
-                    '46': 'Shared Services', '49': 'Shared Services', '50': 'Shared Services',
-                    '54': 'Shared Services', '56': 'Shared Services', '57': 'Shared Services',
-                    '58': 'Shared Services', '61': 'Shared Services', '65': 'Shared Services',
-                    '67': 'Shared Services', '68': 'Shared Services', '69': 'Shared Services',
-                    '70': 'Shared Services', '105': 'Shared Services', '115': 'Shared Services',
-                    '117': 'Shared Services', '123': 'Shared Services', '124': 'Shared Services',
-                    '600': 'Shared Services', '141': 'Shared Services', '116': 'Shared Services',
-                    '11': 'Kwame Nkrumah', '12': '8Th Avenue', '13': 'Mutare', '14': 'Kwekwe',
-                    '15': 'Chitungwiza', '17': 'Gokwe', '18': 'Gweru', '20': 'Chivhu',
-                    '21': 'Selous', '23': 'Southerton', '24': 'Sapphire', '25': 'Masvingo',
-                    '26': 'Belmont', '27': 'Cash Depot Bulawayo', '28': 'Chiredzi', '29': 'Borrowdale',
-                    '30': 'Avondale', '31': 'Chinhoyi', '32': 'Kwekwe', '33': 'Sapphire',
-                    '34': 'Cash Depot Harare', '44': 'Wealth Management', '87': 'Chipinge',
-                    '88': '8Th Avenue', '89': 'Highfield', '90': 'Marondera', '91': 'Chitungwiza',
-                    '92': 'Gokwe', '93': 'Beitbridge', '95': 'Kariba', '96': 'Kariba',
-                    '97': 'Karoi', '98': 'Chinhoyi', '99': 'Masvingo', '100': 'Mvurwi',
-                    '101': 'Chipinge', '102': 'Rusape', '103': 'Murehwa', '104': 'Victoria Falls',
-                    '109': 'Chiredzi', '110': 'Selous', '111': 'Selous', '112': 'Mvurwi',
-                    '51': 'Retail Head Office', '52': 'Kwame Nkrumah', '55': 'Shared Services',
-                    '62': '8Th Avenue', '114': 'Retail Head Office', '120': 'Sapphire',
-                    '121': 'Retail Centraslised Back Office', '122': 'Mta Centre Fife Street',
-                    '611': 'Masvingo', '612': 'Chiredzi', '613': 'Masvingo', '614': 'Zvishavane',
-                    '615': 'Gweru', '616': 'Kwekwe', '617': 'Kadoma', '618': 'Kadoma',
-                    '619': 'Gokwe', '629': 'Chipinge', '630': 'Chipinge', '631': 'Mutare',
-                    '632': 'Mutare', '633': 'Mutare', '634': 'Rusape', '644': '8Th Avenue',
-                    '645': '8Th Avenue', '646': 'Belmont', '647': 'Belmont', '648': 'Belmont',
-                    '649': 'Gwanda', '650': 'Cash Depot Bulawayo', '660': 'Samora Machel',
-                    '661': 'Avondale', '662': 'Bindura', '663': 'Msasa', '664': 'Chinhoyi',
-                    '665': 'Sapphire', '667': 'Karoi', '668': 'Murehwa', '669': 'Samora Machel',
-                    '670': 'Samora Machel', '671': 'Cash Depot Harare', '672': 'Kariba',
-                    '681': 'Sapphire', '682': 'Cripps', '683': 'Chitungwiza', '684': 'Chivhu',
-                    '685': 'Sapphire', '686': 'Highfield', '687': 'Marondera', '688': 'Msasa',
-                    '689': 'Msasa', '690': 'Sapphire', '125': 'Passport Centre Harare',
-                    '127': 'Passport Centre Bulawayo', '126': 'Virtual Branch',
-                    '128': 'Passport Centre Chitungwiza', '129': 'Passport Centre Lupane',
-                    '130': 'Passport Centre Hwange', '131': 'Passport Centre Gweru',
-                    '132': 'Passport Centre Beitbridge', '133': 'Passport Centre Chinhoyi',
-                    '134': 'Passport Centre Marondera', '135': 'Passport Centre Bindura',
-                    '136': 'Passport Centre Gwanda', '137': 'Passport Centre Mutare',
-                    '138': 'Passport Centre Masvingo', '139': 'Passport Centre Zvishavane',
-                    '140': 'Passport Centre Murehwa', '142': 'Retail Centralised Byo',
-                    '145': 'Borrowdale', '146': 'Passport Centre Mwenezi', '200': 'Shared Services',
-                    '147': 'Passport Centre Gokwe', '143': 'Retail Head Office', '144': 'Retail Head Office'
+                # Branch mapping with ACC MANAGEMENT UNIT and SBU
+                branch_sbu_map = {
+                    '106': {'unit': 'Agribusiness', 'sbu': 'Corporate Banking'},
+                    '118': {'unit': 'Bureau De Change Hre', 'sbu': 'Shared Services'},
+                    '45': {'unit': 'Business Banking', 'sbu': 'Corporate Banking'},
+                    '108': {'unit': 'Business Banking', 'sbu': 'Corporate Banking'},
+                    '47': {'unit': 'Private Sector', 'sbu': 'Corporate Banking'},
+                    '113': {'unit': 'Custodial Services', 'sbu': 'Corporate Banking'},
+                    '48': {'unit': 'Private Sector', 'sbu': 'Corporate Banking'},
+                    '53': {'unit': 'Private Sector', 'sbu': 'Corporate Banking'},
+                    '602': {'unit': 'Mortgage Finance', 'sbu': 'Retail Banking'},
+                    '107': {'unit': 'Institutional Banking', 'sbu': 'Corporate Banking'},
+                    '66': {'unit': 'Treasury', 'sbu': 'Treasury'},
+                    '601': {'unit': 'Treasury', 'sbu': 'Treasury'},
+                    '0': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '35': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '36': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '37': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '38': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '39': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '40': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '41': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '43': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '46': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '49': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '50': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '54': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '56': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '57': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '58': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '61': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '65': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '67': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '68': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '69': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '70': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '105': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '115': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '117': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '123': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '124': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '600': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '141': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '116': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '11': {'unit': 'Kwame Nkrumah', 'sbu': 'Retail Banking'},
+                    '12': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
+                    '13': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
+                    '14': {'unit': 'Kwekwe', 'sbu': 'Retail Banking'},
+                    '15': {'unit': 'Chitungwiza', 'sbu': 'Retail Banking'},
+                    '17': {'unit': 'Gokwe', 'sbu': 'Retail Banking'},
+                    '18': {'unit': 'Gweru', 'sbu': 'Retail Banking'},
+                    '20': {'unit': 'Chivhu', 'sbu': 'Retail Banking'},
+                    '21': {'unit': 'Selous', 'sbu': 'Retail Banking'},
+                    '23': {'unit': 'Southerton', 'sbu': 'Retail Banking'},
+                    '24': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+                    '25': {'unit': 'Masvingo', 'sbu': 'Retail Banking'},
+                    '26': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
+                    '27': {'unit': 'Cash Depot Bulawayo', 'sbu': 'Retail Banking'},
+                    '28': {'unit': 'Chiredzi', 'sbu': 'Retail Banking'},
+                    '29': {'unit': 'Borrowdale', 'sbu': 'Retail Banking'},
+                    '30': {'unit': 'Avondale', 'sbu': 'Retail Banking'},
+                    '31': {'unit': 'Chinhoyi', 'sbu': 'Retail Banking'},
+                    '32': {'unit': 'Kwekwe', 'sbu': 'Retail Banking'},
+                    '33': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+                    '34': {'unit': 'Cash Depot Harare', 'sbu': 'Retail Banking'},
+                    '44': {'unit': 'Wealth Management', 'sbu': 'Retail Banking'},
+                    '87': {'unit': 'Chipinge', 'sbu': 'Retail Banking'},
+                    '88': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
+                    '89': {'unit': 'Highfield', 'sbu': 'Retail Banking'},
+                    '90': {'unit': 'Marondera', 'sbu': 'Retail Banking'},
+                    '91': {'unit': 'Chitungwiza', 'sbu': 'Retail Banking'},
+                    '92': {'unit': 'Gokwe', 'sbu': 'Retail Banking'},
+                    '93': {'unit': 'Beitbridge', 'sbu': 'Retail Banking'},
+                    '95': {'unit': 'Kariba', 'sbu': 'Retail Banking'},
+                    '96': {'unit': 'Kariba', 'sbu': 'Retail Banking'},
+                    '97': {'unit': 'Karoi', 'sbu': 'Retail Banking'},
+                    '98': {'unit': 'Chinhoyi', 'sbu': 'Retail Banking'},
+                    '99': {'unit': 'Masvingo', 'sbu': 'Retail Banking'},
+                    '100': {'unit': 'Mvurwi', 'sbu': 'Retail Banking'},
+                    '101': {'unit': 'Chipinge', 'sbu': 'Retail Banking'},
+                    '102': {'unit': 'Rusape', 'sbu': 'Retail Banking'},
+                    '103': {'unit': 'Murehwa', 'sbu': 'Retail Banking'},
+                    '104': {'unit': 'Victoria Falls', 'sbu': 'Retail Banking'},
+                    '109': {'unit': 'Chiredzi', 'sbu': 'Retail Banking'},
+                    '110': {'unit': 'Selous', 'sbu': 'Retail Banking'},
+                    '111': {'unit': 'Selous', 'sbu': 'Retail Banking'},
+                    '112': {'unit': 'Mvurwi', 'sbu': 'Retail Banking'},
+                    '51': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'},
+                    '52': {'unit': 'Kwame Nkrumah', 'sbu': 'Retail Banking'},
+                    '55': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '62': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
+                    '114': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'},
+                    '120': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+                    '121': {'unit': 'Retail Centraslised Back Office', 'sbu': 'Retail Banking'},
+                    '122': {'unit': 'Mta Centre Fife Street', 'sbu': 'Retail Banking'},
+                    '611': {'unit': 'Masvingo', 'sbu': 'Retail Banking'},
+                    '612': {'unit': 'Chiredzi', 'sbu': 'Retail Banking'},
+                    '613': {'unit': 'Masvingo', 'sbu': 'Retail Banking'},
+                    '614': {'unit': 'Zvishavane', 'sbu': 'Retail Banking'},
+                    '615': {'unit': 'Gweru', 'sbu': 'Retail Banking'},
+                    '616': {'unit': 'Kwekwe', 'sbu': 'Retail Banking'},
+                    '617': {'unit': 'Kadoma', 'sbu': 'Retail Banking'},
+                    '618': {'unit': 'Kadoma', 'sbu': 'Retail Banking'},
+                    '619': {'unit': 'Gokwe', 'sbu': 'Retail Banking'},
+                    '629': {'unit': 'Chipinge', 'sbu': 'Retail Banking'},
+                    '630': {'unit': 'Chipinge', 'sbu': 'Retail Banking'},
+                    '631': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
+                    '632': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
+                    '633': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
+                    '634': {'unit': 'Rusape', 'sbu': 'Retail Banking'},
+                    '644': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
+                    '645': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
+                    '646': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
+                    '647': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
+                    '648': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
+                    '649': {'unit': 'Gwanda', 'sbu': 'Retail Banking'},
+                    '650': {'unit': 'Cash Depot Bulawayo', 'sbu': 'Retail Banking'},
+                    '660': {'unit': 'Samora Machel', 'sbu': 'Retail Banking'},
+                    '661': {'unit': 'Avondale', 'sbu': 'Retail Banking'},
+                    '662': {'unit': 'Bindura', 'sbu': 'Retail Banking'},
+                    '663': {'unit': 'Msasa', 'sbu': 'Retail Banking'},
+                    '664': {'unit': 'Chinhoyi', 'sbu': 'Retail Banking'},
+                    '665': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+                    '667': {'unit': 'Karoi', 'sbu': 'Retail Banking'},
+                    '668': {'unit': 'Murehwa', 'sbu': 'Retail Banking'},
+                    '669': {'unit': 'Samora Machel', 'sbu': 'Retail Banking'},
+                    '670': {'unit': 'Samora Machel', 'sbu': 'Retail Banking'},
+                    '671': {'unit': 'Cash Depot Harare', 'sbu': 'Retail Banking'},
+                    '672': {'unit': 'Kariba', 'sbu': 'Retail Banking'},
+                    '681': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+                    '682': {'unit': 'Cripps', 'sbu': 'Retail Banking'},
+                    '683': {'unit': 'Chitungwiza', 'sbu': 'Retail Banking'},
+                    '684': {'unit': 'Chivhu', 'sbu': 'Retail Banking'},
+                    '685': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+                    '686': {'unit': 'Highfield', 'sbu': 'Retail Banking'},
+                    '687': {'unit': 'Marondera', 'sbu': 'Retail Banking'},
+                    '688': {'unit': 'Msasa', 'sbu': 'Retail Banking'},
+                    '689': {'unit': 'Msasa', 'sbu': 'Retail Banking'},
+                    '690': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+                    '125': {'unit': 'Passport Centre Harare', 'sbu': 'Shared Services'},
+                    '127': {'unit': 'Passport Centre Bulawayo', 'sbu': 'Shared Services'},
+                    '126': {'unit': 'Virtual Branch', 'sbu': 'Shared Services'},
+                    '128': {'unit': 'Passport Centre Chitungwiza', 'sbu': 'Shared Services'},
+                    '129': {'unit': 'Passport Centre Lupane', 'sbu': 'Shared Services'},
+                    '130': {'unit': 'Passport Centre Hwange', 'sbu': 'Shared Services'},
+                    '131': {'unit': 'Passport Centre Gweru', 'sbu': 'Shared Services'},
+                    '132': {'unit': 'Passport Centre Beitbridge', 'sbu': 'Shared Services'},
+                    '133': {'unit': 'Passport Centre Chinhoyi', 'sbu': 'Shared Services'},
+                    '134': {'unit': 'Passport Centre Marondera', 'sbu': 'Shared Services'},
+                    '135': {'unit': 'Passport Centre Bindura', 'sbu': 'Shared Services'},
+                    '136': {'unit': 'Passport Centre Gwanda', 'sbu': 'Shared Services'},
+                    '137': {'unit': 'Passport Centre Mutare', 'sbu': 'Shared Services'},
+                    '138': {'unit': 'Passport Centre Masvingo', 'sbu': 'Shared Services'},
+                    '139': {'unit': 'Passport Centre Zvishavane', 'sbu': 'Shared Services'},
+                    '140': {'unit': 'Passport Centre Murehwa', 'sbu': 'Shared Services'},
+                    '142': {'unit': 'Retail Centralised Byo', 'sbu': 'Retail Banking'},
+                    '145': {'unit': 'Borrowdale', 'sbu': 'Retail Banking'},
+                    '146': {'unit': 'Passport Centre Mwenezi', 'sbu': 'Shared Services'},
+                    '200': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+                    '147': {'unit': 'Passport Centre Gokwe', 'sbu': 'Shared Services'},
+                    '143': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'},
+                    '144': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'}
                 }
-                print(f"  Created branch mapping with {len(branch_map)} unique branch codes")
+
+                print(f"  Created branch mapping with {len(branch_sbu_map)} unique branch codes")
                 
                 # Find branch code column
                 branch_code_col = None
@@ -203,19 +314,47 @@ def upload_file():
                         branch_code_col = col
                         break
                 
+                # Add both ACC MANAGEMENT UNIT and SBU columns
                 if branch_code_col:
-                    # Convert to string and map
+                    # Convert branch codes to string for matching
                     df_processed[branch_code_col] = df_processed[branch_code_col].astype(str).str.strip()
-                    df_processed['ACC MANAGEMENT UNIT'] = df_processed[branch_code_col].map(branch_map)
-                    df_processed['ACC MANAGEMENT UNIT'].fillna('Unknown', inplace=True)
                     
-                    unknown_count = (df_processed['ACC MANAGEMENT UNIT'] == 'Unknown').sum()
-                    print(f"  Added ACC MANAGEMENT UNIT column")
+                    # Get mapping info
+                    branch_info = df_processed[branch_code_col].map(branch_sbu_map)
+                    
+                    # Extract unit and sbu from the mapping
+                    df_processed['ACC MANAGEMENT UNIT'] = branch_info.apply(lambda x: x['unit'] if isinstance(x, dict) else 'Unknown')
+                    df_processed['SBU'] = branch_info.apply(lambda x: x['sbu'] if isinstance(x, dict) else 'Unknown')
+                    
+                    # Check for Source of Funding column and override SBU for "LoC"
+                    if 'Source of Funding' in df_processed.columns:
+                        # Convert to string and strip
+                        df_processed['Source of Funding'] = df_processed['Source of Funding'].astype(str).str.strip()
+                        
+                        # Create mask for rows where Source of Funding is "LoC" (case insensitive)
+                        loc_mask = df_processed['Source of Funding'].str.upper() == 'LOC'
+                        
+                        # Override SBU for those rows
+                        df_processed.loc[loc_mask, 'SBU'] = 'Corporate Banking'
+                        
+                        print(f"  Found {loc_mask.sum()} rows with Source of Funding = 'LoC'")
+                        print(f"  Overrode SBU to 'Corporate Banking' for these rows")
+                    
+                    # For codes not found in mapping, mark as 'Unknown'
+                    unknown_count = df_processed['ACC MANAGEMENT UNIT'].isna().sum()
+                    df_processed['ACC MANAGEMENT UNIT'].fillna('Unknown', inplace=True)
+                    df_processed['SBU'].fillna('Unknown', inplace=True)
+                    
+                    print(f"  Added ACC MANAGEMENT UNIT and SBU columns")
                     print(f"  Found {len(df_processed) - unknown_count} matching branch codes")
                     print(f"  {unknown_count} rows with unknown branch codes")
                     
-                    unique_units = df_processed['ACC MANAGEMENT UNIT'].unique()
-                    unit_counts = df_processed['ACC MANAGEMENT UNIT'].value_counts().to_dict()
+                    # Get unique SBU values for summary
+                    unique_sbus = df_processed['SBU'].unique()
+                    sbu_counts = df_processed['SBU'].value_counts().to_dict()
+                    print(f"  SBU Distribution: {sbu_counts}")
+
+                    
                 else:
                     print(f"  Warning: No branch code column found in {sheet}")
                     df_processed['ACC MANAGEMENT UNIT'] = 'Unknown'
@@ -313,9 +452,7 @@ def upload_file():
                 
                 # Free up memory
                 del df_processed
-                
-                print(f"  Completed processing {sheet}")
-                
+                                
             else:
                 # For other sheets, store only preview
                 sheets_data[sheet] = {
