@@ -342,8 +342,8 @@ def upload_file():
                     
                     # For codes not found in mapping, mark as 'Unknown'
                     unknown_count = df_processed['ACC MANAGEMENT UNIT'].isna().sum()
-                    df_processed['ACC MANAGEMENT UNIT'].fillna('Unknown', inplace=True)
-                    df_processed['SBU'].fillna('Unknown', inplace=True)
+                    df_processed['ACC MANAGEMENT UNIT'] = df_processed['ACC MANAGEMENT UNIT'].fillna('Unknown')
+                    df_processed['SBU'] = df_processed['SBU'].fillna('Unknown')
                     
                     print(f"  Added ACC MANAGEMENT UNIT and SBU columns")
                     print(f"  Found {len(df_processed) - unknown_count} matching branch codes")
