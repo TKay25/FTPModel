@@ -45,6 +45,7 @@ def index():
     from flask import send_from_directory
     return send_from_directory('.', 'index.html')
 
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     """Handle Excel file upload, read all sheets into DataFrames"""
@@ -63,6 +64,7 @@ def upload_file():
         import re
         from datetime import datetime, timedelta
         import pandas as pd
+        import datetime as dt
         
         # Parse filename to get month and year
         filename_match = re.search(r'FTP Input File (\w+) (\d{4})', file.filename)
@@ -107,7 +109,7 @@ def upload_file():
             original_shape = df.shape
             print(f"  Original shape: {original_shape}")
             
-            # Special handling for ZWG LOANS sheet
+            # Special handling for ZWG LOANS and FX LOANS sheets
             if sheet in ["ZWG LOANS", "FX LOANS"]:
                 print(f"  Applying {sheet} special handling...")
                 
@@ -115,180 +117,65 @@ def upload_file():
                 df_processed = df.copy()
                 
                 # --- ADD BRANCH MAPPING FOR ACC MANAGEMENT UNIT ---
-                # Create branch mapping dataframe
-                branch_data = """BRANCHCODE,AGENCIES
-                106,Agribusiness
-                118,Bureau De Change Hre
-                45,Business Banking
-                108,Business Banking
-                47,Private Sector
-                113,Custodial Services
-                48,Private Sector
-                53,Private Sector
-                602,Mortgage Finance
-                107,Institutional Banking
-                66,Treasury
-                601,Treasury
-                0,Shared Services
-                35,Shared Services
-                36,Shared Services
-                37,Shared Services
-                38,Shared Services
-                39,Shared Services
-                40,Shared Services
-                41,Shared Services
-                43,Shared Services
-                46,Shared Services
-                49,Shared Services
-                50,Shared Services
-                54,Shared Services
-                56,Shared Services
-                57,Shared Services
-                58,Shared Services
-                61,Shared Services
-                65,Shared Services
-                67,Shared Services
-                68,Shared Services
-                69,Shared Services
-                70,Shared Services
-                105,Shared Services
-                115,Shared Services
-                117,Shared Services
-                123,Shared Services
-                124,Shared Services
-                600,Shared Services
-                141,Shared Services
-                116,Shared Services
-                11,Kwame Nkrumah
-                12,8Th Avenue
-                13,Mutare
-                14,Kwekwe
-                15,Chitungwiza
-                17,Gokwe
-                18,Gweru
-                20,Chivhu
-                21,Selous
-                23,Southerton
-                24,Sapphire
-                25,Masvingo
-                26,Belmont
-                27,Cash Depot Bulawayo
-                28,Chiredzi
-                29,Borrowdale
-                30,Avondale
-                31,Chinhoyi
-                32,Kwekwe
-                33,Sapphire
-                34,Cash Depot Harare
-                44,Wealth Management
-                87,Chipinge
-                88,8Th Avenue
-                89,Highfield
-                90,Marondera
-                91,Chitungwiza
-                92,Gokwe
-                93,Beitbridge
-                95,Kariba
-                96,Kariba
-                97,Karoi
-                98,Chinhoyi
-                99,Masvingo
-                100,Mvurwi
-                101,Chipinge
-                102,Rusape
-                103,Murehwa
-                104,Victoria Falls
-                109,Chiredzi
-                110,Selous
-                111,Selous
-                112,Mvurwi
-                51,Retail Head Office
-                52,Kwame Nkrumah
-                55,Shared Services
-                62,8Th Avenue
-                114,Retail Head Office
-                120,Sapphire
-                121,Retail Centraslised Back Office
-                122,Mta Centre Fife Street
-                611,Masvingo
-                612,Chiredzi
-                613,Masvingo
-                614,Zvishavane
-                615,Gweru
-                616,Kwekwe
-                617,Kadoma
-                618,Kadoma
-                619,Gokwe
-                629,Chipinge
-                630,Chipinge
-                631,Mutare
-                632,Mutare
-                633,Mutare
-                634,Rusape
-                644,8Th Avenue
-                645,8Th Avenue
-                646,Belmont
-                647,Belmont
-                648,Belmont
-                649,Gwanda
-                650,Cash Depot Bulawayo
-                660,Samora Machel
-                661,Avondale
-                662,Bindura
-                663,Msasa
-                664,Chinhoyi
-                665,Sapphire
-                667,Karoi
-                668,Murehwa
-                669,Samora Machel
-                670,Samora Machel
-                671,Cash Depot Harare
-                672,Kariba
-                681,Sapphire
-                682,Cripps
-                683,Chitungwiza
-                684,Chivhu
-                685,Sapphire
-                686,Highfield
-                687,Marondera
-                688,Msasa
-                689,Msasa
-                690,Sapphire
-                125,Passport Centre Harare
-                127,Passport Centre Bulawayo
-                126,Virtual Branch
-                128,Passport Centre Chitungwiza
-                129,Passport Centre Lupane
-                130,Passport Centre Hwange
-                131,Passport Centre Gweru
-                132,Passport Centre Beitbridge
-                133,Passport Centre Chinhoyi
-                134,Passport Centre Marondera
-                135,Passport Centre Bindura
-                136,Passport Centre Gwanda
-                137,Passport Centre Mutare
-                138,Passport Centre Masvingo
-                139,Passport Centre Zvishavane
-                140,Passport Centre Murehwa
-                142,Retail Centralised Byo
-                145,Borrowdale
-                146,Passport Centre Mwenezi
-                200,Shared Services
-                147,Passport Centre Gokwe
-                143,Retail Head Office
-                144,Retail Head Office"""
-                
-                from io import StringIO
-                branch_df = pd.read_csv(StringIO(branch_data), sep=',')
-                branch_df['BRANCHCODE'] = branch_df['BRANCHCODE'].astype(str).str.strip()
-                branch_df['AGENCIES'] = branch_df['AGENCIES'].str.strip()
-                branch_map = branch_df.drop_duplicates(subset=['BRANCHCODE'], keep='first').set_index('BRANCHCODE')['AGENCIES'].to_dict()
+                # Create branch mapping using dictionary directly (simpler and avoids CSV parsing issues)
+                branch_map = {
+                    '106': 'Agribusiness', '118': 'Bureau De Change Hre', '45': 'Business Banking',
+                    '108': 'Business Banking', '47': 'Private Sector', '113': 'Custodial Services',
+                    '48': 'Private Sector', '53': 'Private Sector', '602': 'Mortgage Finance',
+                    '107': 'Institutional Banking', '66': 'Treasury', '601': 'Treasury',
+                    '0': 'Shared Services', '35': 'Shared Services', '36': 'Shared Services',
+                    '37': 'Shared Services', '38': 'Shared Services', '39': 'Shared Services',
+                    '40': 'Shared Services', '41': 'Shared Services', '43': 'Shared Services',
+                    '46': 'Shared Services', '49': 'Shared Services', '50': 'Shared Services',
+                    '54': 'Shared Services', '56': 'Shared Services', '57': 'Shared Services',
+                    '58': 'Shared Services', '61': 'Shared Services', '65': 'Shared Services',
+                    '67': 'Shared Services', '68': 'Shared Services', '69': 'Shared Services',
+                    '70': 'Shared Services', '105': 'Shared Services', '115': 'Shared Services',
+                    '117': 'Shared Services', '123': 'Shared Services', '124': 'Shared Services',
+                    '600': 'Shared Services', '141': 'Shared Services', '116': 'Shared Services',
+                    '11': 'Kwame Nkrumah', '12': '8Th Avenue', '13': 'Mutare', '14': 'Kwekwe',
+                    '15': 'Chitungwiza', '17': 'Gokwe', '18': 'Gweru', '20': 'Chivhu',
+                    '21': 'Selous', '23': 'Southerton', '24': 'Sapphire', '25': 'Masvingo',
+                    '26': 'Belmont', '27': 'Cash Depot Bulawayo', '28': 'Chiredzi', '29': 'Borrowdale',
+                    '30': 'Avondale', '31': 'Chinhoyi', '32': 'Kwekwe', '33': 'Sapphire',
+                    '34': 'Cash Depot Harare', '44': 'Wealth Management', '87': 'Chipinge',
+                    '88': '8Th Avenue', '89': 'Highfield', '90': 'Marondera', '91': 'Chitungwiza',
+                    '92': 'Gokwe', '93': 'Beitbridge', '95': 'Kariba', '96': 'Kariba',
+                    '97': 'Karoi', '98': 'Chinhoyi', '99': 'Masvingo', '100': 'Mvurwi',
+                    '101': 'Chipinge', '102': 'Rusape', '103': 'Murehwa', '104': 'Victoria Falls',
+                    '109': 'Chiredzi', '110': 'Selous', '111': 'Selous', '112': 'Mvurwi',
+                    '51': 'Retail Head Office', '52': 'Kwame Nkrumah', '55': 'Shared Services',
+                    '62': '8Th Avenue', '114': 'Retail Head Office', '120': 'Sapphire',
+                    '121': 'Retail Centraslised Back Office', '122': 'Mta Centre Fife Street',
+                    '611': 'Masvingo', '612': 'Chiredzi', '613': 'Masvingo', '614': 'Zvishavane',
+                    '615': 'Gweru', '616': 'Kwekwe', '617': 'Kadoma', '618': 'Kadoma',
+                    '619': 'Gokwe', '629': 'Chipinge', '630': 'Chipinge', '631': 'Mutare',
+                    '632': 'Mutare', '633': 'Mutare', '634': 'Rusape', '644': '8Th Avenue',
+                    '645': '8Th Avenue', '646': 'Belmont', '647': 'Belmont', '648': 'Belmont',
+                    '649': 'Gwanda', '650': 'Cash Depot Bulawayo', '660': 'Samora Machel',
+                    '661': 'Avondale', '662': 'Bindura', '663': 'Msasa', '664': 'Chinhoyi',
+                    '665': 'Sapphire', '667': 'Karoi', '668': 'Murehwa', '669': 'Samora Machel',
+                    '670': 'Samora Machel', '671': 'Cash Depot Harare', '672': 'Kariba',
+                    '681': 'Sapphire', '682': 'Cripps', '683': 'Chitungwiza', '684': 'Chivhu',
+                    '685': 'Sapphire', '686': 'Highfield', '687': 'Marondera', '688': 'Msasa',
+                    '689': 'Msasa', '690': 'Sapphire', '125': 'Passport Centre Harare',
+                    '127': 'Passport Centre Bulawayo', '126': 'Virtual Branch',
+                    '128': 'Passport Centre Chitungwiza', '129': 'Passport Centre Lupane',
+                    '130': 'Passport Centre Hwange', '131': 'Passport Centre Gweru',
+                    '132': 'Passport Centre Beitbridge', '133': 'Passport Centre Chinhoyi',
+                    '134': 'Passport Centre Marondera', '135': 'Passport Centre Bindura',
+                    '136': 'Passport Centre Gwanda', '137': 'Passport Centre Mutare',
+                    '138': 'Passport Centre Masvingo', '139': 'Passport Centre Zvishavane',
+                    '140': 'Passport Centre Murehwa', '142': 'Retail Centralised Byo',
+                    '145': 'Borrowdale', '146': 'Passport Centre Mwenezi', '200': 'Shared Services',
+                    '147': 'Passport Centre Gokwe', '143': 'Retail Head Office', '144': 'Retail Head Office'
+                }
                 print(f"  Created branch mapping with {len(branch_map)} unique branch codes")
                 
                 # Add ACC MANAGEMENT UNIT column based on BRANCH CODE
                 # Look for branch code column with various possible names
                 branch_code_col = None
-                possible_names = ['BRANCH CODE', 'BRANCH_CODE', 'BRANCH', 'BR_CODE']
+                possible_names = ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE', 'BRANCH', 'BR_CODE']
                 for col in possible_names:
                     if col in df_processed.columns:
                         branch_code_col = col
@@ -319,19 +206,22 @@ def upload_file():
                     unique_units = ['Unknown']
                     unit_counts = {'Unknown': unknown_count}
                 
-                # --- DATE PROCESSING (applies to both ZWG LOANS and USD LOANS) ---
+                # --- DATE PROCESSING (FIXED: handles time objects) ---
                 # Check if required columns exist
                 required_cols = ['BOOKING_DATE', 'MATURITY_DATE']
                 missing_cols = [col for col in required_cols if col not in df_processed.columns]
                 
                 if missing_cols:
                     print(f"  Warning: Missing columns {missing_cols} in {sheet}")
-                    # Add missing columns with NaN
                     for col in missing_cols:
                         df_processed[col] = pd.NaT
                 
                 # For blank or None in BOOKING_DATE, put first day of the month
                 if 'BOOKING_DATE' in df_processed.columns:
+                    # Convert to datetime with coercion to handle errors
+                    df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'], errors='coerce')
+                    
+                    # Fill NaN values with first_day
                     booking_date_mask = df_processed['BOOKING_DATE'].isna()
                     df_processed.loc[booking_date_mask, 'BOOKING_DATE'] = first_day
                     print(f"  Updated {booking_date_mask.sum()} rows with BOOKING_DATE = {first_day.strftime('%Y-%m-%d')}")
@@ -341,6 +231,17 @@ def upload_file():
                 
                 # For blank or None in MATURITY_DATE, put first day + 365 days
                 if 'MATURITY_DATE' in df_processed.columns:
+                    # FIRST: Check for time objects and convert them
+                    time_objects_mask = df_processed['MATURITY_DATE'].apply(lambda x: isinstance(x, dt.time))
+                    if time_objects_mask.any():
+                        print(f"  Found {time_objects_mask.sum()} time objects in MATURITY_DATE column")
+                        # Convert time objects to datetime by combining with first_day
+                        df_processed.loc[time_objects_mask, 'MATURITY_DATE'] = first_day
+                    
+                    # SECOND: Convert to datetime with coercion to handle any other issues
+                    df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'], errors='coerce')
+                    
+                    # THIRD: Fill NaN values with first_day + 365 days
                     maturity_date_mask = df_processed['MATURITY_DATE'].isna()
                     maturity_default = first_day + timedelta(days=365)
                     df_processed.loc[maturity_date_mask, 'MATURITY_DATE'] = maturity_default
@@ -351,18 +252,36 @@ def upload_file():
                 
                 # Create TENOR column (maturity date minus booking date) in days
                 if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
-                    # Ensure both columns are datetime
-                    df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'])
-                    df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'])
-                    
-                    # Calculate tenor in days
+                    # Calculate tenor in days (columns are already datetime from above)
                     df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days
                     
-                    # For any negative tenors (shouldn't happen, but just in case), set to 0
+                    # For any negative tenors, set to 0
                     df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
                     
                     print(f"  Created TENOR column with values ranging from {df_processed['TENOR'].min()} to {df_processed['TENOR'].max()} days")
                     
+                    # Create formatted tenor column for display
+                    def format_tenor(days):
+                        if pd.isna(days) or days < 0:
+                            return 'N/A'
+                        if days < 30:
+                            return f"{int(days)}D"
+                        elif days < 365:
+                            months = round(days / 30)
+                            return f"{months}M"
+                        else:
+                            years = round(days / 365, 1)
+                            if years.is_integer():
+                                return f"{int(years)}Y"
+                            else:
+                                return f"{years}Y"
+                    
+                    df_processed['TENOR_FORMATTED'] = df_processed['TENOR'].apply(format_tenor)
+                    print(f"  Added formatted TENOR_FORMATTED column for display")
+                else:
+                    df_processed['TENOR'] = 0
+                    df_processed['TENOR_FORMATTED'] = 'N/A'
+                    print(f"  Could not create TENOR column - missing BOOKING_DATE or MATURITY_DATE columns")
 
                 # Store processed data for preview (first 10 rows)
                 sheets_data[sheet] = {
@@ -376,6 +295,11 @@ def upload_file():
                     'unknown_branch_codes': int(unknown_count),
                     'acc_management_units': list(unique_units),
                     'unit_counts': unit_counts,
+                    'tenor_stats': {
+                        'min': int(df_processed['TENOR'].min()) if 'TENOR' in df_processed.columns else 0,
+                        'max': int(df_processed['TENOR'].max()) if 'TENOR' in df_processed.columns else 0,
+                        'avg': float(df_processed['TENOR'].mean()) if 'TENOR' in df_processed.columns else 0
+                    },
                     'period': {
                         'first_day': first_day.strftime('%d %B %Y'),
                         'last_day': last_day.strftime('%d %B %Y')
@@ -387,7 +311,6 @@ def upload_file():
                 
                 print(f"  Completed processing {sheet}")
                 
-                    
             else:
                 # For other sheets, just store preview without processing
                 sheets_data[sheet] = {
