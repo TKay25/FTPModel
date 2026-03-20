@@ -360,7 +360,7 @@ def upload_file():
                     df_processed['ACC MANAGEMENT UNIT'] = 'Unknown'
                     unknown_count = len(df_processed)
                     unique_sbus = ['Unknown']
-                    unit_counts = {'Unknown': unknown_count}
+                    sbu_counts = {'Unknown': unknown_count}
                 
                 # --- DATE PROCESSING (optimized) ---
                 # Process BOOKING_DATE
@@ -411,7 +411,7 @@ def upload_file():
                     'branch_code_column': branch_code_col if branch_code_col else 'Not found',
                     'unknown_branch_codes': int(unknown_count),
                     'acc_management_units': list(unique_sbus),
-                    'unit_counts': unit_counts,
+                    'sbu_counts': sbu_counts,
                     'tenor_stats': {
                         'min': int(df_processed['TENOR'].min()),
                         'max': int(df_processed['TENOR'].max()),
@@ -434,7 +434,7 @@ def upload_file():
                         'max': int(df_processed['TENOR'].max()),
                         'avg': float(df_processed['TENOR'].mean())
                     },
-                    'acc_management_units': unit_counts
+                    'acc_management_units': sbu_counts
                 }
                 
                 # Free up memory
