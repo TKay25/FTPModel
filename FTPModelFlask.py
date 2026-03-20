@@ -117,171 +117,171 @@ def upload_file():
                 # --- ADD BRANCH MAPPING FOR ACC MANAGEMENT UNIT ---
                 # Create branch mapping dataframe
                 branch_data = """
-                BRANCHCODE AGENCIES
-                106 Agribusiness
-                118	Bureau De Change Hre
-                45 Business Banking
-                108	Business Banking
-                47 Private Sector
-                113	Custodial Services
-                48 Private Sector
-                53 Private Sector
-                602	Mortgage Finance
-                107	Institutional Banking
-                66 Treasury
-                601 Treasury
-                0 Shared Services
-                35 Shared Services
-                36 Shared Services
-                37 Shared Services
-                38 Shared Services
-                39 Shared Services
-                40 Shared Services
-                41 Shared Services
-                43 Shared Services
-                46 Shared Services
-                49 Shared Services
-                50 Shared Services
-                54 Shared Services
-                56 Shared Services
-                57 Shared Services
-                58 Shared Services
-                61 Shared Services
-                65 Shared Services
-                67 Shared Services
-                68 Shared Services
-                69 Shared Services
-                70 Shared Services
-                105	Shared Services
-                115	Shared Services
-                117	Shared Services
-                123	Shared Services
-                124	Shared Services
-                600	Shared Services
-                141	Shared Services
-                116	Shared Services
-                11 Kwame Nkrumah
-                12 8Th Avenue
-                13 Mutare
-                14 Kwekwe
-                15 Chitungwiza
-                17 Gokwe
-                18 Gweru
-                20 Chivhu
-                21 Selous
-                23 Southerton
-                24 Sapphire
-                25 Masvingo
-                26 Belmont
-                27 Cash Depot Bulawayo
-                28 Chiredzi
-                29 Borrowdale
-                30 Avondale
-                31 Chinhoyi
-                32 Kwekwe
-                33 Sapphire
-                34 Cash Depot Harare
-                44 Wealth Management
-                87 Chipinge
-                88 8Th Avenue
-                89 Highfield
-                90 Marondera
-                91 Chitungwiza
-                92 Gokwe
-                93 Beitbridge
-                95 Kariba
-                96 Kariba
-                97 Karoi
-                98 Chinhoyi
-                99 Masvingo
-                100	Mvurwi
-                101	Chipinge
-                102	Rusape
-                103	Murehwa
-                104	Victoria Falls
-                109	Chiredzi
-                110	Selous
-                111	Selous
-                112	Mvurwi
-                51 Retail Head Office
-                52 Kwame Nkrumah
-                55 Shared Services
-                62 8Th Avenue
-                114	Retail Head Office
-                120	Sapphire
-                121	Retail Centraslised Back Office
-                122	Mta Centre Fife Street
-                611	Masvingo
-                612	Chiredzi
-                613	Masvingo
-                614	Zvishavane
-                615	Gweru
-                616	Kwekwe
-                617	Kadoma
-                618	Kadoma
-                619	Gokwe
-                629	Chipinge
-                630	Chipinge
-                631	Mutare
-                632	Mutare
-                633	Mutare
-                634	Rusape
-                644	8Th Avenue
-                645	8Th Avenue
-                646	Belmont
-                647	Belmont
-                648	Belmont
-                649	Gwanda
-                650	Cash Depot Bulawayo
-                660	Samora Machel
-                661	Avondale
-                662	Bindura
-                663	Msasa
-                664	Chinhoyi
-                665	Sapphire
-                667	Karoi
-                668	Murehwa
-                669	Samora Machel
-                670	Samora Machel
-                671	Cash Depot Harare
-                672	Kariba
-                681	Sapphire
-                682	Cripps
-                683	Chitungwiza
-                684	Chivhu
-                685	Sapphire
-                686	Highfield
-                687	Marondera
-                688	Msasa
-                689	Msasa
-                690	Sapphire
-                125	Passport Centre Harare
-                127	Passport Centre Bulawayo
-                126	Virtual Branch
-                128	Passport Centre Chitungwiza
-                129	Passport Centre Lupane
-                130	Passport Centre Hwange
-                131	Passport Centre Gweru
-                132	Passport Centre Beitbridge
-                133	Passport Centre Chinhoyi
-                134	Passport Centre Marondera
-                135	Passport Centre Bindura
-                136	Passport Centre Gwanda
-                137	Passport Centre Mutare
-                138	Passport Centre Masvingo
-                139	Passport Centre Zvishavane
-                140	Passport Centre Murehwa
-                142	Retail Centralised Byo
-                145	Borrowdale
-                146	Passport Centre Mwenezi
-                200	Shared Services
-                147	Passport Centre Gokwe
-                143	Retail Head Office
-                144	Retail Head Office
+                BRANCHCODE,AGENCIES
+                106,Agribusiness
+                118,Bureau De Change Hre
+                45,Business Banking
+                108,Business Banking
+                47,Private Sector
+                113,Custodial Services
+                48,Private Sector
+                53,Private Sector
+                602,Mortgage Finance
+                107,Institutional Banking
+                66,Treasury
+                601,Treasury
+                0,Shared Services
+                35,Shared Services
+                36,Shared Services
+                37,Shared Services
+                38,Shared Services
+                39,Shared Services
+                40,Shared Services
+                41,Shared Services
+                43,Shared Services
+                46,Shared Services
+                49,Shared Services
+                50,Shared Services
+                54,Shared Services
+                56,Shared Services
+                57,Shared Services
+                58,Shared Services
+                61,Shared Services
+                65,Shared Services
+                67,Shared Services
+                68,Shared Services
+                69,Shared Services
+                70,Shared Services
+                105,Shared Services
+                115,Shared Services
+                117,Shared Services
+                123,Shared Services
+                124,Shared Services
+                600,Shared Services
+                141,Shared Services
+                116,Shared Services
+                11,Kwame Nkrumah
+                12,8Th Avenue
+                13,Mutare
+                14,Kwekwe
+                15,Chitungwiza
+                17,Gokwe
+                18,Gweru
+                20,Chivhu
+                21,Selous
+                23,Southerton
+                24,Sapphire
+                25,Masvingo
+                26,Belmont
+                27,Cash Depot Bulawayo
+                28,Chiredzi
+                29,Borrowdale
+                30,Avondale
+                31,Chinhoyi
+                32,Kwekwe
+                33,Sapphire
+                34,Cash Depot Harare
+                44_Wealth Management
+                87,Chipinge
+                88,8Th Avenue
+                89,Highfield
+                90,Marondera
+                91,Chitungwiza
+                92,Gokwe
+                93,Beitbridge
+                95,Kariba
+                96,Kariba
+                97,Karoi
+                98,Chinhoyi
+                99,Masvingo
+                100,Mvurwi
+                101,Chipinge
+                102,Rusape
+                103,Murehwa
+                104,Victoria Falls
+                109,Chiredzi
+                110,Selous
+                111,Selous
+                112,Mvurwi
+                51,Retail Head Office
+                52,Kwame Nkrumah
+                55,Shared Services
+                62,8Th Avenue
+                114,Retail Head Office
+                120,Sapphire
+                121,Retail Centraslised Back Office
+                122,Mta Centre Fife Street
+                611,Masvingo
+                612,Chiredzi
+                613,Masvingo
+                614,Zvishavane
+                615,Gweru
+                616,Kwekwe
+                617,Kadoma
+                618,Kadoma
+                619,Gokwe
+                629,Chipinge
+                630,Chipinge
+                631,Mutare
+                632,Mutare
+                633,Mutare
+                634,Rusape
+                644,8Th Avenue
+                645,8Th Avenue
+                646,Belmont
+                647,Belmont
+                648,Belmont
+                649,Gwanda
+                650,Cash Depot Bulawayo
+                660,Samora Machel
+                661,Avondale
+                662,Bindura
+                663,Msasa
+                664,Chinhoyi
+                665,Sapphire
+                667,Karoi
+                668,Murehwa
+                669,Samora Machel
+                670,Samora Machel
+                671,Cash Depot Harare
+                672,Kariba
+                681,Sapphire
+                682,Cripps
+                683,Chitungwiza
+                684,Chivhu
+                685,Sapphire
+                686,Highfield
+                687,Marondera
+                688,Msasa
+                689,Msasa
+                690,Sapphire
+                125,Passport Centre Harare
+                127,Passport Centre Bulawayo
+                126,Virtual Branch
+                128,Passport Centre Chitungwiza
+                129,Passport Centre Lupane
+                130,Passport Centre Hwange
+                131,Passport Centre Gweru
+                132,Passport Centre Beitbridge
+                133,Passport Centre Chinhoyi
+                134,Passport Centre Marondera
+                135,Passport Centre Bindura
+                136,Passport Centre Gwanda
+                137,Passport Centre Mutare
+                138,Passport Centre Masvingo
+                139,Passport Centre Zvishavane
+                140,Passport Centre Murehwa
+                142,Retail Centralised Byo
+                145,Borrowdale
+                146,Passport Centre Mwenezi
+                200,Shared Services
+                147,Passport Centre Gokwe
+                143,Retail Head Office
+                144,Retail Head Office
                 """
                 
                 from io import StringIO
-                branch_df = pd.read_csv(StringIO(branch_data), sep='\t')
+                branch_df = pd.read_csv(StringIO(branch_data), sep=',')
                 branch_df['BRANCHCODE'] = branch_df['BRANCHCODE'].astype(str).str.strip()
                 branch_df['AGENCIES'] = branch_df['AGENCIES'].str.strip()
                 branch_map = branch_df.drop_duplicates(subset=['BRANCHCODE'], keep='first').set_index('BRANCHCODE')['AGENCIES'].to_dict()
