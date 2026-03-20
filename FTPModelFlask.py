@@ -117,7 +117,7 @@ def upload_file():
                 # --- ADD BRANCH MAPPING FOR ACC MANAGEMENT UNIT ---
                 # Create branch mapping dataframe
                 branch_data = """
-                BR CODE	AGENCIES
+                BRANCHCODE	AGENCIES
                 106	Agribusiness
                 118	Bureau De Change Hre
                 45	Business Banking
@@ -282,15 +282,15 @@ def upload_file():
                 
                 from io import StringIO
                 branch_df = pd.read_csv(StringIO(branch_data), sep='\t')
-                branch_df['BR CODE'] = branch_df['BR CODE'].astype(str).str.strip()
+                branch_df['BRANCHCODE'] = branch_df['BRANCHCODE'].astype(str).str.strip()
                 branch_df['AGENCIES'] = branch_df['AGENCIES'].str.strip()
-                branch_map = branch_df.drop_duplicates(subset=['BR CODE'], keep='first').set_index('BR CODE')['AGENCIES'].to_dict()
+                branch_map = branch_df.drop_duplicates(subset=['BRANCHCODE'], keep='first').set_index('BRANCHCODE')['AGENCIES'].to_dict()
                 print(f"  Created branch mapping with {len(branch_map)} unique branch codes")
                 
                 # Add ACC MANAGEMENT UNIT column based on BRANCH CODE
                 # Look for branch code column with various possible names
                 branch_code_col = None
-                possible_names = ['BR CODE', 'BRANCH CODE', 'BRANCH_CODE', 'BRANCH', 'BR_CODE']
+                possible_names = ['BRANCH CODE', 'BRANCH_CODE', 'BRANCH', 'BR_CODE']
                 for col in possible_names:
                     if col in df_processed.columns:
                         branch_code_col = col
