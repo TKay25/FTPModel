@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, send_file
 import pandas as pd
 import io
 import openpyxl
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -397,6 +397,56 @@ def upload_file():
                 else:
                     df_processed['TENOR'] = 0
                 
+
+                def calculate_dim_days(booking_date, maturity_date, first_day, last_day):
+                    """
+                    Calculate number of days the loan is active within the FTP period
+                    Returns the overlapping days between loan period and FTP month
+                    """
+                    # Convert to date objects if they're datetime
+                    if isinstance(booking_date, datetime):
+                        booking_date = booking_date.date()
+                    if isinstance(maturity_date, datetime):
+                        maturity_date = maturity_date.date()
+                    
+                    # Case 1: Loan starts before FTP period and ends after FTP period
+                    if booking_date <= first_day and maturity_date >= last_day:
+                        return (last_day - first_day).days + 1
+                    
+                    # Case 2: Loan starts during FTP period and ends after FTP period
+                    elif booking_date >= first_day and maturity_date >= last_day:
+                        return (last_day - booking_date).days + 1
+                    
+                    # Case 3: Loan starts during FTP period and ends during FTP period
+                    elif booking_date >= first_day and maturity_date <= last_day:
+                        return (maturity_date - booking_date).days
+                    
+                    # Case 4: Loan starts before FTP period and ends before FTP period ends
+                    elif booking_date < first_day and maturity_date < last_day:
+                        # If maturity is before FTP period, return full FTP period (unlikely)
+                        # This might be: return (last_day - first_day).days
+                        return (last_day - first_day).days
+                    else:
+                        # Default: loan ends during FTP period but starts before
+                        return (maturity_date - first_day).days
+
+                # Apply to your dataframe
+                df_processed['DimDays'] = df_processed.apply(
+                    lambda row: calculate_dim_days(
+                        row['BOOKING_DATE'],
+                        row['MATURITY_DATE'],
+                        first_day.date(),
+                        last_day.date()
+                    ),
+                    axis=1
+                )
+
+                print(f"  Added DimDays column - days overlapping FTP period: {df_processed['DimDays'].min()} to {df_processed['DimDays'].max()} days")
+
+
+
+
+
                 # Store only preview data (first 100 rows) instead of full data to save memory
                 preview_data = df_processed.head(100).to_dict(orient='records')
                 
