@@ -394,21 +394,8 @@ def upload_file():
                     df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
                     print(f"  Created TENOR column")
                     
-                    # Only create formatted version for preview (not full column to save memory)
-                    def format_tenor(days):
-                        if pd.isna(days) or days < 0:
-                            return 'N/A'
-                        if days < 30:
-                            return f"{int(days)}D"
-                        elif days < 365:
-                            return f"{round(days / 30)}M"
-                        else:
-                            return f"{round(days / 365, 1)}Y"
-                    
-                    df_processed['TENOR_FORMATTED'] = df_processed['TENOR'].apply(format_tenor)
                 else:
                     df_processed['TENOR'] = 0
-                    df_processed['TENOR_FORMATTED'] = 'N/A'
                 
                 # Store only preview data (first 100 rows) instead of full data to save memory
                 preview_data = df_processed.head(100).to_dict(orient='records')
