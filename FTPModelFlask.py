@@ -359,7 +359,7 @@ def upload_file():
                     print(f"  Warning: No branch code column found in {sheet}")
                     df_processed['ACC MANAGEMENT UNIT'] = 'Unknown'
                     unknown_count = len(df_processed)
-                    unique_units = ['Unknown']
+                    unique_sbus = ['Unknown']
                     unit_counts = {'Unknown': unknown_count}
                 
                 # --- DATE PROCESSING (optimized) ---
@@ -410,7 +410,7 @@ def upload_file():
                     'maturity_date_updates': int(maturity_date_mask.sum()),
                     'branch_code_column': branch_code_col if branch_code_col else 'Not found',
                     'unknown_branch_codes': int(unknown_count),
-                    'acc_management_units': list(unique_units),
+                    'acc_management_units': list(unique_sbus),
                     'unit_counts': unit_counts,
                     'tenor_stats': {
                         'min': int(df_processed['TENOR'].min()),
