@@ -6,6 +6,15 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
+# Define the tenor points (in days)
+tenors = [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1460, 1800]
+
+# USD FTP curve data (matching your provided values)
+usd_rates = [3.29, 3.36, 6.15, 10.97, 11.02, 11.13, 12.22, 12.22, 12.22, 13.96, 15.41, 18.32, 18.32]
+
+# ZWG FTP curve data (matching your provided values)
+zwg_rates = [16.90, 16.90, 16.90, 16.90, 17.90, 18.10, 19.10, 19.10, 20.10, 23.47, 26.54, 32.67, 32.67]
+
 # Global variable to store the latest uploaded data (in-memory, no database)
 latest_data = {
     'filename': None,
@@ -452,11 +461,118 @@ def upload_file():
                 print(f"  Added DimDays column - days overlapping FTP period: {df_processed['DimDays'].min()} to {df_processed['DimDays'].max()} days")
 
 
+                bucket_boundaries = []
+                bucket_labels = []
+                bucket_rates_zwg = []
+                bucket_rates_usd = []
 
+                for i in range(len(tenors)):
+                    if i == 0:
+                        # First bucket: less than first tenor
+                        bucket_labels.append(f'<{tenors[i]}days')
+                        bucket_boundaries.append(tenors[i])
+                        bucket_rates_zwg.append(zwg_rates[i])
+                        bucket_rates_usd.append(usd_rates[i])
+                    else:
+                        # Middle buckets: between previous tenor and current tenor
+                        bucket_labels.append(f'{tenors[i-1]}-{tenors[i]}days')
+                        bucket_boundaries.append(tenors[i])
+                        bucket_rates_zwg.append(zwg_rates[i])
+                        bucket_rates_usd.append(usd_rates[i])
 
+                # Add last bucket: greater than last tenor
+                bucket_labels.append(f'+{tenors[-1]}days')
+                bucket_boundaries.append(float('inf'))
+                bucket_rates_zwg.append(zwg_rates[-1])
+                bucket_rates_usd.append(usd_rates[-1])
+
+                print(f"  Created {len(bucket_labels)} buckets:")
+                for i, label in enumerate(bucket_labels):
+                    print(f"    {label}: ZWG={bucket_rates_zwg[i]}%, USD={bucket_rates_usd[i]}%")
+
+                # Function to determine bucket for a given number of days
+                def get_bucket(days):
+                    """Determine which bucket a given number of days falls into"""
+                    if days < tenors[0]:
+                        return bucket_labels[0]  # '<7days'
+                    for i in range(len(tenors)):
+                        if days < tenors[i]:
+                            return bucket_labels[i]
+                    return bucket_labels[-1]  # '+1800days'
+
+                # Add bucket columns to dataframe (initialize all to 0)
+                for label in bucket_labels:
+                    df_processed[label] = 0
+
+                # Function to allocate exposure to appropriate bucket
+                def allocate_to_bucket(row):
+                    """Allocate exposure to the bucket based on MTM (overlap months)"""
+                    mtm_days = row['MTM'] * 30  # Convert months to days
+                    exposure = row['Currency Exposure+ Currency Accrued Reporting']
+                    
+                    if exposure <= 0:
+                        return [0] * len(bucket_labels)
+                    
+                    bucket = get_bucket(mtm_days)
+                    result = [0] * len(bucket_labels)
+                    result[bucket_labels.index(bucket)] = exposure
+                    return result
+
+                # Apply bucket allocation
+                if len(df_processed) > 0:
+                    bucket_allocation = df_processed.apply(allocate_to_bucket, axis=1)
+                    for i, label in enumerate(bucket_labels):
+                        df_processed[label] = bucket_allocation.apply(lambda x: x[i])
+                    
+                    # Add Check column (sum of all bucket columns)
+                    df_processed['Check'] = df_processed[bucket_labels].sum(axis=1)
+                    
+                    print(f"  Added {len(bucket_labels)} bucket columns")
+                    print(f"  Added Check column")
+
+                # Function to calculate FTP charge based on bucket allocation and currency
+                def calculate_ftp_charge(row, currency='ZWG'):
+                    """Calculate FTP charge based on bucket allocation and FTP curve"""
+                    sbu = row.get('SBU', 'Normal')
+                    
+                    # Select the correct rate set
+                    if currency == 'USD':
+                        rates = usd_rates
+                    else:
+                        rates = zwg_rates
+                    
+                    total_charge = 0
+                    for i, label in enumerate(bucket_labels):
+                        exposure_in_bucket = row[label]
+                        if exposure_in_bucket > 0:
+                            if i < len(rates):
+                                rate_pct = rates[i]
+                            else:
+                                rate_pct = rates[-1]
+                            total_charge += exposure_in_bucket * (rate_pct / 100)
+                    
+                    return total_charge
+
+                # Add FTP Charge column
+                df_processed['FTP Charge'] = df_processed.apply(
+                    lambda row: calculate_ftp_charge(row, 'ZWG'),
+                    axis=1
+                )
+
+                print(f"  Added FTP Charge column - total: {df_processed['FTP Charge'].sum():,.2f}")
+
+                # Optional: Add a summary by bucket
+                bucket_summary = {}
+                for label in bucket_labels:
+                    bucket_summary[label] = df_processed[label].sum()
+                print(f"\n  Bucket Summary (exposure distribution):")
+                for label, amount in bucket_summary.items():
+                    if amount > 0:
+                        print(f"    {label}: {amount:,.2f}")
 
                 # Store only preview data (first 100 rows) instead of full data to save memory
                 preview_data = df_processed.head(100).to_dict(orient='records')
+                print(preview_data)
                 
                 # Store processed data for preview
                 sheets_data[sheet] = {
@@ -636,14 +752,9 @@ def download_results():
 def ftp_curve_data():
     """Return FTP curve data for USD and ZWG"""
     
-    # Define the tenor points (in days)
-    tenors = [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1460, 1800]
-    
-    # USD FTP curve data (matching your provided values)
-    usd_rates = [3.29, 3.36, 6.15, 10.97, 11.02, 11.13, 12.22, 12.22, 12.22, 13.96, 15.41, 18.32, 18.32]
-    
-    # ZWG FTP curve data (matching your provided values)
-    zwg_rates = [16.90, 16.90, 16.90, 16.90, 17.90, 18.10, 19.10, 19.10, 20.10, 23.47, 26.54, 32.67, 32.67]
+    global tenors
+    global usd_rates
+    global zwg_rates
     
     # Check if we have uploaded data that might override these defaults
     if latest_data['sheets']:
