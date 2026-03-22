@@ -108,7 +108,6 @@ def upload_file():
         for sheet in sheet_names:
             print(f"Processing sheet: {sheet}")
             
-            # Read the sheet - use dtypes to optimize memory
             # Specify dtypes for known columns to reduce memory
             dtype_spec = {}
             if sheet in ["ZWG LOANS", "FX LOANS"]:
@@ -440,6 +439,13 @@ def upload_file():
                     ),
                     axis=1
                 )
+
+                df_processed['DTM'] = df_processed.apply(
+                    lambda row: (row['MATURITY_DATE'] - last_day.date()).days if row['MATURITY_DATE'] > last_day.date() else 0,
+                    axis=1
+                )
+
+                df_processed['MTM'] = (df_processed['DTM'] / 30).round(1)
 
                 print(f"  Added DimDays column - days overlapping FTP period: {df_processed['DimDays'].min()} to {df_processed['DimDays'].max()} days")
 
