@@ -440,8 +440,10 @@ def upload_file():
                     axis=1
                 )
 
+                last_day_ts = pd.Timestamp(last_day.date())
+
                 df_processed['DTM'] = df_processed.apply(
-                    lambda row: (row['MATURITY_DATE'] - last_day.date()).days if row['MATURITY_DATE'] > last_day.date() else 0,
+                    lambda row: (row['MATURITY_DATE'] - last_day_ts).days if row['MATURITY_DATE'] > last_day_ts else 0,
                     axis=1
                 )
 
