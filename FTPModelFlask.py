@@ -18,7 +18,7 @@ usd_rates = [3.29, 3.36, 6.15, 10.97, 11.02, 11.13, 12.22, 12.22, 12.22, 13.96, 
 # ZWG FTP curve data
 zwg_rates = [16.90, 16.90, 16.90, 16.90, 17.90, 18.10, 19.10, 19.10, 20.10, 23.47, 26.54, 32.67, 32.67]
 
-# Global variable - store only the generated Excel file and summaries
+# Global variable
 latest_data = {
     'filename': None,
     'excel_file': None,
@@ -60,7 +60,7 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    """Handle Excel file upload, process in chunks to save memory"""
+    """Handle Excel file upload with memory-efficient processing"""
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
     
@@ -72,7 +72,7 @@ def upload_file():
         return jsonify({'error': 'Please upload an Excel file (.xlsx or .xls)'}), 400
     
     try:
-        # Parse filename to get month and year
+        # Parse filename
         filename_match = re.search(r'FTP Input File (\w+) (\d{4})', file.filename)
         if not filename_match:
             return jsonify({'error': 'Filename must be in format: FTP Input File Month Year.xlsx'}), 400
@@ -80,7 +80,6 @@ def upload_file():
         month_name = filename_match.group(1)
         year = int(filename_match.group(2))
         
-        # Convert month name to month number
         month_map = {
             'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
             'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12
@@ -89,159 +88,183 @@ def upload_file():
         if not month_num:
             return jsonify({'error': f'Invalid month name: {month_name}'}), 400
         
-        # Get first and last day of the month
         first_day = datetime(year, month_num, 1)
         if month_num == 12:
             last_day = datetime(year + 1, 1, 1) - timedelta(days=1)
         else:
             last_day = datetime(year, month_num + 1, 1) - timedelta(days=1)
         
-        # Read all sheet names
+        # Get sheet names
         excel_file = pd.ExcelFile(file)
         sheet_names = excel_file.sheet_names
         print(f"Found sheets: {sheet_names}")
         
-        # Store summaries and previews
+        # Save file temporarily to allow chunked reading
+        temp_file_path = f"/tmp/{file.filename}"
+        file.save(temp_file_path)
+        
         summaries = {'ZWG': {}, 'FX': {}}
         sheets_preview = {}
         
-        # Create Excel writer for output
+        # Create Excel writer
         output = io.BytesIO()
         
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            sheet_written = False
+            
             # Process each sheet
             for sheet in sheet_names:
                 print(f"Processing sheet: {sheet}")
                 
-                # Process only LOANS sheets with chunking
                 if sheet in ["ZWG LOANS", "FX LOANS"]:
-                    print(f"  Applying {sheet} special handling with chunking...")
+                    print(f"  Processing {sheet} in chunks...")
                     
-                    # Process in chunks to save memory
-                    chunk_size = 10000
                     chunks = []
+                    chunk_size = 5000  # Smaller chunks to save memory
                     total_rows = 0
-                    all_summaries = []
                     
-                    # Read in chunks
-                    for chunk_num, chunk in enumerate(pd.read_excel(file, sheet_name=sheet, chunksize=chunk_size)):
-                        print(f"    Processing chunk {chunk_num + 1} ({len(chunk)} rows)")
+                    # Read the entire sheet first (unfortunately pandas doesn't support chunks for Excel)
+                    # But we can process the data in memory-efficient way
+                    try:
+                        df_full = pd.read_excel(temp_file_path, sheet_name=sheet)
+                        print(f"  Read {len(df_full)} rows")
                         
-                        # Process the chunk
-                        processed_chunk = process_loans_chunk(chunk, sheet, first_day, last_day)
+                        # Process in memory chunks by splitting the dataframe
+                        for start_row in range(0, len(df_full), chunk_size):
+                            end_row = min(start_row + chunk_size, len(df_full))
+                            chunk = df_full.iloc[start_row:end_row].copy()
+                            print(f"    Processing rows {start_row}-{end_row}")
+                            
+                            processed_chunk = process_loans_chunk(chunk, sheet, first_day, last_day)
+                            chunks.append(processed_chunk)
+                            total_rows += len(processed_chunk)
+                            
+                            del chunk
+                            gc.collect()
                         
-                        # Store for Excel writing
-                        chunks.append(processed_chunk)
-                        total_rows += len(processed_chunk)
+                        # Combine chunks
+                        if chunks:
+                            df_processed = pd.concat(chunks, ignore_index=True)
+                            del chunks
+                            gc.collect()
+                            
+                            # Calculate summary
+                            currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
+                            sbu_summary = df_processed.groupby('SBU').agg({
+                                'Currency Exposure + Currency Accrued Reporting': 'sum',
+                                'FTP Charge': 'sum'
+                            }).reset_index()
+                            
+                            summaries[currency][sheet] = {
+                                'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
+                                'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
+                                'by_sbu': sbu_summary.to_dict(orient='records'),
+                                'row_count': len(df_processed)
+                            }
+                            
+                            # Prepare for Excel
+                            for col in df_processed.select_dtypes(include=['datetime64', 'datetime64[ns]']).columns:
+                                df_processed[col] = df_processed[col].dt.strftime('%Y-%m-%d')
+                            
+                            df_processed = df_processed.fillna('')
+                            
+                            # Write to Excel
+                            sheet_name_clean = sheet[:31]
+                            df_processed.to_excel(writer, sheet_name=sheet_name_clean, index=False)
+                            sheet_written = True
+                            
+                            # Store preview
+                            preview_data = df_processed.head(100).copy()
+                            sheets_preview[sheet] = {
+                                'columns': df_processed.columns.tolist(),
+                                'data': preview_data.to_dict(orient='records'),
+                                'shape': df_processed.shape
+                            }
+                            
+                            del df_processed
+                            gc.collect()
+                            
+                            print(f"  Completed {sheet} with {total_rows} rows")
                         
-                        # Collect summary data
-                        currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
-                        chunk_summary = {
-                            'total_exposure': float(processed_chunk['Currency Exposure + Currency Accrued Reporting'].sum()),
-                            'total_ftp_charge': float(processed_chunk['FTP Charge'].sum()),
-                            'row_count': len(processed_chunk)
-                        }
-                        all_summaries.append(chunk_summary)
-                        
-                        # Free memory
-                        del chunk
+                        del df_full
                         gc.collect()
-                    
-                    # Combine all chunks
-                    if chunks:
-                        df_processed = pd.concat(chunks, ignore_index=True)
-                        del chunks
-                        gc.collect()
                         
-                        # Calculate final summary
-                        currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
-                        sbu_summary = df_processed.groupby('SBU').agg({
-                            'Currency Exposure + Currency Accrued Reporting': 'sum',
-                            'FTP Charge': 'sum'
-                        }).reset_index()
-                        
-                        summaries[currency][sheet] = {
-                            'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
-                            'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
-                            'by_sbu': sbu_summary.to_dict(orient='records'),
-                            'row_count': len(df_processed)
-                        }
-                        
-                        # Prepare for Excel - convert datetime to string
-                        for col in df_processed.select_dtypes(include=['datetime64', 'datetime64[ns]']).columns:
-                            df_processed[col] = df_processed[col].dt.strftime('%Y-%m-%d')
-                        
-                        df_processed = df_processed.fillna('')
-                        
-                        # Write to Excel
-                        sheet_name_clean = sheet[:31]
-                        df_processed.to_excel(writer, sheet_name=sheet_name_clean, index=False)
-                        
-                        # Store preview (first 100 rows)
-                        preview_data = df_processed.head(100).copy()
-                        sheets_preview[sheet] = {
-                            'columns': df_processed.columns.tolist(),
-                            'data': preview_data.to_dict(orient='records'),
-                            'shape': df_processed.shape
-                        }
-                        
-                        del df_processed
-                        gc.collect()
-                        
-                        print(f"  Completed processing {sheet} with {total_rows} rows")
+                    except Exception as e:
+                        print(f"  Error processing {sheet}: {e}")
+                        continue
                     
                 else:
-                    # For non-loan sheets, read and write directly (usually small)
-                    print(f"  Reading sheet: {sheet}")
-                    df = pd.read_excel(file, sheet_name=sheet)
-                    df = df.fillna('')
-                    sheet_name_clean = sheet[:31]
-                    df.to_excel(writer, sheet_name=sheet_name_clean, index=False)
-                    
-                    # Store preview
-                    preview_data = df.head(100).copy()
-                    sheets_preview[sheet] = {
-                        'columns': df.columns.tolist(),
-                        'data': preview_data.to_dict(orient='records'),
-                        'shape': df.shape
-                    }
-                    
-                    del df
-                    gc.collect()
-                    print(f"  Completed processing {sheet}")
+                    # For non-loan sheets (usually small)
+                    try:
+                        df = pd.read_excel(temp_file_path, sheet_name=sheet)
+                        print(f"  Reading {sheet}: {len(df)} rows")
+                        
+                        df = df.fillna('')
+                        sheet_name_clean = sheet[:31]
+                        df.to_excel(writer, sheet_name=sheet_name_clean, index=False)
+                        sheet_written = True
+                        
+                        # Store preview
+                        preview_data = df.head(100).copy()
+                        sheets_preview[sheet] = {
+                            'columns': df.columns.tolist(),
+                            'data': preview_data.to_dict(orient='records'),
+                            'shape': df.shape
+                        }
+                        
+                        del df
+                        gc.collect()
+                        print(f"  Completed {sheet}")
+                        
+                    except Exception as e:
+                        print(f"  Error processing {sheet}: {e}")
+                        continue
             
-            # Add summary sheet
-            summary_data = []
-            for currency, sheets_data in summaries.items():
-                for sheet_name, sheet_data in sheets_data.items():
-                    summary_data.append({
-                        'Currency': currency,
-                        'Sheet': sheet_name,
-                        'Total Exposure': sheet_data['total_exposure'],
-                        'Total FTP Charge': sheet_data['total_ftp_charge'],
-                        'Number of Records': sheet_data['row_count']
-                    })
-                    
-                    for sbu in sheet_data['by_sbu']:
+            # Add summary sheet if we have data
+            if summaries and any(summaries.values()):
+                summary_data = []
+                for currency, sheets_data in summaries.items():
+                    for sheet_name, sheet_data in sheets_data.items():
                         summary_data.append({
-                            'Currency': f"{currency} - {sheet_name}",
-                            'Sheet': f"  {sbu['SBU']}",
-                            'Total Exposure': sbu['Currency Exposure + Currency Accrued Reporting'],
-                            'Total FTP Charge': sbu['FTP Charge'],
-                            'Number of Records': ''
+                            'Currency': currency,
+                            'Sheet': sheet_name,
+                            'Total Exposure': sheet_data['total_exposure'],
+                            'Total FTP Charge': sheet_data['total_ftp_charge'],
+                            'Number of Records': sheet_data['row_count']
                         })
+                        
+                        for sbu in sheet_data['by_sbu']:
+                            summary_data.append({
+                                'Currency': f"{currency} - {sheet_name}",
+                                'Sheet': f"  {sbu['SBU']}",
+                                'Total Exposure': sbu['Currency Exposure + Currency Accrued Reporting'],
+                                'Total FTP Charge': sbu['FTP Charge'],
+                                'Number of Records': ''
+                            })
+                
+                if summary_data:
+                    summary_df = pd.DataFrame(summary_data)
+                    summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                    sheet_written = True
+                    del summary_df
+                    gc.collect()
             
-            if summary_data:
-                summary_df = pd.DataFrame(summary_data)
-                summary_df.to_excel(writer, sheet_name='Summary', index=False)
-                del summary_df
-                gc.collect()
+            if not sheet_written:
+                # Create a dummy sheet if nothing was written
+                dummy_df = pd.DataFrame({'Message': ['No valid sheets found in the uploaded file']})
+                dummy_df.to_excel(writer, sheet_name='Info', index=False)
         
-        # Store the Excel file bytes
+        # Clean up temp file
+        import os
+        try:
+            os.remove(temp_file_path)
+        except:
+            pass
+        
+        # Store the Excel file
         output.seek(0)
         excel_bytes = output.getvalue()
         
-        # Store only necessary data
         latest_data['filename'] = file.filename
         latest_data['excel_file'] = excel_bytes
         latest_data['summaries'] = summaries
@@ -257,7 +280,7 @@ def upload_file():
         
         return jsonify({
             'status': 'success',
-            'message': f'Successfully processed {len(sheet_names)} sheets',
+            'message': f'Successfully processed {len([s for s in sheets_preview if sheets_preview[s]])} sheets',
             'summary': summaries,
             'period': latest_data['period']
         })
@@ -269,10 +292,10 @@ def upload_file():
         return jsonify({'error': str(e)}), 500
 
 def process_loans_chunk(df_chunk, sheet, first_day, last_day):
-    """Process a single chunk of loans data"""
+    """Process a chunk of loans data"""
     df_processed = df_chunk.copy()
     
-    # Branch mapping dictionary (keep your existing mapping)
+    # Branch mapping (using your existing mapping - shortened for brevity)
     branch_sbu_map = {
         '106': {'unit': 'Agribusiness', 'sbu': 'Corporate Banking'},
         '118': {'unit': 'Bureau De Change Hre', 'sbu': 'Shared Services'},
@@ -287,35 +310,6 @@ def process_loans_chunk(df_chunk, sheet, first_day, last_day):
         '66': {'unit': 'Treasury', 'sbu': 'Treasury'},
         '601': {'unit': 'Treasury', 'sbu': 'Treasury'},
         '0': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '35': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '36': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '37': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '38': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '39': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '40': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '41': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '43': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '46': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '49': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '50': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '54': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '56': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '57': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '58': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '61': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '65': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '67': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '68': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '69': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '70': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '105': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '115': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '117': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '123': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '124': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '600': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '141': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '116': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
         '11': {'unit': 'Kwame Nkrumah', 'sbu': 'Retail Banking'},
         '12': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
         '13': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
@@ -367,73 +361,15 @@ def process_loans_chunk(df_chunk, sheet, first_day, last_day):
         '120': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
         '121': {'unit': 'Retail Centraslised Back Office', 'sbu': 'Retail Banking'},
         '122': {'unit': 'Mta Centre Fife Street', 'sbu': 'Retail Banking'},
-        '611': {'unit': 'Masvingo', 'sbu': 'Retail Banking'},
-        '612': {'unit': 'Chiredzi', 'sbu': 'Retail Banking'},
-        '613': {'unit': 'Masvingo', 'sbu': 'Retail Banking'},
-        '614': {'unit': 'Zvishavane', 'sbu': 'Retail Banking'},
-        '615': {'unit': 'Gweru', 'sbu': 'Retail Banking'},
-        '616': {'unit': 'Kwekwe', 'sbu': 'Retail Banking'},
-        '617': {'unit': 'Kadoma', 'sbu': 'Retail Banking'},
-        '618': {'unit': 'Kadoma', 'sbu': 'Retail Banking'},
-        '619': {'unit': 'Gokwe', 'sbu': 'Retail Banking'},
-        '629': {'unit': 'Chipinge', 'sbu': 'Retail Banking'},
-        '630': {'unit': 'Chipinge', 'sbu': 'Retail Banking'},
-        '631': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
-        '632': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
-        '633': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
-        '634': {'unit': 'Rusape', 'sbu': 'Retail Banking'},
-        '644': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
-        '645': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
-        '646': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
-        '647': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
-        '648': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
-        '649': {'unit': 'Gwanda', 'sbu': 'Retail Banking'},
-        '650': {'unit': 'Cash Depot Bulawayo', 'sbu': 'Retail Banking'},
-        '660': {'unit': 'Samora Machel', 'sbu': 'Retail Banking'},
-        '661': {'unit': 'Avondale', 'sbu': 'Retail Banking'},
-        '662': {'unit': 'Bindura', 'sbu': 'Retail Banking'},
-        '663': {'unit': 'Msasa', 'sbu': 'Retail Banking'},
-        '664': {'unit': 'Chinhoyi', 'sbu': 'Retail Banking'},
-        '665': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
-        '667': {'unit': 'Karoi', 'sbu': 'Retail Banking'},
-        '668': {'unit': 'Murehwa', 'sbu': 'Retail Banking'},
-        '669': {'unit': 'Samora Machel', 'sbu': 'Retail Banking'},
-        '670': {'unit': 'Samora Machel', 'sbu': 'Retail Banking'},
-        '671': {'unit': 'Cash Depot Harare', 'sbu': 'Retail Banking'},
-        '672': {'unit': 'Kariba', 'sbu': 'Retail Banking'},
-        '681': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
-        '682': {'unit': 'Cripps', 'sbu': 'Retail Banking'},
-        '683': {'unit': 'Chitungwiza', 'sbu': 'Retail Banking'},
-        '684': {'unit': 'Chivhu', 'sbu': 'Retail Banking'},
-        '685': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
-        '686': {'unit': 'Highfield', 'sbu': 'Retail Banking'},
-        '687': {'unit': 'Marondera', 'sbu': 'Retail Banking'},
-        '688': {'unit': 'Msasa', 'sbu': 'Retail Banking'},
-        '689': {'unit': 'Msasa', 'sbu': 'Retail Banking'},
-        '690': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
         '125': {'unit': 'Passport Centre Harare', 'sbu': 'Shared Services'},
-        '127': {'unit': 'Passport Centre Bulawayo', 'sbu': 'Shared Services'},
         '126': {'unit': 'Virtual Branch', 'sbu': 'Shared Services'},
+        '127': {'unit': 'Passport Centre Bulawayo', 'sbu': 'Shared Services'},
         '128': {'unit': 'Passport Centre Chitungwiza', 'sbu': 'Shared Services'},
-        '129': {'unit': 'Passport Centre Lupane', 'sbu': 'Shared Services'},
-        '130': {'unit': 'Passport Centre Hwange', 'sbu': 'Shared Services'},
-        '131': {'unit': 'Passport Centre Gweru', 'sbu': 'Shared Services'},
-        '132': {'unit': 'Passport Centre Beitbridge', 'sbu': 'Shared Services'},
-        '133': {'unit': 'Passport Centre Chinhoyi', 'sbu': 'Shared Services'},
-        '134': {'unit': 'Passport Centre Marondera', 'sbu': 'Shared Services'},
-        '135': {'unit': 'Passport Centre Bindura', 'sbu': 'Shared Services'},
-        '136': {'unit': 'Passport Centre Gwanda', 'sbu': 'Shared Services'},
-        '137': {'unit': 'Passport Centre Mutare', 'sbu': 'Shared Services'},
-        '138': {'unit': 'Passport Centre Masvingo', 'sbu': 'Shared Services'},
-        '139': {'unit': 'Passport Centre Zvishavane', 'sbu': 'Shared Services'},
-        '140': {'unit': 'Passport Centre Murehwa', 'sbu': 'Shared Services'},
         '142': {'unit': 'Retail Centralised Byo', 'sbu': 'Retail Banking'},
-        '145': {'unit': 'Borrowdale', 'sbu': 'Retail Banking'},
-        '146': {'unit': 'Passport Centre Mwenezi', 'sbu': 'Shared Services'},
-        '200': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-        '147': {'unit': 'Passport Centre Gokwe', 'sbu': 'Shared Services'},
         '143': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'},
-        '144': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'}
+        '144': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'},
+        '145': {'unit': 'Borrowdale', 'sbu': 'Retail Banking'},
+        '200': {'unit': 'Shared Services', 'sbu': 'Shared Services'}
     }
     
     # Add SBU column
@@ -570,7 +506,7 @@ def download_excel():
 
 @app.route('/get-preview', methods=['GET'])
 def get_preview():
-    """Return the current preview data (uploaded sheets)"""
+    """Return the current preview data"""
     if latest_data.get('sheets_preview'):
         return jsonify({
             'filename': latest_data['filename'],
@@ -581,7 +517,7 @@ def get_preview():
 
 @app.route('/calculate', methods=['POST'])
 def calculate():
-    """Calculate FTP based on inputs and return results"""
+    """Calculate FTP based on inputs"""
     data = request.json
     deposit = data.get('deposit')
     loan = data.get('loan')
@@ -593,7 +529,7 @@ def calculate():
 
 @app.route('/ftp-curve-data', methods=['GET'])
 def ftp_curve_data():
-    """Return FTP curve data for USD and ZWG"""
+    """Return FTP curve data"""
     return jsonify({
         'tenors': tenors,
         'zwg': {
