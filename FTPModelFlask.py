@@ -70,15 +70,10 @@ def upload_file():
         return jsonify({'error': 'Please upload an Excel file (.xlsx or .xls)'}), 400
     
     try:
-        # Extract month and year from filename
         import re
         from datetime import datetime, timedelta
         import pandas as pd
         import datetime as dt
-        
-        # Memory optimization: Limit rows for large files
-        # Instead of reading entire file at once, read in chunks or limit rows
-        # For now, we'll read but then only store preview
         
         # Parse filename to get month and year
         filename_match = re.search(r'FTP Input File (\w+) (\d{4})', file.filename)
@@ -97,59 +92,49 @@ def upload_file():
         if not month_num:
             return jsonify({'error': f'Invalid month name: {month_name}'}), 400
         
-        # Get first day of the month
+        # Get first and last day of the month
         first_day = datetime(year, month_num, 1)
-        
-        # Get last day of the month
         if month_num == 12:
             last_day = datetime(year + 1, 1, 1) - timedelta(days=1)
         else:
             last_day = datetime(year, month_num + 1, 1) - timedelta(days=1)
         
-        # Read all sheet names first (fast)
+        # Read all sheet names
         excel_file = pd.ExcelFile(file)
         sheet_names = excel_file.sheet_names
         print(f"Found sheets: {sheet_names}")
         
-        # Dictionary to store processed data for each sheet
+        # Dictionary to store processed data
         sheets_data = {}
+        
+        # Store summaries by currency and SBU
+        global_summaries = {
+            'ZWG': {},
+            'FX': {}
+        }
         
         # Process each sheet separately
         for sheet in sheet_names:
             print(f"Processing sheet: {sheet}")
             
-            # Specify dtypes for known columns to reduce memory
-            dtype_spec = {}
-            if sheet in ["ZWG LOANS", "FX LOANS"]:
-                # Only specify dtypes for columns we know
-                dtype_spec = {
-                    'Branch Code': 'str',
-                    'CURRENCY': 'str',
-                    'Loan Type': 'str',
-                    'Staff Status': 'str'
-                }
-            
             try:
-                df = pd.read_excel(file, sheet_name=sheet, dtype=dtype_spec)
+                # Read the sheet
+                df = pd.read_excel(file, sheet_name=sheet)
             except Exception as e:
                 print(f"  Error reading sheet {sheet}: {e}")
-                # Try without dtype specification
-                df = pd.read_excel(file, sheet_name=sheet)
+                continue
             
             original_shape = df.shape
             print(f"  Original shape: {original_shape}")
             
-            # Special handling for ZWG LOANS and FX LOANS sheets
+            # Process only LOANS sheets
             if sheet in ["ZWG LOANS", "FX LOANS"]:
                 print(f"  Applying {sheet} special handling...")
                 
-                # Process in chunks if needed - but for now, keep full processing
                 df_processed = df.copy()
+                del df  # Free memory
                 
-                # Clear original df to free memory
-                del df
-                
-                # Branch mapping with ACC MANAGEMENT UNIT and SBU
+                # Branch mapping dictionary (same as before)
                 branch_sbu_map = {
                     '106': {'unit': 'Agribusiness', 'sbu': 'Corporate Banking'},
                     '118': {'unit': 'Bureau De Change Hre', 'sbu': 'Shared Services'},
@@ -312,10 +297,10 @@ def upload_file():
                     '143': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'},
                     '144': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'}
                 }
-
+                
                 print(f"  Created branch mapping with {len(branch_sbu_map)} unique branch codes")
                 
-                # Find branch code column
+                # Add SBU column
                 branch_code_col = None
                 possible_names = ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE', 'BRANCH', 'BR_CODE']
                 for col in possible_names:
@@ -323,145 +308,73 @@ def upload_file():
                         branch_code_col = col
                         break
                 
-                # Add both ACC MANAGEMENT UNIT and SBU columns
                 if branch_code_col:
-                    # Convert branch codes to string for matching
                     df_processed[branch_code_col] = df_processed[branch_code_col].astype(str).str.strip()
-                    
-                    # Get mapping info
                     branch_info = df_processed[branch_code_col].map(branch_sbu_map)
-                    
-                    # Extract unit and sbu from the mapping
                     df_processed['ACC MANAGEMENT UNIT'] = branch_info.apply(lambda x: x['unit'] if isinstance(x, dict) else 'Unknown')
                     df_processed['SBU'] = branch_info.apply(lambda x: x['sbu'] if isinstance(x, dict) else 'Unknown')
                     
-                    # Check for Source of Funding column and override SBU for "LoC"
+                    # Override SBU for LoC rows
                     if 'Source of Funding' in df_processed.columns:
-                        # Convert to string and strip
                         df_processed['Source of Funding'] = df_processed['Source of Funding'].astype(str).str.strip()
-                        
-                        # Create mask for rows where Source of Funding is "LoC" (case insensitive)
                         loc_mask = df_processed['Source of Funding'].str.upper() == 'LOC'
-                        
-                        # Override SBU for those rows
                         df_processed.loc[loc_mask, 'SBU'] = 'Corporate Banking'
-                        
                         print(f"  Found {loc_mask.sum()} rows with Source of Funding = 'LoC'")
-                        print(f"  Overrode SBU to 'Corporate Banking' for these rows")
                     
-                    # For codes not found in mapping, mark as 'Unknown'
                     unknown_count = df_processed['ACC MANAGEMENT UNIT'].isna().sum()
                     df_processed['ACC MANAGEMENT UNIT'] = df_processed['ACC MANAGEMENT UNIT'].fillna('Unknown')
                     df_processed['SBU'] = df_processed['SBU'].fillna('Unknown')
-                    
-                    print(f"  Added ACC MANAGEMENT UNIT and SBU columns")
-                    print(f"  Found {len(df_processed) - unknown_count} matching branch codes")
                     print(f"  {unknown_count} rows with unknown branch codes")
-                    
-                    # Get unique SBU values for summary
-                    unique_sbus = df_processed['SBU'].unique()
-                    sbu_counts = df_processed['SBU'].value_counts().to_dict()
-                    print(f"  SBU Distribution: {sbu_counts}")
-
-                    
                 else:
-                    print(f"  Warning: No branch code column found in {sheet}")
                     df_processed['ACC MANAGEMENT UNIT'] = 'Unknown'
-                    unknown_count = len(df_processed)
-                    unique_sbus = ['Unknown']
-                    sbu_counts = {'Unknown': unknown_count}
+                    df_processed['SBU'] = 'Unknown'
                 
-                # --- DATE PROCESSING (optimized) ---
-                # Process BOOKING_DATE
+                # Date processing
                 if 'BOOKING_DATE' in df_processed.columns:
                     df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'], errors='coerce')
                     booking_date_mask = df_processed['BOOKING_DATE'].isna()
                     df_processed.loc[booking_date_mask, 'BOOKING_DATE'] = first_day
                     print(f"  Updated {booking_date_mask.sum()} rows with BOOKING_DATE = {first_day.strftime('%Y-%m-%d')}")
-                else:
-                    booking_date_mask = pd.Series([False] * len(df_processed))
                 
-                # Process MATURITY_DATE with time object handling
                 if 'MATURITY_DATE' in df_processed.columns:
-                    # Check for time objects
-                    time_objects_mask = df_processed['MATURITY_DATE'].apply(lambda x: isinstance(x, dt.time))
-                    if time_objects_mask.any():
-                        print(f"  Found {time_objects_mask.sum()} time objects in MATURITY_DATE column")
-                        df_processed.loc[time_objects_mask, 'MATURITY_DATE'] = first_day
-                    
                     df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'], errors='coerce')
                     maturity_date_mask = df_processed['MATURITY_DATE'].isna()
-                    maturity_default = first_day + timedelta(days=365)
-                    df_processed.loc[maturity_date_mask, 'MATURITY_DATE'] = maturity_default
-                    print(f"  Updated {maturity_date_mask.sum()} rows with MATURITY_DATE = {maturity_default.strftime('%Y-%m-%d')}")
-                else:
-                    maturity_date_mask = pd.Series([False] * len(df_processed))
+                    df_processed.loc[maturity_date_mask, 'MATURITY_DATE'] = first_day + timedelta(days=365)
+                    print(f"  Updated {maturity_date_mask.sum()} rows with MATURITY_DATE")
                 
-                # Create TENOR column
+                # Calculate TENOR
                 if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
                     df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days
                     df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
-                    print(f"  Created TENOR column")
-                    
-                else:
-                    df_processed['TENOR'] = 0
                 
-
-                def calculate_dim_days(booking_date, maturity_date, first_day, last_day):
-                    """
-                    Calculate number of days the loan is active within the FTP period
-                    Returns the overlapping days between loan period and FTP month
-                    """
-                    # Convert to date objects if they're datetime
-                    if isinstance(booking_date, datetime):
-                        booking_date = booking_date.date()
-                    if isinstance(maturity_date, datetime):
-                        maturity_date = maturity_date.date()
+                # Calculate DimDays (overlapping days with FTP period)
+                def calculate_dim_days(row):
+                    booking_date = row['BOOKING_DATE'].date() if hasattr(row['BOOKING_DATE'], 'date') else row['BOOKING_DATE']
+                    maturity_date = row['MATURITY_DATE'].date() if hasattr(row['MATURITY_DATE'], 'date') else row['MATURITY_DATE']
                     
-                    # Case 1: Loan starts before FTP period and ends after FTP period
-                    if booking_date <= first_day and maturity_date >= last_day:
-                        return (last_day - first_day).days + 1
-                    
-                    # Case 2: Loan starts during FTP period and ends after FTP period
-                    elif booking_date >= first_day and maturity_date >= last_day:
-                        return (last_day - booking_date).days + 1
-                    
-                    # Case 3: Loan starts during FTP period and ends during FTP period
-                    elif booking_date >= first_day and maturity_date <= last_day:
+                    if booking_date <= first_day.date() and maturity_date >= last_day.date():
+                        return (last_day.date() - first_day.date()).days + 1
+                    elif booking_date >= first_day.date() and maturity_date >= last_day.date():
+                        return (last_day.date() - booking_date).days + 1
+                    elif booking_date >= first_day.date() and maturity_date <= last_day.date():
                         return (maturity_date - booking_date).days
-                    
-                    # Case 4: Loan starts before FTP period and ends before FTP period ends
-                    elif booking_date < first_day and maturity_date < last_day:
-                        # If maturity is before FTP period, return full FTP period (unlikely)
-                        # This might be: return (last_day - first_day).days
-                        return (last_day - first_day).days
+                    elif booking_date < first_day.date() and maturity_date < last_day.date():
+                        return (last_day.date() - first_day.date()).days
                     else:
-                        # Default: loan ends during FTP period but starts before
-                        return (maturity_date - first_day).days
-
-                # Apply to your dataframe
-                df_processed['DimDays'] = df_processed.apply(
-                    lambda row: calculate_dim_days(
-                        row['BOOKING_DATE'],
-                        row['MATURITY_DATE'],
-                        first_day.date(),
-                        last_day.date()
-                    ),
-                    axis=1
-                )
-
+                        return (maturity_date - first_day.date()).days
+                
+                df_processed['DimDays'] = df_processed.apply(calculate_dim_days, axis=1)
+                
+                # Calculate DTM and MTM
                 last_day_ts = pd.Timestamp(last_day.date())
-
                 df_processed['DTM'] = df_processed.apply(
                     lambda row: (row['MATURITY_DATE'] - last_day_ts).days if row['MATURITY_DATE'] > last_day_ts else 0,
                     axis=1
                 )
-
                 df_processed['MTM'] = (df_processed['DTM'] / 30).round(1)
-
-                print(f"  Added DimDays column - days overlapping FTP period: {df_processed['DimDays'].min()} to {df_processed['DimDays'].max()} days")
-
-                # Create bucket labels
+                
+                # Create bucket columns
+                tenors = [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1460, 1800]
                 bucket_labels = []
                 for i in range(len(tenors)):
                     if i == 0:
@@ -469,125 +382,94 @@ def upload_file():
                     else:
                         bucket_labels.append(f'{tenors[i-1]}-{tenors[i]}days')
                 bucket_labels.append(f'+{tenors[-1]}days')
-
-                print(f"  Created {len(bucket_labels)} buckets")
-
-                # Add bucket columns to dataframe (initialize all to 0)
+                
                 for label in bucket_labels:
                     df_processed[label] = 0
-
-                # Vectorized bucket assignment (no apply!)
-                # Calculate MTM in days
-                mtm_days = df_processed['MTM'] * 30
-
-                # Create bucket index using pandas cut
-                # Define bin edges
-                bin_edges = [0] + tenors + [float('inf')]
-
-                # Use pandas cut to assign bucket indices
-                bucket_indices = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
-
-                # Replace NaN with last bucket (for values >= last tenor)
-                bucket_indices = bucket_indices.fillna(len(bucket_labels) - 1).astype(int)
-
-                # Vectorized allocation - set exposure to the correct bucket column
+                
+                # Allocate to buckets
                 exposure = df_processed['Currency Exposure + Currency Accrued Reporting']
-
+                mtm_days = df_processed['MTM'] * 30
+                bin_edges = [0] + tenors + [float('inf')]
+                bucket_indices = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
+                bucket_indices = bucket_indices.fillna(len(bucket_labels) - 1).astype(int)
+                
                 for i, label in enumerate(bucket_labels):
                     mask = (bucket_indices == i) & (exposure > 0)
                     df_processed.loc[mask, label] = exposure.loc[mask]
-
-                # Add Check column (sum of all bucket columns)
-                df_processed['Check'] = df_processed[bucket_labels].sum(axis=1)
-
-                print(f"  Added {len(bucket_labels)} bucket columns")
-                print(f"  Added Check column - total exposure: {df_processed['Check'].sum():,.2f}")
-
-                # Vectorized FTP Charge calculation (no apply!)
-                # Create a rate array that matches each row's bucket
-                rate_array = np.zeros(len(df_processed))
-
-                for i, label in enumerate(bucket_labels):
-                    # Get the corresponding rate for this bucket
-                    if i < len(zwg_rates):
-                        rate = zwg_rates[i]
-                    else:
-                        rate = zwg_rates[-1]
-                    
-                    # Add the contribution from this bucket to the total FTP charge
-                    rate_array += df_processed[label] * (rate / 100)
-
-                df_processed['FTP Charge'] = rate_array
-
-                print(f"  Added FTP Charge column - total: {df_processed['FTP Charge'].sum():,.2f}")
-
-                # Bucket summary (exposure distribution)
-                print(f"\n  Bucket Summary (exposure distribution):")
-                for i, label in enumerate(bucket_labels):
-                    amount = df_processed[label].sum()
-                    if amount > 0:
-                        print(f"    {label}: {amount:,.2f}")
-
-
-                # Store only preview data (first 100 rows) instead of full data to save memory
-                preview_data = df_processed.head(100).to_dict(orient='records')
-                print(preview_data)
                 
-                # Store processed data for preview
+                df_processed['Check'] = df_processed[bucket_labels].sum(axis=1)
+                
+                # Calculate FTP Charge based on currency
+                if sheet == "ZWG LOANS":
+                    rates = zwg_rates
+                else:
+                    rates = usd_rates
+                
+                rate_array = np.zeros(len(df_processed))
+                for i, label in enumerate(bucket_labels):
+                    if i < len(rates):
+                        rate = rates[i]
+                    else:
+                        rate = rates[-1]
+                    rate_array += df_processed[label] * (rate / 100)
+                
+                df_processed['FTP Charge'] = rate_array
+                
+                # Create summaries by SBU and currency
+                currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
+                
+                # Group by SBU and calculate totals
+                sbu_summary = df_processed.groupby('SBU').agg({
+                    'Currency Exposure + Currency Accrued Reporting': 'sum',
+                    'FTP Charge': 'sum'
+                }).reset_index()
+                
+                # Store in global summaries
+                global_summaries[currency][sheet] = {
+                    'total_exposure': df_processed['Currency Exposure + Currency Accrued Reporting'].sum(),
+                    'total_ftp_charge': df_processed['FTP Charge'].sum(),
+                    'by_sbu': sbu_summary.to_dict(orient='records'),
+                    'row_count': len(df_processed)
+                }
+                
+                # Store preview data (first 100 rows) for display
+                preview_data = df_processed.head(100).copy()
+                
+                # Convert datetime columns to strings for JSON serialization
+                for col in preview_data.select_dtypes(include=['datetime64', 'datetime64[ns]']).columns:
+                    preview_data[col] = preview_data[col].astype(str).replace('NaT', None)
+                
                 sheets_data[sheet] = {
                     'columns': df_processed.columns.tolist(),
-                    'data': preview_data,  # Only first 100 rows for preview
+                    'data': preview_data.to_dict(orient='records'),
                     'shape': df_processed.shape,
-                    'processed': True,
-                    'booking_date_updates': int(booking_date_mask.sum()),
-                    'maturity_date_updates': int(maturity_date_mask.sum()),
-                    'branch_code_column': branch_code_col if branch_code_col else 'Not found',
-                    'unknown_branch_codes': int(unknown_count),
-                    'acc_management_units': list(unique_sbus),
-                    'sbu_counts': sbu_counts,
-                    'tenor_stats': {
-                        'min': int(df_processed['TENOR'].min()),
-                        'max': int(df_processed['TENOR'].max()),
-                        'avg': float(df_processed['TENOR'].mean())
-                    },
-                    'period': {
-                        'first_day': first_day.strftime('%d %B %Y'),
-                        'last_day': last_day.strftime('%d %B %Y')
+                    'summary': {
+                        'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
+                        'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
+                        'by_sbu': sbu_summary.to_dict(orient='records')
                     }
                 }
                 
-                # Store full dataframe only if needed (remove this if not used elsewhere)
-                # latest_data[f'{sheet.lower().replace(" ", "_")}_processed'] = df_processed
-                # Instead, store only necessary summary stats to save memory
-                latest_data[f'{sheet.lower().replace(" ", "_")}_summary'] = {
-                    'row_count': len(df_processed),
-                    'columns': df_processed.columns.tolist(),
-                    'tenor_stats': {
-                        'min': int(df_processed['TENOR'].min()),
-                        'max': int(df_processed['TENOR'].max()),
-                        'avg': float(df_processed['TENOR'].mean())
-                    },
-                    'acc_management_units': sbu_counts
-                }
-                
-                # Free up memory
+                # Free memory
                 del df_processed
-                                
+                
             else:
-                # For other sheets, store only preview
+                # For non-loan sheets, store preview only
+                preview_data = df.head(100).copy()
                 sheets_data[sheet] = {
                     'columns': df.columns.tolist(),
-                    'data': df.head(100).to_dict(orient='records'),
+                    'data': preview_data.to_dict(orient='records'),
                     'shape': df.shape,
-                    'processed': False
+                    'summary': None
                 }
-                del df  # Free memory
+                del df
             
             print(f"  Completed processing {sheet}")
         
-        # Store only necessary data in global variable
+        # Store in global variable
         latest_data['filename'] = file.filename
         latest_data['sheets'] = sheets_data
+        latest_data['summaries'] = global_summaries
         latest_data['period'] = {
             'first_day': first_day.strftime('%d %B %Y'),
             'last_day': last_day.strftime('%d %B %Y'),
@@ -595,16 +477,12 @@ def upload_file():
             'year': year
         }
         
+        # Return summary without trying to access df_processed
         return jsonify({
             'status': 'success',
-            'summary': {
-                'total_records': len(df_processed),
-                'sheets_processed': ['FX LOANS', 'ZWG LOANS', 'ZWG Assets', 'ZWG Liabilities', 'FX Assets', 'FX Liabilities'],
-                'sbu_distribution': df_processed['SBU'].value_counts().to_dict() if 'SBU' in df_processed else {},
-                'currency_distribution': df_processed['CURRENCY'].value_counts().to_dict() if 'CURRENCY' in df_processed else {},
-                'sample_data': df_processed.head(10).to_dict(orient='records')  # Only return first 10 rows
-            },
-            'message': 'File processed successfully'
+            'message': f'Successfully processed {len(sheet_names)} sheets',
+            'summary': global_summaries,
+            'period': latest_data['period']
         })
     
     except Exception as e:
@@ -612,7 +490,6 @@ def upload_file():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
 
 @app.route('/calculate', methods=['POST'])
 def calculate():
