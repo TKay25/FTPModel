@@ -849,6 +849,16 @@
                         <label><i class="fas fa-coins"></i> Deposit amount (<span id="depositCurrency">$</span>)</label>
                         <input type="number" id="depositAmount" placeholder="e.g. 500000" disabled>
                     </div>
+
+                    <div class="input-group">
+                        <label><i class="fas fa-money-bill-wave"></i> Statutory Reserve?</label>
+                        <select id="statReserveSelect" class="currency-select">
+                            <option value="" disabled selected>-- Select Option --</option>
+                            <option value="yes">Yes</option>
+                            <option value="no">No</option>
+                        </select>
+                    </div>
+
                     <div class="input-group">
                         <label><i class="fas fa-hand-holding-usd"></i> Loan amount (<span id="loanCurrency">$</span>)</label>
                         <input type="number" id="loanAmount" placeholder="e.g. 400000" disabled>
