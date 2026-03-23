@@ -48,6 +48,25 @@ def generate_pdf_report():
 
     global latest_data
     
+def generate_pdf_report():
+    """Generate PDF report from the preview data and summaries"""
+    buffer = io.BytesIO()
+    
+    # Make sure we're using the global latest_data
+    global latest_data
+    
+    # Check if we have data
+    if not latest_data.get('summaries') or not latest_data.get('sheets'):
+        # Return a simple PDF with error message
+        doc = SimpleDocTemplate(buffer, pagesize=portrait(A4))
+        styles = getSampleStyleSheet()
+        story = []
+        story.append(Paragraph("No data available", styles['Title']))
+        story.append(Paragraph("Please upload a file first.", styles['Normal']))
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+    
     doc = SimpleDocTemplate(buffer, pagesize=portrait(A4),
                            rightMargin=72, leftMargin=72,
                            topMargin=72, bottomMargin=72)
@@ -253,6 +272,9 @@ def download_pdf():
         if not latest_data.get('summaries') or not latest_data.get('period'):
             return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
         
+        # Print debug info
+        print(f"Generating PDF with data: {latest_data.get('summaries')}")
+        
         pdf_buffer = generate_pdf_report()
         
         month = latest_data.get('period', {}).get('month', 'Report')
@@ -269,7 +291,10 @@ def download_pdf():
         
     except Exception as e:
         print(f"Error downloading PDF: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': f'Failed to download PDF: {str(e)}'}), 500
+
 
 def compute_ftp_components(deposit, loan, tenure):
     """Helper to compute FTP charge, gain, net (matches frontend logic)"""
