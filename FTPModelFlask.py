@@ -5,8 +5,7 @@ import openpyxl
 import numpy as np
 from datetime import datetime, timedelta
 import re
-import gzip
-import pickle
+import gc
 
 app = Flask(__name__)
 
@@ -19,42 +18,14 @@ usd_rates = [3.29, 3.36, 6.15, 10.97, 11.02, 11.13, 12.22, 12.22, 12.22, 13.96, 
 # ZWG FTP curve data
 zwg_rates = [16.90, 16.90, 16.90, 16.90, 17.90, 18.10, 19.10, 19.10, 20.10, 23.47, 26.54, 32.67, 32.67]
 
-# Global variable - store compressed data
+# Global variable - store only the generated Excel file and summaries
 latest_data = {
     'filename': None,
-    'excel_file': None,  # Store the generated Excel file bytes
-    'compressed_dataframes': {},  # Store compressed dataframes (memory efficient!)
-    'summaries': {},  # Store only summaries (small)
-    'period': {},  # Store period info
-    'sheets_preview': {}  # Store only preview data (first 100 rows)
+    'excel_file': None,
+    'summaries': {},
+    'period': {},
+    'sheets_preview': {}
 }
-
-def compress_dataframe(df):
-    """Compress dataframe using gzip + pickle (60-70% smaller)"""
-    # Convert datetime to string for better compression
-    df_copy = df.copy()
-    for col in df_copy.select_dtypes(include=['datetime64', 'datetime64[ns]']).columns:
-        df_copy[col] = df_copy[col].dt.strftime('%Y-%m-%d')
-    
-    # Replace NaN with None for better compression
-    df_copy = df_copy.where(pd.notna(df_copy), None)
-    
-    # Pickle and compress
-    pickled = pickle.dumps(df_copy, protocol=pickle.HIGHEST_PROTOCOL)
-    compressed = gzip.compress(pickled, compresslevel=6)
-    return compressed
-
-def decompress_dataframe(compressed_bytes):
-    """Decompress bytes back to dataframe"""
-    pickled = gzip.decompress(compressed_bytes)
-    df = pickle.loads(pickled)
-    
-    # Convert string dates back to datetime
-    for col in df.columns:
-        if col in ['BOOKING_DATE', 'MATURITY_DATE']:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
-    
-    return df
 
 def compute_ftp_components(deposit, loan, tenure):
     """Helper to compute FTP charge, gain, net"""
@@ -89,7 +60,7 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    """Handle Excel file upload, process and compress dataframes"""
+    """Handle Excel file upload, process in chunks to save memory"""
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
     
@@ -133,7 +104,6 @@ def upload_file():
         # Store summaries and previews
         summaries = {'ZWG': {}, 'FX': {}}
         sheets_preview = {}
-        compressed_dfs = {}
         
         # Create Excel writer for output
         output = io.BytesIO()
@@ -143,67 +113,102 @@ def upload_file():
             for sheet in sheet_names:
                 print(f"Processing sheet: {sheet}")
                 
-                try:
-                    # Read the sheet
-                    df = pd.read_excel(file, sheet_name=sheet)
-                except Exception as e:
-                    print(f"  Error reading sheet {sheet}: {e}")
-                    continue
-                
-                original_shape = df.shape
-                print(f"  Original shape: {original_shape}")
-                
-                # Process only LOANS sheets
+                # Process only LOANS sheets with chunking
                 if sheet in ["ZWG LOANS", "FX LOANS"]:
-                    print(f"  Applying {sheet} special handling...")
-                    df_processed = process_loans_sheet(df, sheet, first_day, last_day, summaries)
+                    print(f"  Applying {sheet} special handling with chunking...")
                     
-                    # COMPRESS the dataframe (60-70% smaller!)
-                    compressed_bytes = compress_dataframe(df_processed)
-                    compressed_dfs[sheet] = compressed_bytes
+                    # Process in chunks to save memory
+                    chunk_size = 10000
+                    chunks = []
+                    total_rows = 0
+                    all_summaries = []
                     
-                    print(f"  📦 Compression: {len(df_processed):,} rows -> {len(compressed_bytes)/1024:.1f} KB ({(len(compressed_bytes)/(len(df_processed)*100)):.1f} bytes/row)")
+                    # Read in chunks
+                    for chunk_num, chunk in enumerate(pd.read_excel(file, sheet_name=sheet, chunksize=chunk_size)):
+                        print(f"    Processing chunk {chunk_num + 1} ({len(chunk)} rows)")
+                        
+                        # Process the chunk
+                        processed_chunk = process_loans_chunk(chunk, sheet, first_day, last_day)
+                        
+                        # Store for Excel writing
+                        chunks.append(processed_chunk)
+                        total_rows += len(processed_chunk)
+                        
+                        # Collect summary data
+                        currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
+                        chunk_summary = {
+                            'total_exposure': float(processed_chunk['Currency Exposure + Currency Accrued Reporting'].sum()),
+                            'total_ftp_charge': float(processed_chunk['FTP Charge'].sum()),
+                            'row_count': len(processed_chunk)
+                        }
+                        all_summaries.append(chunk_summary)
+                        
+                        # Free memory
+                        del chunk
+                        gc.collect()
                     
-                    # Prepare for Excel - convert datetime to string
-                    for col in df_processed.select_dtypes(include=['datetime64', 'datetime64[ns]']).columns:
-                        df_processed[col] = df_processed[col].dt.strftime('%Y-%m-%d')
-                    
-                    df_processed = df_processed.fillna('')
-                    
-                    # Write to Excel
-                    sheet_name_clean = sheet[:31]
-                    df_processed.to_excel(writer, sheet_name=sheet_name_clean, index=False)
-                    
-                    # Store preview (first 100 rows)
-                    preview_data = df_processed.head(100).copy()
-                    sheets_preview[sheet] = {
-                        'columns': df_processed.columns.tolist(),
-                        'data': preview_data.to_dict(orient='records'),
-                        'shape': df_processed.shape
-                    }
-                    
-                    del df_processed
+                    # Combine all chunks
+                    if chunks:
+                        df_processed = pd.concat(chunks, ignore_index=True)
+                        del chunks
+                        gc.collect()
+                        
+                        # Calculate final summary
+                        currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
+                        sbu_summary = df_processed.groupby('SBU').agg({
+                            'Currency Exposure + Currency Accrued Reporting': 'sum',
+                            'FTP Charge': 'sum'
+                        }).reset_index()
+                        
+                        summaries[currency][sheet] = {
+                            'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
+                            'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
+                            'by_sbu': sbu_summary.to_dict(orient='records'),
+                            'row_count': len(df_processed)
+                        }
+                        
+                        # Prepare for Excel - convert datetime to string
+                        for col in df_processed.select_dtypes(include=['datetime64', 'datetime64[ns]']).columns:
+                            df_processed[col] = df_processed[col].dt.strftime('%Y-%m-%d')
+                        
+                        df_processed = df_processed.fillna('')
+                        
+                        # Write to Excel
+                        sheet_name_clean = sheet[:31]
+                        df_processed.to_excel(writer, sheet_name=sheet_name_clean, index=False)
+                        
+                        # Store preview (first 100 rows)
+                        preview_data = df_processed.head(100).copy()
+                        sheets_preview[sheet] = {
+                            'columns': df_processed.columns.tolist(),
+                            'data': preview_data.to_dict(orient='records'),
+                            'shape': df_processed.shape
+                        }
+                        
+                        del df_processed
+                        gc.collect()
+                        
+                        print(f"  Completed processing {sheet} with {total_rows} rows")
                     
                 else:
-                    # For non-loan sheets, write directly
+                    # For non-loan sheets, read and write directly (usually small)
+                    print(f"  Reading sheet: {sheet}")
+                    df = pd.read_excel(file, sheet_name=sheet)
                     df = df.fillna('')
                     sheet_name_clean = sheet[:31]
                     df.to_excel(writer, sheet_name=sheet_name_clean, index=False)
-                    
-                    # Compress non-loan sheets too
-                    compressed_bytes = compress_dataframe(df)
-                    compressed_dfs[sheet] = compressed_bytes
                     
                     # Store preview
                     preview_data = df.head(100).copy()
                     sheets_preview[sheet] = {
                         'columns': df.columns.tolist(),
                         'data': preview_data.to_dict(orient='records'),
-                        'shape': original_shape
+                        'shape': df.shape
                     }
-                
-                del df  # Free memory immediately
-                print(f"  Completed processing {sheet}")
+                    
+                    del df
+                    gc.collect()
+                    print(f"  Completed processing {sheet}")
             
             # Add summary sheet
             summary_data = []
@@ -229,14 +234,16 @@ def upload_file():
             if summary_data:
                 summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                del summary_df
+                gc.collect()
         
-        # Store everything
+        # Store the Excel file bytes
         output.seek(0)
         excel_bytes = output.getvalue()
         
+        # Store only necessary data
         latest_data['filename'] = file.filename
         latest_data['excel_file'] = excel_bytes
-        latest_data['compressed_dataframes'] = compressed_dfs  # Store compressed data
         latest_data['summaries'] = summaries
         latest_data['sheets_preview'] = sheets_preview
         latest_data['period'] = {
@@ -246,9 +253,7 @@ def upload_file():
             'year': year
         }
         
-        total_compressed = sum(len(b) for b in compressed_dfs.values())
-        print(f"✅ Success! Total compressed size: {total_compressed/1024:.1f} KB")
-        print(f"📊 Excel file size: {len(excel_bytes)/1024:.2f} KB")
+        print(f"✅ Success! Excel file size: {len(excel_bytes) / 1024:.2f} KB")
         
         return jsonify({
             'status': 'success',
@@ -263,11 +268,11 @@ def upload_file():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-def process_loans_sheet(df, sheet, first_day, last_day, summaries):
-    """Process a loans sheet and return the processed dataframe"""
-    df_processed = df.copy()
+def process_loans_chunk(df_chunk, sheet, first_day, last_day):
+    """Process a single chunk of loans data"""
+    df_processed = df_chunk.copy()
     
-    # Branch mapping dictionary (your existing mapping - kept for brevity)
+    # Branch mapping dictionary (keep your existing mapping)
     branch_sbu_map = {
         '106': {'unit': 'Agribusiness', 'sbu': 'Corporate Banking'},
         '118': {'unit': 'Bureau De Change Hre', 'sbu': 'Shared Services'},
@@ -538,25 +543,11 @@ def process_loans_sheet(df, sheet, first_day, last_day, summaries):
     
     df_processed['FTP Charge'] = rate_array
     
-    # Store summary
-    currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
-    sbu_summary = df_processed.groupby('SBU').agg({
-        'Currency Exposure + Currency Accrued Reporting': 'sum',
-        'FTP Charge': 'sum'
-    }).reset_index()
-    
-    summaries[currency][sheet] = {
-        'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
-        'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
-        'by_sbu': sbu_summary.to_dict(orient='records'),
-        'row_count': len(df_processed)
-    }
-    
     return df_processed
 
 @app.route('/download-excel', methods=['GET'])
 def download_excel():
-    """Download the pre-generated Excel file (fast, no decompression needed)"""
+    """Download the pre-generated Excel file"""
     try:
         if latest_data.get('excel_file') is None:
             return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
@@ -576,28 +567,6 @@ def download_excel():
     except Exception as e:
         print(f"Error downloading Excel: {str(e)}")
         return jsonify({'error': f'Failed to download Excel: {str(e)}'}), 500
-
-@app.route('/get-full-data/<sheet_name>', methods=['GET'])
-def get_full_data(sheet_name):
-    """Get full dataframe for a specific sheet (decompress on demand)"""
-    try:
-        if sheet_name not in latest_data.get('compressed_dataframes', {}):
-            return jsonify({'error': 'Sheet not found'}), 404
-        
-        # Decompress the dataframe
-        df = decompress_dataframe(latest_data['compressed_dataframes'][sheet_name])
-        
-        # Return as JSON (first 100 rows for preview, but you can adjust)
-        return jsonify({
-            'sheet': sheet_name,
-            'shape': df.shape,
-            'data': df.head(100).to_dict(orient='records'),
-            'columns': df.columns.tolist()
-        })
-        
-    except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/get-preview', methods=['GET'])
 def get_preview():
