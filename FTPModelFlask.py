@@ -17,10 +17,12 @@ usd_rates = [3.29, 3.36, 6.15, 10.97, 11.02, 11.13, 12.22, 12.22, 12.22, 13.96, 
 zwg_rates = [16.90, 16.90, 16.90, 16.90, 17.90, 18.10, 19.10, 19.10, 20.10, 23.47, 26.54, 32.67, 32.67]
 
 # Global variable to store the latest uploaded data (in-memory, no database)
+# At the top with other global variables
 latest_data = {
     'filename': None,
     'sheets': {},  # sheet name -> DataFrame as dict
-    'ftp_results': None  # store latest calculated results
+    'ftp_results': None,
+    'full_dataframes': {}  # Store full dataframes for download
 }
 
 
@@ -55,6 +57,57 @@ def index():
     from flask import send_from_directory
     return send_from_directory('.', 'index.html')
 
+
+@app.route('/download-excel', methods=['GET'])
+def download_excel():
+    """Download all processed dataframes as Excel file"""
+    if not latest_data.get('full_dataframes'):
+        return jsonify({'error': 'No processed data available'}), 404
+    
+    output = io.BytesIO()
+    
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # Write each dataframe to a separate sheet
+        for sheet_name, df in latest_data['full_dataframes'].items():
+            # Convert datetime columns to string for Excel compatibility
+            for col in df.select_dtypes(include=['datetime64', 'datetime64[ns]']).columns:
+                df[col] = df[col].dt.strftime('%Y-%m-%d')
+            
+            # Replace NaN with empty string
+            df = df.fillna('')
+            
+            # Write to Excel
+            sheet_name_clean = sheet_name[:31]  # Excel sheet name max 31 chars
+            df.to_excel(writer, sheet_name=sheet_name_clean, index=False)
+        
+        # Add a summary sheet
+        if latest_data.get('summaries'):
+            summary_data = []
+            for currency, sheets in latest_data['summaries'].items():
+                for sheet_name, sheet_data in sheets.items():
+                    summary_data.append({
+                        'Currency': currency,
+                        'Sheet': sheet_name,
+                        'Total Exposure': sheet_data['total_exposure'],
+                        'Total FTP Charge': sheet_data['total_ftp_charge'],
+                        'Number of Records': sheet_data['row_count']
+                    })
+            
+            if summary_data:
+                summary_df = pd.DataFrame(summary_data)
+                summary_df.to_excel(writer, sheet_name='Summary', index=False)
+    
+    output.seek(0)
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"FTP_Results_{latest_data['period']['month']}_{latest_data['period']['year']}_{timestamp}.xlsx"
+    
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -449,7 +502,7 @@ def upload_file():
                         'by_sbu': sbu_summary.to_dict(orient='records')
                     }
                 }
-                
+                latest_data['full_dataframes'][sheet] = df_processed.copy()
                 # Free memory
                 del df_processed
                 
@@ -462,6 +515,9 @@ def upload_file():
                     'shape': df.shape,
                     'summary': None
                 }
+                latest_data['full_dataframes'][sheet] = df.copy()
+
+
                 del df
             
             print(f"  Completed processing {sheet}")

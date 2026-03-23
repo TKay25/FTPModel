@@ -1481,123 +1481,96 @@
     });
 
     // Download FTP Results button
-    downloadResultsBtn.addEventListener('click', () => {
-        if (!lastComputedRange.firstDay || !lastComputedRange.summary) {
-            alert('Please compute FTP range first');
-            return;
-        }
-        
-        let reportContent = `FTP Range Calculation Report
-=========================================
-Date Generated: ${new Date().toLocaleString()}
-Period: ${lastComputedRange.firstDay} to ${lastComputedRange.lastDay}
-Source File: ${lastComputedRange.fileName}
 
-=========================================
-FTP SUMMARY BY CURRENCY
-=========================================\n\n`;
+// Download FTP Results button - Excel version
+downloadResultsBtn.addEventListener('click', async () => {
+    if (!lastComputedRange.firstDay || !lastComputedRange.summary) {
+        alert('Please compute FTP range first');
+        return;
+    }
+    
+    // Show loading state
+    updatePreviewWithData(`
+        <div style="text-align: center; padding: 20px;">
+            <i class="fas fa-spinner fa-pulse" style="font-size: 48px; color: #921f1f; margin-bottom: 20px;"></i>
+            <h3 style="color: #632424; margin-bottom: 10px;">Generating Excel Report...</h3>
+            <p style="color: #a16f6f;">Please wait while we prepare your download</p>
+        </div>
+    `);
+    
+    try {
+        // Call the backend to get the Excel file
+        const response = await fetch('/download-excel');
         
-        // ZWG summary
-        if (lastComputedRange.summary.ZWG && Object.keys(lastComputedRange.summary.ZWG).length > 0) {
-            reportContent += `ZWG CURRENCY\n${'='.repeat(40)}\n`;
-            for (const [sheetName, sheetData] of Object.entries(lastComputedRange.summary.ZWG)) {
-                reportContent += `\n${sheetName}:\n`;
-                reportContent += `  Total Exposure: ${formatNumber(sheetData.total_exposure)} ZWG\n`;
-                reportContent += `  Total FTP Charge: ${formatNumber(sheetData.total_ftp_charge)} ZWG\n`;
-                reportContent += `  Number of Records: ${sheetData.row_count.toLocaleString()}\n`;
-                
-                if (sheetData.by_sbu && sheetData.by_sbu.length > 0) {
-                    reportContent += `  Breakdown by SBU:\n`;
-                    sheetData.by_sbu.forEach(sbu => {
-                        reportContent += `    ${sbu.SBU}:\n`;
-                        reportContent += `      Exposure: ${formatNumber(sbu['Currency Exposure + Currency Accrued Reporting'])} ZWG\n`;
-                        reportContent += `      FTP Charge: ${formatNumber(sbu['FTP Charge'])} ZWG\n`;
-                    });
-                }
-                reportContent += `\n`;
-            }
+        if (!response.ok) {
+            throw new Error('Failed to generate Excel file');
         }
         
-        // FX summary
-        if (lastComputedRange.summary.FX && Object.keys(lastComputedRange.summary.FX).length > 0) {
-            reportContent += `\nFX CURRENCY (USD)\n${'='.repeat(40)}\n`;
-            for (const [sheetName, sheetData] of Object.entries(lastComputedRange.summary.FX)) {
-                reportContent += `\n${sheetName}:\n`;
-                reportContent += `  Total Exposure: ${formatNumber(sheetData.total_exposure)} USD\n`;
-                reportContent += `  Total FTP Charge: ${formatNumber(sheetData.total_ftp_charge)} USD\n`;
-                reportContent += `  Number of Records: ${sheetData.row_count.toLocaleString()}\n`;
-                
-                if (sheetData.by_sbu && sheetData.by_sbu.length > 0) {
-                    reportContent += `  Breakdown by SBU:\n`;
-                    sheetData.by_sbu.forEach(sbu => {
-                        reportContent += `    ${sbu.SBU}:\n`;
-                        reportContent += `      Exposure: ${formatNumber(sbu['Currency Exposure + Currency Accrued Reporting'])} USD\n`;
-                        reportContent += `      FTP Charge: ${formatNumber(sbu['FTP Charge'])} USD\n`;
-                    });
-                }
-                reportContent += `\n`;
-            }
-        }
+        // Get the blob from response
+        const blob = await response.blob();
         
-        // Grand totals
-        let totalExposureZWG = 0;
-        let totalFTPZWG = 0;
-        let totalExposureFX = 0;
-        let totalFTPFX = 0;
-        
-        if (lastComputedRange.summary.ZWG) {
-            for (const sheetData of Object.values(lastComputedRange.summary.ZWG)) {
-                totalExposureZWG += sheetData.total_exposure;
-                totalFTPZWG += sheetData.total_ftp_charge;
-            }
-        }
-        
-        if (lastComputedRange.summary.FX) {
-            for (const sheetData of Object.values(lastComputedRange.summary.FX)) {
-                totalExposureFX += sheetData.total_exposure;
-                totalFTPFX += sheetData.total_ftp_charge;
-            }
-        }
-        
-        reportContent += `\n${'='.repeat(40)}\n`;
-        reportContent += `GRAND TOTAL SUMMARY\n${'='.repeat(40)}\n`;
-        if (totalExposureZWG > 0) {
-            reportContent += `ZWG Total Exposure: ${formatNumber(totalExposureZWG)} ZWG\n`;
-            reportContent += `ZWG Total FTP Charge: ${formatNumber(totalFTPZWG)} ZWG\n`;
-        }
-        if (totalExposureFX > 0) {
-            reportContent += `USD Total Exposure: ${formatNumber(totalExposureFX)} USD\n`;
-            reportContent += `USD Total FTP Charge: ${formatNumber(totalFTPFX)} USD\n`;
-        }
-        
-        reportContent += `\n${'='.repeat(40)}\n`;
-        reportContent += `End of Report\n`;
-        reportContent += `Generated by FTP Central System\n`;
-        
-        const blob = new Blob([reportContent], { type: 'text/plain' });
+        // Create download link
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `FTP_Report_${lastComputedRange.firstDay.replace(/\s/g, '_')}_to_${lastComputedRange.lastDay.replace(/\s/g, '_')}.txt`;
+        
+        // Extract filename from Content-Disposition header if available
+        let filename = `FTP_Results_${lastComputedRange.firstDay.replace(/\s/g, '_')}_to_${lastComputedRange.lastDay.replace(/\s/g, '_')}.xlsx`;
+        const contentDisposition = response.headers.get('Content-Disposition');
+        if (contentDisposition) {
+            const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+            if (match && match[1]) {
+                filename = match[1].replace(/['"]/g, '');
+            }
+        }
+        
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
         
+        // Update preview with success message
         updatePreviewWithData(`
             <div style="text-align: center; padding: 10px;">
-                <i class="fas fa-file-download" style="font-size: 48px; color: #28a745; margin-bottom: 15px;"></i>
-                <h3 style="color: #28a745; margin-bottom: 10px;">✓ Report Downloaded</h3>
-                <p style="color: #632424;">Your FTP report has been generated and downloaded successfully.</p>
+                <i class="fas fa-file-excel" style="font-size: 48px; color: #28a745; margin-bottom: 15px;"></i>
+                <h3 style="color: #28a745; margin-bottom: 10px;">✓ Excel Report Downloaded</h3>
+                <p style="color: #632424;">Your FTP results have been downloaded as an Excel file.</p>
                 <div style="background: #f8f5f5; border-radius: 12px; padding: 15px; margin-top: 15px; text-align: left;">
                     <strong style="color: #921f1f;">File Details:</strong><br>
                     Period: ${lastComputedRange.firstDay} to ${lastComputedRange.lastDay}<br>
                     Source: ${lastComputedRange.fileName}<br>
-                    Format: Text Report with detailed breakdowns
+                    Format: Excel (.xlsx) with multiple sheets
+                    <div style="margin-top: 10px;">
+                        <strong>Sheets included:</strong><br>
+                        • ZWG LOANS (processed data)<br>
+                        • FX LOANS (processed data)<br>
+                        • ZWG Assets<br>
+                        • ZWG Liabilities<br>
+                        • FX Assets<br>
+                        • FX Liabilities<br>
+                        • Summary (totals by currency and SBU)
+                    </div>
                 </div>
             </div>
         `);
-    });
+        
+    } catch (error) {
+        console.error('Error downloading Excel:', error);
+        
+        // Fallback to text report if Excel fails
+        updatePreviewWithData(`
+            <div style="text-align: center; padding: 20px;">
+                <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
+                <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Download Failed</h3>
+                <p style="color: #632424; margin-bottom: 15px;">${error.message}</p>
+                <button class="calculate-btn" style="margin-top: 20px; width: auto; padding: 12px 30px;" onclick="location.reload()">
+                    <i class="fas fa-redo"></i> Try Again
+                </button>
+            </div>
+        `);
+    }
+});
 
     function computeFtpComponents(deposit, loan, tenure) {
         const d = parseFloat(deposit) || 0;
