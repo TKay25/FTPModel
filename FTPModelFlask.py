@@ -45,6 +45,8 @@ def format_number(num):
 def generate_pdf_report():
     """Generate PDF report from the preview data and summaries"""
     buffer = io.BytesIO()
+
+    global latest_data
     
     doc = SimpleDocTemplate(buffer, pagesize=portrait(A4),
                            rightMargin=72, leftMargin=72,
@@ -246,6 +248,8 @@ def generate_pdf_report():
 def download_pdf():
     """Download the generated PDF report"""
     try:
+        global latest_data
+
         if not latest_data.get('summaries') or not latest_data.get('period'):
             return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
         
@@ -497,6 +501,9 @@ def download_excel():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
+
+    global latest_data
+
     """Handle Excel file upload, read all sheets into DataFrames"""
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
