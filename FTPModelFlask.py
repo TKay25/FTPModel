@@ -26,6 +26,30 @@ latest_data = {
     'period': {}  # Store period info
 }
 
+@app.route('/download-pdf', methods=['GET'])
+def download_pdf():
+    """Download the generated PDF report"""
+    try:
+        if not latest_data.get('summaries') or not latest_data.get('period'):
+            return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
+        
+        pdf_buffer = generate_pdf_report()
+        
+        month = latest_data.get('period', {}).get('month', 'Report')
+        year = latest_data.get('period', {}).get('year', '')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"FTP_Report_{month}_{year}_{timestamp}.pdf"
+        
+        return send_file(
+            pdf_buffer,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/pdf'
+        )
+        
+    except Exception as e:
+        print(f"Error downloading PDF: {str(e)}")
+        return jsonify({'error': f'Failed to download PDF: {str(e)}'}), 500
 
 def compute_ftp_components(deposit, loan, tenure):
     """Helper to compute FTP charge, gain, net (matches frontend logic)"""

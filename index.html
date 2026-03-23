@@ -1529,7 +1529,7 @@ downloadResultsBtn.addEventListener('click', async () => {
     }
 });
 
-    function computeFtpComponents(deposit, loan, tenure) {
+    function computeFtpComponents(deposit, loan, tenure, currency) {
         const d = parseFloat(deposit) || 0;
         const l = parseFloat(loan) || 0;
         const t = parseFloat(tenure) || 1;
@@ -1557,8 +1557,8 @@ downloadResultsBtn.addEventListener('click', async () => {
         
         const symbol = currency === 'USD' ? 'USD' : 'ZWG';
         
-        if (deposit && loan && tenure) {
-            const { charge, gain, net } = computeFtpComponents(deposit, loan, tenure);
+        if (deposit && loan && tenure && currency) {
+            const { charge, gain, net } = computeFtpComponents(deposit, loan, tenure, currency);
             
             ftpChargeSpan.innerText = charge;
             ftpGainSpan.innerText = gain;
