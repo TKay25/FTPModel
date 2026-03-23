@@ -17,12 +17,13 @@ usd_rates = [3.29, 3.36, 6.15, 10.97, 11.02, 11.13, 12.22, 12.22, 12.22, 13.96, 
 zwg_rates = [16.90, 16.90, 16.90, 16.90, 17.90, 18.10, 19.10, 19.10, 20.10, 23.47, 26.54, 32.67, 32.67]
 
 # Global variable to store the latest uploaded data (in-memory, no database)
-# At the top with other global variables
 latest_data = {
     'filename': None,
     'sheets': {},  # sheet name -> DataFrame as dict
     'ftp_results': None,
-    'full_dataframes': {}  # Store full dataframes for download
+    'full_dataframes': {},  # Store full dataframes for download
+    'summaries': {},  # Store summaries
+    'period': {}  # Store period info
 }
 
 
