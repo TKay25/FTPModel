@@ -4,6 +4,12 @@ import io
 import openpyxl
 import numpy as np
 from datetime import datetime, timedelta
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import portrait, A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER
 
 app = Flask(__name__)
 
@@ -25,6 +31,216 @@ latest_data = {
     'summaries': {},  # Store summaries
     'period': {}  # Store period info
 }
+
+def format_number(num):
+    """Format large numbers with K/M suffix"""
+    if num is None:
+        return '0'
+    if abs(num) >= 1000000:
+        return f"{num/1000000:.2f}M"
+    if abs(num) >= 1000:
+        return f"{num/1000:.2f}K"
+    return f"{num:.2f}"
+
+def generate_pdf_report():
+    """Generate PDF report from the preview data and summaries"""
+    buffer = io.BytesIO()
+    
+    doc = SimpleDocTemplate(buffer, pagesize=portrait(A4),
+                           rightMargin=72, leftMargin=72,
+                           topMargin=72, bottomMargin=72)
+    
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#921f1f'),
+        alignment=TA_CENTER,
+        spaceAfter=30
+    )
+    
+    header_style = ParagraphStyle(
+        'HeaderStyle',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=colors.HexColor('#632424'),
+        spaceAfter=12,
+        spaceBefore=12
+    )
+    
+    # Title
+    title = Paragraph("FTP Analysis Report", title_style)
+    story.append(title)
+    
+    # Period info
+    period_text = f"{latest_data['period'].get('first_day', 'N/A')} to {latest_data['period'].get('last_day', 'N/A')}"
+    period_style = ParagraphStyle(
+        'PeriodStyle',
+        parent=styles['Normal'],
+        fontSize=14,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor('#632424'),
+        spaceAfter=20
+    )
+    story.append(Paragraph(period_text, period_style))
+    story.append(Spacer(1, 20))
+    
+    # Summary by Currency
+    story.append(Paragraph("FTP Summary by Currency", header_style))
+    
+    # Create summary table
+    table_data = [['Currency', 'Sheet', 'Total Exposure', 'Total FTP Charge', 'Records']]
+    
+    for currency, sheets in latest_data['summaries'].items():
+        for sheet_name, sheet_data in sheets.items():
+            table_data.append([
+                currency,
+                sheet_name,
+                format_number(sheet_data['total_exposure']),
+                format_number(sheet_data['total_ftp_charge']),
+                f"{sheet_data['row_count']:,}"
+            ])
+    
+    table = Table(table_data, colWidths=[1.2*inch, 1.8*inch, 1.5*inch, 1.5*inch, 1*inch])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#921f1f')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 1), (-1, -1), 9),
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 20))
+    
+    # SBU Breakdown
+    story.append(Paragraph("SBU Breakdown by Currency", header_style))
+    
+    for currency, sheets in latest_data['summaries'].items():
+        story.append(Paragraph(f"<b>{currency}</b>", styles['Normal']))
+        
+        sbu_data = [['SBU', 'Exposure', 'FTP Charge']]
+        
+        for sheet_data in sheets.values():
+            if sheet_data.get('by_sbu'):
+                for sbu in sheet_data['by_sbu']:
+                    sbu_data.append([
+                        sbu['SBU'],
+                        format_number(sbu['Currency Exposure + Currency Accrued Reporting']),
+                        format_number(sbu['FTP Charge'])
+                    ])
+        
+        if len(sbu_data) > 1:
+            sbu_table = Table(sbu_data, colWidths=[2*inch, 2*inch, 2*inch])
+            sbu_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#632424')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ]))
+            story.append(sbu_table)
+            story.append(Spacer(1, 15))
+    
+    # Grand Totals
+    total_exposure_zwg = 0
+    total_ftp_zwg = 0
+    total_exposure_fx = 0
+    total_ftp_fx = 0
+    
+    for currency, sheets in latest_data['summaries'].items():
+        for sheet_data in sheets.values():
+            if currency == 'ZWG':
+                total_exposure_zwg += sheet_data['total_exposure']
+                total_ftp_zwg += sheet_data['total_ftp_charge']
+            else:
+                total_exposure_fx += sheet_data['total_exposure']
+                total_ftp_fx += sheet_data['total_ftp_charge']
+    
+    story.append(Paragraph("Grand Totals", header_style))
+    
+    totals_data = [['Currency', 'Total Exposure', 'Total FTP Charge']]
+    if total_exposure_zwg > 0:
+        totals_data.append(['ZWG', format_number(total_exposure_zwg), format_number(total_ftp_zwg)])
+    if total_exposure_fx > 0:
+        totals_data.append(['USD', format_number(total_exposure_fx), format_number(total_ftp_fx)])
+    
+    totals_table = Table(totals_data, colWidths=[2*inch, 2.5*inch, 2.5*inch])
+    totals_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#921f1f')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+    ]))
+    story.append(totals_table)
+    story.append(Spacer(1, 20))
+    
+    # Preview Data Section
+    story.append(PageBreak())
+    story.append(Paragraph("Data Preview (First 10 Rows per Sheet)", header_style))
+    
+    for sheet_name, sheet_data in latest_data['sheets'].items():
+        story.append(Paragraph(f"<b>{sheet_name}</b>", styles['Normal']))
+        story.append(Spacer(1, 5))
+        
+        preview_rows = sheet_data.get('data', [])[:10]
+        
+        if preview_rows and sheet_data.get('columns'):
+            columns = sheet_data['columns'][:5]
+            
+            preview_table_data = [columns[:5]]
+            
+            for row in preview_rows:
+                row_data = []
+                for col in columns[:5]:
+                    val = row.get(col, '')
+                    if isinstance(val, float):
+                        row_data.append(format_number(val))
+                    elif len(str(val)) > 20:
+                        row_data.append(str(val)[:17] + '...')
+                    else:
+                        row_data.append(str(val))
+                preview_table_data.append(row_data)
+            
+            col_width = (6.5 * inch) / len(columns[:5])
+            
+            preview_table = Table(preview_table_data, colWidths=[col_width] * len(columns[:5]))
+            preview_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#632424')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('FONTSIZE', (0, 1), (-1, -1), 7),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ]))
+            story.append(preview_table)
+            story.append(Spacer(1, 15))
+    
+    # Footer
+    story.append(Spacer(1, 30))
+    footer_text = f"Report Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    footer_style = ParagraphStyle(
+        'Footer',
+        parent=styles['Normal'],
+        fontSize=8,
+        alignment=TA_CENTER,
+        textColor=colors.grey
+    )
+    story.append(Paragraph(footer_text, footer_style))
+    story.append(Paragraph("FTP Central System", footer_style))
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
 
 @app.route('/download-pdf', methods=['GET'])
 def download_pdf():
