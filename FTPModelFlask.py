@@ -596,11 +596,15 @@ def upload_file():
         }
         
         return jsonify({
-            'success': True,
-            'filename': file.filename,
-            'sheets': sheets_data,
-            'period': latest_data['period'],
-            'message': f'Successfully loaded {len(sheet_names)} sheet(s)'
+            'status': 'success',
+            'summary': {
+                'total_records': len(df_processed),
+                'sheets_processed': ['FX LOANS', 'ZWG LOANS', 'ZWG Assets', 'ZWG Liabilities', 'FX Assets', 'FX Liabilities'],
+                'sbu_distribution': df_processed['SBU'].value_counts().to_dict() if 'SBU' in df_processed else {},
+                'currency_distribution': df_processed['CURRENCY'].value_counts().to_dict() if 'CURRENCY' in df_processed else {},
+                'sample_data': df_processed.head(10).to_dict(orient='records')  # Only return first 10 rows
+            },
+            'message': 'File processed successfully'
         })
     
     except Exception as e:
