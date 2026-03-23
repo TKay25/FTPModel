@@ -61,54 +61,199 @@ def index():
 
 @app.route('/download-excel', methods=['GET'])
 def download_excel():
-    """Download all processed dataframes as Excel file"""
-    if not latest_data.get('full_dataframes'):
-        return jsonify({'error': 'No processed data available'}), 404
-    
-    output = io.BytesIO()
-    
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Write each dataframe to a separate sheet
-        '''for sheet_name, df in latest_data['full_dataframes'].items():
-            # Convert datetime columns to string for Excel compatibility
-            for col in df.select_dtypes(include=['datetime64', 'datetime64[ns]']).columns:
-                df[col] = df[col].dt.strftime('%Y-%m-%d')
-            
-            # Replace NaN with empty string
-            df = df.fillna('')
-            
-            # Write to Excel
-            sheet_name_clean = sheet_name[:31]  # Excel sheet name max 31 chars
-            df.to_excel(writer, sheet_name=sheet_name_clean, index=False)'''
+    """Download summary results as Excel file"""
+    try:
+        # Check if we have summaries
+        if not latest_data.get('summaries') or not latest_data.get('period'):
+            return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
         
-        # Add a summary sheet
-        if latest_data.get('summaries'):
+        output = io.BytesIO()
+        
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Create summary data
             summary_data = []
+            
+            # Add period information
+            summary_data.append({
+                'Type': 'PERIOD INFORMATION',
+                'Detail': '',
+                'Value': ''
+            })
+            summary_data.append({
+                'Type': 'File Name',
+                'Detail': latest_data.get('filename', 'N/A'),
+                'Value': ''
+            })
+            summary_data.append({
+                'Type': 'Period',
+                'Detail': f"{latest_data['period'].get('first_day', 'N/A')} to {latest_data['period'].get('last_day', 'N/A')}",
+                'Value': ''
+            })
+            summary_data.append({
+                'Type': 'Month',
+                'Detail': latest_data['period'].get('month', 'N/A'),
+                'Value': ''
+            })
+            summary_data.append({
+                'Type': 'Year',
+                'Detail': latest_data['period'].get('year', 'N/A'),
+                'Value': ''
+            })
+            summary_data.append({
+                'Type': '',
+                'Detail': '',
+                'Value': ''
+            })
+            summary_data.append({
+                'Type': 'FTP SUMMARY BY CURRENCY',
+                'Detail': '',
+                'Value': ''
+            })
+            summary_data.append({
+                'Type': '',
+                'Detail': '',
+                'Value': ''
+            })
+            
+            # Add summary by currency
             for currency, sheets in latest_data['summaries'].items():
                 for sheet_name, sheet_data in sheets.items():
                     summary_data.append({
-                        'Currency': currency,
-                        'Sheet': sheet_name,
-                        'Total Exposure': sheet_data['total_exposure'],
-                        'Total FTP Charge': sheet_data['total_ftp_charge'],
-                        'Number of Records': sheet_data['row_count']
+                        'Type': f'CURRENCY: {currency}',
+                        'Detail': sheet_name,
+                        'Value': ''
+                    })
+                    summary_data.append({
+                        'Type': '  Total Exposure',
+                        'Detail': f"{sheet_data['total_exposure']:,.2f}",
+                        'Value': currency
+                    })
+                    summary_data.append({
+                        'Type': '  Total FTP Charge',
+                        'Detail': f"{sheet_data['total_ftp_charge']:,.2f}",
+                        'Value': currency
+                    })
+                    summary_data.append({
+                        'Type': '  Number of Records',
+                        'Detail': f"{sheet_data['row_count']:,}",
+                        'Value': ''
+                    })
+                    
+                    # Add SBU breakdown
+                    if sheet_data.get('by_sbu'):
+                        summary_data.append({
+                            'Type': '  Breakdown by SBU',
+                            'Detail': '',
+                            'Value': ''
+                        })
+                        for sbu in sheet_data['by_sbu']:
+                            summary_data.append({
+                                'Type': f'    {sbu["SBU"]}',
+                                'Detail': f"Exposure: {sbu['Currency Exposure + Currency Accrued Reporting']:,.2f}",
+                                'Value': f"FTP Charge: {sbu['FTP Charge']:,.2f}"
+                            })
+                    
+                    summary_data.append({
+                        'Type': '',
+                        'Detail': '',
+                        'Value': ''
                     })
             
-            if summary_data:
-                summary_df = pd.DataFrame(summary_data)
-                summary_df.to_excel(writer, sheet_name='Summary', index=False)
-    
-    output.seek(0)
-    
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f"FTP_Results_{latest_data['period']['month']}_{latest_data['period']['year']}_{timestamp}.xlsx"
-    
-    return send_file(
-        output,
-        as_attachment=True,
-        download_name=filename,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
+            # Add grand totals
+            total_exposure_zwg = 0
+            total_ftp_zwg = 0
+            total_exposure_fx = 0
+            total_ftp_fx = 0
+            
+            for currency, sheets in latest_data['summaries'].items():
+                for sheet_data in sheets.values():
+                    if currency == 'ZWG':
+                        total_exposure_zwg += sheet_data['total_exposure']
+                        total_ftp_zwg += sheet_data['total_ftp_charge']
+                    else:
+                        total_exposure_fx += sheet_data['total_exposure']
+                        total_ftp_fx += sheet_data['total_ftp_charge']
+            
+            summary_data.append({
+                'Type': 'GRAND TOTALS',
+                'Detail': '',
+                'Value': ''
+            })
+            
+            if total_exposure_zwg > 0:
+                summary_data.append({
+                    'Type': 'ZWG Total Exposure',
+                    'Detail': f"{total_exposure_zwg:,.2f} ZWG",
+                    'Value': ''
+                })
+                summary_data.append({
+                    'Type': 'ZWG Total FTP Charge',
+                    'Detail': f"{total_ftp_zwg:,.2f} ZWG",
+                    'Value': ''
+                })
+            
+            if total_exposure_fx > 0:
+                summary_data.append({
+                    'Type': 'USD Total Exposure',
+                    'Detail': f"{total_exposure_fx:,.2f} USD",
+                    'Value': ''
+                })
+                summary_data.append({
+                    'Type': 'USD Total FTP Charge',
+                    'Detail': f"{total_ftp_fx:,.2f} USD",
+                    'Value': ''
+                })
+            
+            summary_data.append({
+                'Type': '',
+                'Detail': '',
+                'Value': ''
+            })
+            summary_data.append({
+                'Type': 'Generated by FTP Central System',
+                'Detail': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'Value': ''
+            })
+            
+            # Create DataFrame and write to Excel
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='FTP Summary', index=False)
+            
+            # Auto-adjust column widths
+            worksheet = writer.sheets['FTP Summary']
+            for column in worksheet.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                worksheet.column_dimensions[column_letter].width = adjusted_width
+        
+        output.seek(0)
+        
+        # Generate filename
+        month = latest_data.get('period', {}).get('month', 'Report')
+        year = latest_data.get('period', {}).get('year', '')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"FTP_Summary_{month}_{year}_{timestamp}.xlsx"
+        
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        print(f"Error downloading Excel: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to download Excel: {str(e)}'}), 500
+
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
