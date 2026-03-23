@@ -1482,7 +1482,6 @@
 
     // Download FTP Results button
 
-// Download FTP Results button - Excel version
 downloadResultsBtn.addEventListener('click', async () => {
     if (!lastComputedRange.firstDay || !lastComputedRange.summary) {
         alert('Please compute FTP range first');
@@ -1493,80 +1492,38 @@ downloadResultsBtn.addEventListener('click', async () => {
     updatePreviewWithData(`
         <div style="text-align: center; padding: 20px;">
             <i class="fas fa-spinner fa-pulse" style="font-size: 48px; color: #921f1f; margin-bottom: 20px;"></i>
-            <h3 style="color: #632424; margin-bottom: 10px;">Generating Excel Report...</h3>
-            <p style="color: #a16f6f;">Please wait while we prepare your download</p>
+            <h3 style="color: #632424; margin-bottom: 10px;">Generating PDF Report...</h3>
+            <p style="color: #a16f6f;">Please wait while we prepare your PDF report</p>
         </div>
     `);
     
     try {
-        // Call the backend to get the Excel file
-        const response = await fetch('/download-excel');
-        
-        if (!response.ok) {
-            throw new Error('Failed to generate Excel file');
-        }
-        
-        // Get the blob from response
-        const blob = await response.blob();
-        
-        // Create download link
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        
-        // Extract filename from Content-Disposition header if available
-        let filename = `FTP_Results_${lastComputedRange.firstDay.replace(/\s/g, '_')}_to_${lastComputedRange.lastDay.replace(/\s/g, '_')}.xlsx`;
-        const contentDisposition = response.headers.get('Content-Disposition');
-        if (contentDisposition) {
-            const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-            if (match && match[1]) {
-                filename = match[1].replace(/['"]/g, '');
-            }
-        }
-        
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
+        // Call the PDF download endpoint
+        window.location.href = '/download-pdf';
         
         // Update preview with success message
         updatePreviewWithData(`
             <div style="text-align: center; padding: 10px;">
-                <i class="fas fa-file-excel" style="font-size: 48px; color: #28a745; margin-bottom: 15px;"></i>
-                <h3 style="color: #28a745; margin-bottom: 10px;">✓ Excel Report Downloaded</h3>
-                <p style="color: #632424;">Your FTP results have been downloaded as an Excel file.</p>
+                <i class="fas fa-file-pdf" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
+                <h3 style="color: #28a745; margin-bottom: 10px;">✓ PDF Report Downloaded</h3>
+                <p style="color: #632424;">Your FTP report has been generated and downloaded as PDF.</p>
                 <div style="background: #f8f5f5; border-radius: 12px; padding: 15px; margin-top: 15px; text-align: left;">
-                    <strong style="color: #921f1f;">File Details:</strong><br>
+                    <strong style="color: #921f1f;">Report Details:</strong><br>
                     Period: ${lastComputedRange.firstDay} to ${lastComputedRange.lastDay}<br>
                     Source: ${lastComputedRange.fileName}<br>
-                    Format: Excel (.xlsx) with multiple sheets
-                    <div style="margin-top: 10px;">
-                        <strong>Sheets included:</strong><br>
-                        • ZWG LOANS (processed data)<br>
-                        • FX LOANS (processed data)<br>
-                        • ZWG Assets<br>
-                        • ZWG Liabilities<br>
-                        • FX Assets<br>
-                        • FX Liabilities<br>
-                        • Summary (totals by currency and SBU)
-                    </div>
+                    Format: PDF with charts and tables
                 </div>
             </div>
         `);
         
     } catch (error) {
-        console.error('Error downloading Excel:', error);
+        console.error('Error downloading PDF:', error);
         
-        // Fallback to text report if Excel fails
         updatePreviewWithData(`
             <div style="text-align: center; padding: 20px;">
                 <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
                 <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Download Failed</h3>
-                <p style="color: #632424; margin-bottom: 15px;">${error.message}</p>
-                <button class="calculate-btn" style="margin-top: 20px; width: auto; padding: 12px 30px;" onclick="location.reload()">
-                    <i class="fas fa-redo"></i> Try Again
-                </button>
+                <p style="color: #632424;">${error.message}</p>
             </div>
         `);
     }
