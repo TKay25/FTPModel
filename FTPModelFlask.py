@@ -69,7 +69,7 @@ def download_excel():
     
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         # Write each dataframe to a separate sheet
-        for sheet_name, df in latest_data['full_dataframes'].items():
+        '''for sheet_name, df in latest_data['full_dataframes'].items():
             # Convert datetime columns to string for Excel compatibility
             for col in df.select_dtypes(include=['datetime64', 'datetime64[ns]']).columns:
                 df[col] = df[col].dt.strftime('%Y-%m-%d')
@@ -79,7 +79,7 @@ def download_excel():
             
             # Write to Excel
             sheet_name_clean = sheet_name[:31]  # Excel sheet name max 31 chars
-            df.to_excel(writer, sheet_name=sheet_name_clean, index=False)
+            df.to_excel(writer, sheet_name=sheet_name_clean, index=False)'''
         
         # Add a summary sheet
         if latest_data.get('summaries'):
