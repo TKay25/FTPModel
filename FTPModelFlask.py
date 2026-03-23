@@ -490,7 +490,7 @@ def upload_file():
                 bucket_indices = bucket_indices.fillna(len(bucket_labels) - 1).astype(int)
 
                 # Vectorized allocation - set exposure to the correct bucket column
-                exposure = df_processed['Currency Exposure+ Currency Accrued Reporting']
+                exposure = df_processed['Currency Exposure + Currency Accrued Reporting']
 
                 for i, label in enumerate(bucket_labels):
                     mask = (bucket_indices == i) & (exposure > 0)
