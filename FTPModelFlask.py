@@ -993,7 +993,6 @@ def upload_file():
             log_stage('Write processed workbook', excel_write_start_time)
 
             # Store data
-            snapshot_start_time = perf_counter()
         latest_data['filename'] = file.filename
         latest_data['sheets'] = sheets_data
         latest_data['summaries'] = global_summaries
@@ -1008,6 +1007,7 @@ def upload_file():
         latest_data['excel_contains_workings'] = include_non_loan_sheets
         latest_data['skipped_sheet_count'] = skipped_sheet_count
 
+        snapshot_start_time = perf_counter()
         save_latest_data_snapshot()
         log_stage('Persist snapshot', snapshot_start_time)
         log_stage('Total upload pipeline', upload_start_time)
