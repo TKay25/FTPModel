@@ -7,6 +7,7 @@ import io
 import openpyxl
 import numpy as np
 from datetime import datetime, timedelta
+from time import perf_counter
 import re
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import portrait, A4
@@ -611,6 +612,12 @@ def upload_file():
         return jsonify({'error': 'No selected file'}), 400
     
     try:
+        upload_start_time = perf_counter()
+
+        def log_stage(stage_name, stage_start_time):
+            elapsed_seconds = perf_counter() - stage_start_time
+            print(f"[PERF] {stage_name}: {elapsed_seconds:.3f}s")
+
         # Parse filename
         filename_match = re.search(r'FTP Input File (\w+) (\d{4})', file.filename)
         if not filename_match:
@@ -632,8 +639,10 @@ def upload_file():
             last_day = datetime(year, month_num + 1, 1) - timedelta(days=1)
         
         # Get sheet names
+        read_start_time = perf_counter()
         excel_file = pd.ExcelFile(file)
         sheet_names = excel_file.sheet_names
+        log_stage('Read workbook metadata', read_start_time)
         print(f"Found sheets: {sheet_names}")
 
         output_stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -644,10 +653,13 @@ def upload_file():
         global_summaries = {'ZWG': {}, 'FX': {}}
         
         branch_sbu_map = load_branch_sbu_map()
+        branch_sbu_lookup = {code: value.get('sbu', 'Unknown') for code, value in branch_sbu_map.items()}
         
+        excel_write_start_time = perf_counter()
         with pd.ExcelWriter(excel_output_path, engine='openpyxl') as writer:
             for sheet in sheet_names:
                 print(f"Processing: {sheet}")
+                sheet_start_time = perf_counter()
                 try:
                     df = excel_file.parse(sheet_name=sheet)
                 except Exception as e:
@@ -667,8 +679,7 @@ def upload_file():
 
                     if branch_col:
                         df_processed[branch_col] = df_processed[branch_col].astype(str).str.strip()
-                        branch_info = df_processed[branch_col].map(branch_sbu_map)
-                        df_processed['SBU'] = branch_info.apply(lambda x: x['sbu'] if isinstance(x, dict) else 'Unknown')
+                        df_processed['SBU'] = df_processed[branch_col].map(branch_sbu_lookup).fillna('Unknown')
                     else:
                         df_processed['SBU'] = 'Unknown'
 
@@ -686,24 +697,34 @@ def upload_file():
                         df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days
                         df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
 
-                    # Calculate DimDays
-                    def calc_days(row):
-                        bd = row['BOOKING_DATE'].date() if hasattr(row['BOOKING_DATE'], 'date') else row['BOOKING_DATE']
-                        md = row['MATURITY_DATE'].date() if hasattr(row['MATURITY_DATE'], 'date') else row['MATURITY_DATE']
-                        if bd <= first_day.date() and md >= last_day.date():
-                            return (last_day.date() - first_day.date()).days + 1
-                        elif bd >= first_day.date() and md >= last_day.date():
-                            return (last_day.date() - bd).days + 1
-                        elif bd >= first_day.date() and md <= last_day.date():
-                            return (md - bd).days
-                        else:
-                            return (md - first_day.date()).days
+                    # Calculate DimDays with vectorized date logic.
+                    first_day_ts = pd.Timestamp(first_day.date())
+                    last_day_ts = pd.Timestamp(last_day.date())
+                    booking_dates = df_processed['BOOKING_DATE']
+                    maturity_dates = df_processed['MATURITY_DATE']
 
-                    df_processed['DimDays'] = df_processed.apply(calc_days, axis=1)
+                    full_period_days = (last_day_ts - first_day_ts).days + 1
+                    dim_days = np.where(
+                        (booking_dates <= first_day_ts) & (maturity_dates >= last_day_ts),
+                        full_period_days,
+                        np.where(
+                            (booking_dates >= first_day_ts) & (maturity_dates >= last_day_ts),
+                            (last_day_ts - booking_dates).dt.days + 1,
+                            np.where(
+                                (booking_dates >= first_day_ts) & (maturity_dates <= last_day_ts),
+                                (maturity_dates - booking_dates).dt.days,
+                                (maturity_dates - first_day_ts).dt.days
+                            )
+                        )
+                    )
+                    df_processed['DimDays'] = dim_days
 
                     # Calculate DTM and MTM
-                    last_day_ts = pd.Timestamp(last_day.date())
-                    df_processed['DTM'] = df_processed.apply(lambda r: (r['MATURITY_DATE'] - last_day_ts).days if r['MATURITY_DATE'] > last_day_ts else 0, axis=1)
+                    df_processed['DTM'] = np.where(
+                        maturity_dates > last_day_ts,
+                        (maturity_dates - last_day_ts).dt.days,
+                        0
+                    )
                     df_processed['MTM'] = (df_processed['DTM'] / 30).round(1)
 
                     # Bucket columns
@@ -719,19 +740,22 @@ def upload_file():
                     bucket_indices = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
                     bucket_indices = bucket_indices.fillna(len(bucket_labels)-1).astype(int)
 
-                    for i, label in enumerate(bucket_labels):
-                        mask = (bucket_indices == i) & (exposure > 0)
-                        df_processed.loc[mask, label] = exposure.loc[mask]
+                    bucket_values = np.zeros((len(df_processed), len(bucket_labels)), dtype=float)
+                    exposure_values = exposure.to_numpy(dtype=float, copy=False)
+                    index_values = bucket_indices.to_numpy(dtype=int, copy=False)
+                    positive_exposure_rows = np.nonzero(exposure_values > 0)[0]
+                    bucket_values[positive_exposure_rows, index_values[positive_exposure_rows]] = exposure_values[positive_exposure_rows]
+                    df_processed[bucket_labels] = bucket_values
 
                     df_processed['Check'] = df_processed[bucket_labels].sum(axis=1)
 
                     # FTP Charge
                     rates = zwg_rates if sheet == "ZWG LOANS" else usd_rates
-                    rate_array = np.zeros(len(df_processed))
-                    for i, label in enumerate(bucket_labels):
-                        rate = rates[i] if i < len(rates) else rates[-1]
-                        rate_array += df_processed[label] * (rate / 100)
-                    df_processed['FTP Charge'] = rate_array
+                    rate_vector = np.array(
+                        [(rates[i] if i < len(rates) else rates[-1]) / 100 for i in range(len(bucket_labels))],
+                        dtype=float
+                    )
+                    df_processed['FTP Charge'] = df_processed[bucket_labels].to_numpy(dtype=float, copy=False) @ rate_vector
 
                     # Summary
                     currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
@@ -773,9 +797,12 @@ def upload_file():
                     df.to_excel(writer, sheet_name=sheet[:31], index=False)
                     del df
 
+                    log_stage(f'Sheet {sheet}', sheet_start_time)
                 print(f"Completed: {sheet}")
+                log_stage('Write processed workbook', excel_write_start_time)
         
         # Store data
+                snapshot_start_time = perf_counter()
         latest_data['filename'] = file.filename
         latest_data['sheets'] = sheets_data
         latest_data['summaries'] = global_summaries
@@ -789,6 +816,8 @@ def upload_file():
         latest_data['excel_filename'] = excel_filename
 
         save_latest_data_snapshot()
+        log_stage('Persist snapshot', snapshot_start_time)
+        log_stage('Total upload pipeline', upload_start_time)
         
         print(f"✅ Stored summaries: {list(global_summaries.keys())}")
         
