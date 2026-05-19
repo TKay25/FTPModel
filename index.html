@@ -2111,9 +2111,10 @@
                 }
                 
                 summaryHtml += `
-                    <div style="margin-top: 25px; padding: 15px; background: #e8f4e8; border-radius: 12px; border-left: 5px solid #28a745;">
-                        <i class="fas fa-download" style="color: #28a745; margin-right: 8px;"></i>
-                        <span style="color: #2f1a1a;">You can now download the complete FTP results using the button below</span>
+                    <div style="margin-top: 25px; padding: 15px; background: #f8fafc; border-radius: 12px; border-left: 5px solid #1d4ed8;">
+                        <i class="fas fa-download" style="color: #1d4ed8; margin-right: 8px;"></i>
+                        <span style="color: #2f1a1a;">PDF and Excel downloads are now ready below.</span><br>
+                        <span style="color: #5b6472; font-size: 13px;">Use PDF for the report pack and Excel for the full processed workbook.</span>
                     </div>
                 </div>`;
                 
@@ -2220,6 +2221,49 @@
         `);
     }
 });
+
+    downloadExcelBtn.addEventListener('click', async () => {
+        if (!lastComputedRange.firstDay || !lastComputedRange.summary) {
+            alert('Please compute FTP range first');
+            return;
+        }
+
+        updatePreviewWithData(`
+            <div style="text-align: center; padding: 20px;">
+                <i class="fas fa-spinner fa-pulse" style="font-size: 48px; color: #1d4ed8; margin-bottom: 20px;"></i>
+                <h3 style="color: #1d4ed8; margin-bottom: 10px;">Generating Excel Workbook...</h3>
+                <p style="color: #5b6472;">Please wait while we prepare the processed workbook</p>
+            </div>
+        `);
+
+        try {
+            await downloadFile('/download-excel', 'xlsx');
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 10px;">
+                    <i class="fas fa-file-excel" style="font-size: 48px; color: #1d4ed8; margin-bottom: 15px;"></i>
+                    <h3 style="color: #1d4ed8; margin-bottom: 10px;">✓ Excel Workbook Downloaded</h3>
+                    <p style="color: #2f1a1a;">Your processed FTP workbook has been generated and downloaded.</p>
+                    <div style="background: #f8fafc; border-radius: 12px; padding: 15px; margin-top: 15px; text-align: left;">
+                        <strong style="color: #1d4ed8;">Workbook Details:</strong><br>
+                        Period: ${lastComputedRange.firstDay} to ${lastComputedRange.lastDay}<br>
+                        Source: ${lastComputedRange.fileName}<br>
+                        Format: Excel workbook with processed sheets
+                    </div>
+                </div>
+            `);
+        } catch (error) {
+            console.error('Error downloading Excel:', error);
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
+                    <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Excel Download Failed</h3>
+                    <p style="color: #632424;">${error.message}</p>
+                </div>
+            `);
+        }
+    });
 
     // Download Excel results button
     downloadExcelBtn.addEventListener('click', async () => {
