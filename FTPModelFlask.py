@@ -990,10 +990,10 @@ def upload_file():
                     gc.collect()
                     log_stage(f'Sheet {sheet}', sheet_start_time)
                     print(f"Completed: {sheet}")
-                log_stage('Write processed workbook', excel_write_start_time)
-        
-        # Store data
-                snapshot_start_time = perf_counter()
+            log_stage('Write processed workbook', excel_write_start_time)
+
+            # Store data
+            snapshot_start_time = perf_counter()
         latest_data['filename'] = file.filename
         latest_data['sheets'] = sheets_data
         latest_data['summaries'] = global_summaries
