@@ -29,6 +29,8 @@ BRANCH_MAP_DB_PATH = os.path.join(os.path.dirname(__file__), 'branch_sbu_map.db'
 LOAN_SHEETS = {'ZWG LOANS', 'FX LOANS'}
 # Disable non-loan sheet export by default to keep memory use below small-instance limits.
 INCLUDE_NON_LOAN_SHEETS = os.getenv('INCLUDE_NON_LOAN_SHEETS', '0').lower() in {'1', 'true', 'yes'}
+# Guardrail for low-memory hosts: downgrade full-workbook export if upload is too large.
+INCLUDE_WORKINGS_MAX_UPLOAD_MB = float(os.getenv('INCLUDE_WORKINGS_MAX_UPLOAD_MB', '6'))
 os.makedirs(PROCESSED_OUTPUTS_DIR, exist_ok=True)
 
 
@@ -750,7 +752,7 @@ def _fetch_upload_job(job_id):
 _ensure_upload_jobs_db()
 
 
-def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets):
+def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets, export_warning=None):
     """Background thread: process workbook and write results."""
     global latest_data
 
@@ -966,6 +968,7 @@ def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets):
         latest_data['excel_filename'] = excel_filename
         latest_data['excel_contains_workings'] = include_non_loan_sheets
         latest_data['skipped_sheet_count'] = skipped_sheet_count
+        latest_data['export_warning'] = export_warning
 
         save_latest_data_snapshot()
         log_stage('Persist snapshot', snapshot_start_time)
@@ -981,7 +984,8 @@ def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets):
                         'summary': global_summaries,
                         'period': latest_data['period'],
                         'excel_contains_workings': include_non_loan_sheets,
-                        'skipped_sheet_count': skipped_sheet_count
+                        'skipped_sheet_count': skipped_sheet_count,
+                        'export_warning': export_warning
                     })
 
     except Exception as exc:
@@ -1016,7 +1020,18 @@ def upload_file():
         return jsonify({'error': 'Filename must be: FTP Input File Month Year.xlsx'}), 400
 
     include_workings_raw = str(request.form.get('include_workings', '1')).strip().lower()
-    include_non_loan_sheets = INCLUDE_NON_LOAN_SHEETS or (include_workings_raw in {'1', 'true', 'yes', 'on'})
+    include_workings_requested = include_workings_raw in {'1', 'true', 'yes', 'on'}
+    include_non_loan_sheets = INCLUDE_NON_LOAN_SHEETS or include_workings_requested
+
+    upload_size_mb = len(file_bytes) / (1024 * 1024)
+    export_warning = None
+    if include_non_loan_sheets and not INCLUDE_NON_LOAN_SHEETS and upload_size_mb > INCLUDE_WORKINGS_MAX_UPLOAD_MB:
+        include_non_loan_sheets = False
+        export_warning = (
+            f'Include workings sheets was requested but automatically downgraded to results-only '
+            f'because the upload size ({upload_size_mb:.1f} MB) exceeds the safe limit '
+            f'({INCLUDE_WORKINGS_MAX_UPLOAD_MB:.1f} MB) for this hosting memory profile.'
+        )
 
     job_id = str(uuid.uuid4())
     now = time.time()
@@ -1035,7 +1050,7 @@ def upload_file():
 
     thread = threading.Thread(
         target=_run_ftp_job,
-        args=(job_id, file_bytes, filename, include_non_loan_sheets),
+        args=(job_id, file_bytes, filename, include_non_loan_sheets, export_warning),
         daemon=True
     )
     thread.start()

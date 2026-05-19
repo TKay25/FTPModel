@@ -2482,6 +2482,15 @@
                     </div>
                 </div>`;
 
+                if (result.export_warning) {
+                    summaryHtml += `
+                        <div style="margin-top: 14px; padding: 12px; border-radius: 10px; background: #fff7ed; border: 1px solid #fdba74; color: #9a3412;">
+                            <i class="fas fa-triangle-exclamation"></i>
+                            ${result.export_warning}
+                        </div>
+                    `;
+                }
+
                 if (!result.excel_contains_workings) {
                     summaryHtml += `
                         <div style="margin-top: 14px; padding: 12px; border-radius: 10px; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412;">
