@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, send_file
 import json
 import os
 import sqlite3
+import gc
 import pandas as pd
 import io
 import openpyxl
@@ -22,6 +23,9 @@ CURVE_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'curve_config.json')
 PROCESSED_DATA_PATH = os.path.join(os.path.dirname(__file__), 'latest_processed_data.json')
 PROCESSED_OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), 'processed_outputs')
 BRANCH_MAP_DB_PATH = os.path.join(os.path.dirname(__file__), 'branch_sbu_map.db')
+LOAN_SHEETS = {'ZWG LOANS', 'FX LOANS'}
+# Disable non-loan sheet export by default to keep memory use below small-instance limits.
+INCLUDE_NON_LOAN_SHEETS = os.getenv('INCLUDE_NON_LOAN_SHEETS', '0').lower() in {'1', 'true', 'yes'}
 os.makedirs(PROCESSED_OUTPUTS_DIR, exist_ok=True)
 
 
@@ -656,149 +660,329 @@ def upload_file():
         branch_sbu_lookup = {code: value.get('sbu', 'Unknown') for code, value in branch_sbu_map.items()}
         
         excel_write_start_time = perf_counter()
-        with pd.ExcelWriter(excel_output_path, engine='openpyxl') as writer:
-            for sheet in sheet_names:
-                print(f"Processing: {sheet}")
-                sheet_start_time = perf_counter()
-                try:
-                    df = excel_file.parse(sheet_name=sheet)
-                except Exception as e:
-                    print(f"Error: {e}")
-                    continue
+        writer_engine = 'xlsxwriter'
+        writer_kwargs = {'engine_kwargs': {'options': {'constant_memory': True}}}
+        try:
+            with pd.ExcelWriter(excel_output_path, engine=writer_engine, **writer_kwargs) as writer:
+                for sheet in sheet_names:
+                    print(f"Processing: {sheet}")
+                    sheet_start_time = perf_counter()
 
-                if sheet in ["ZWG LOANS", "FX LOANS"]:
-                    df_processed = df.copy()
-                    del df
+                    if sheet not in LOAN_SHEETS and not INCLUDE_NON_LOAN_SHEETS:
+                        sheets_data[sheet] = {
+                            'columns': [],
+                            'data': [],
+                            'shape': [0, 0],
+                            'note': 'Skipped for memory optimization (set INCLUDE_NON_LOAN_SHEETS=1 to include)'
+                        }
+                        log_stage(f'Sheet {sheet} (skipped)', sheet_start_time)
+                        print(f"Completed: {sheet} (skipped)")
+                        continue
 
-                    # Add SBU column
-                    branch_col = None
-                    for col in ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE']:
-                        if col in df_processed.columns:
-                            branch_col = col
-                            break
+                    try:
+                        df = excel_file.parse(sheet_name=sheet)
+                    except Exception as e:
+                        print(f"Error: {e}")
+                        continue
 
-                    if branch_col:
-                        df_processed[branch_col] = df_processed[branch_col].astype(str).str.strip()
-                        df_processed['SBU'] = df_processed[branch_col].map(branch_sbu_lookup).fillna('Unknown')
-                    else:
-                        df_processed['SBU'] = 'Unknown'
+                    if sheet in LOAN_SHEETS:
+                        df_processed = df
+                        del df
 
-                    # Date processing
-                    if 'BOOKING_DATE' in df_processed.columns:
-                        df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'], errors='coerce')
-                        df_processed['BOOKING_DATE'] = df_processed['BOOKING_DATE'].fillna(first_day)
+                        # Add SBU column
+                        branch_col = None
+                        for col in ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE']:
+                            if col in df_processed.columns:
+                                branch_col = col
+                                break
 
-                    if 'MATURITY_DATE' in df_processed.columns:
-                        df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'], errors='coerce')
-                        df_processed['MATURITY_DATE'] = df_processed['MATURITY_DATE'].fillna(first_day + timedelta(days=365))
+                        if branch_col:
+                            df_processed[branch_col] = df_processed[branch_col].astype(str).str.strip()
+                            df_processed['SBU'] = df_processed[branch_col].map(branch_sbu_lookup).fillna('Unknown')
+                        else:
+                            df_processed['SBU'] = 'Unknown'
 
-                    # Calculate TENOR
-                    if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
-                        df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days
-                        df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
+                        # Date processing
+                        if 'BOOKING_DATE' in df_processed.columns:
+                            df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'], errors='coerce')
+                            df_processed['BOOKING_DATE'] = df_processed['BOOKING_DATE'].fillna(first_day)
 
-                    # Calculate DimDays with vectorized date logic.
-                    first_day_ts = pd.Timestamp(first_day.date())
-                    last_day_ts = pd.Timestamp(last_day.date())
-                    booking_dates = df_processed['BOOKING_DATE']
-                    maturity_dates = df_processed['MATURITY_DATE']
+                        if 'MATURITY_DATE' in df_processed.columns:
+                            df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'], errors='coerce')
+                            df_processed['MATURITY_DATE'] = df_processed['MATURITY_DATE'].fillna(first_day + timedelta(days=365))
 
-                    full_period_days = (last_day_ts - first_day_ts).days + 1
-                    dim_days = np.where(
-                        (booking_dates <= first_day_ts) & (maturity_dates >= last_day_ts),
-                        full_period_days,
-                        np.where(
-                            (booking_dates >= first_day_ts) & (maturity_dates >= last_day_ts),
-                            (last_day_ts - booking_dates).dt.days + 1,
+                        # Calculate TENOR
+                        if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
+                            df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days
+                            df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
+
+                        # Calculate DimDays with vectorized date logic.
+                        first_day_ts = pd.Timestamp(first_day.date())
+                        last_day_ts = pd.Timestamp(last_day.date())
+                        booking_dates = df_processed['BOOKING_DATE']
+                        maturity_dates = df_processed['MATURITY_DATE']
+
+                        full_period_days = (last_day_ts - first_day_ts).days + 1
+                        dim_days = np.where(
+                            (booking_dates <= first_day_ts) & (maturity_dates >= last_day_ts),
+                            full_period_days,
                             np.where(
-                                (booking_dates >= first_day_ts) & (maturity_dates <= last_day_ts),
-                                (maturity_dates - booking_dates).dt.days,
-                                (maturity_dates - first_day_ts).dt.days
+                                (booking_dates >= first_day_ts) & (maturity_dates >= last_day_ts),
+                                (last_day_ts - booking_dates).dt.days + 1,
+                                np.where(
+                                    (booking_dates >= first_day_ts) & (maturity_dates <= last_day_ts),
+                                    (maturity_dates - booking_dates).dt.days,
+                                    (maturity_dates - first_day_ts).dt.days
+                                )
                             )
                         )
-                    )
-                    df_processed['DimDays'] = dim_days
+                        df_processed['DimDays'] = dim_days.astype(np.int32)
 
-                    # Calculate DTM and MTM
-                    df_processed['DTM'] = np.where(
-                        maturity_dates > last_day_ts,
-                        (maturity_dates - last_day_ts).dt.days,
-                        0
-                    )
-                    df_processed['MTM'] = (df_processed['DTM'] / 30).round(1)
+                        # Calculate DTM and MTM
+                        df_processed['DTM'] = np.where(
+                            maturity_dates > last_day_ts,
+                            (maturity_dates - last_day_ts).dt.days,
+                            0
+                        ).astype(np.int32)
+                        df_processed['MTM'] = (df_processed['DTM'] / 30).round(1).astype(np.float32)
 
-                    # Bucket columns
-                    bucket_labels = ['<7days', '7-14days', '14-21days', '21-30days', '30-60days', '60-90days', '90-180days', '180-270days', '270-360days', '360-720days', '720-1080days', '1080-1460days', '1460-1800days', '+1800days']
-                    for label in bucket_labels:
-                        df_processed[label] = 0
+                        # Bucket columns
+                        bucket_labels = ['<7days', '7-14days', '14-21days', '21-30days', '30-60days', '60-90days', '90-180days', '180-270days', '270-360days', '360-720days', '720-1080days', '1080-1460days', '1460-1800days', '+1800days']
 
-                    # Allocate to buckets
-                    exposure = df_processed['Currency Exposure + Currency Accrued Reporting']
-                    mtm_days = df_processed['MTM'] * 30
-                    tenors_list = [7,14,21,30,60,90,180,270,360,720,1080,1460,1800]
-                    bin_edges = [0] + tenors_list + [float('inf')]
-                    bucket_indices = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
-                    bucket_indices = bucket_indices.fillna(len(bucket_labels)-1).astype(int)
+                        # Allocate to buckets
+                        exposure = pd.to_numeric(
+                            df_processed['Currency Exposure + Currency Accrued Reporting'],
+                            errors='coerce'
+                        ).fillna(0).astype(np.float32)
+                        mtm_days = (df_processed['MTM'] * 30).astype(np.float32)
+                        tenors_list = [7,14,21,30,60,90,180,270,360,720,1080,1460,1800]
+                        bin_edges = [0] + tenors_list + [float('inf')]
+                        bucket_indices = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
+                        bucket_indices = bucket_indices.fillna(len(bucket_labels)-1).astype(int)
 
-                    bucket_values = np.zeros((len(df_processed), len(bucket_labels)), dtype=float)
-                    exposure_values = exposure.to_numpy(dtype=float, copy=False)
-                    index_values = bucket_indices.to_numpy(dtype=int, copy=False)
-                    positive_exposure_rows = np.nonzero(exposure_values > 0)[0]
-                    bucket_values[positive_exposure_rows, index_values[positive_exposure_rows]] = exposure_values[positive_exposure_rows]
-                    df_processed[bucket_labels] = bucket_values
+                        bucket_values = np.zeros((len(df_processed), len(bucket_labels)), dtype=np.float32)
+                        exposure_values = exposure.to_numpy(dtype=np.float32, copy=False)
+                        index_values = bucket_indices.to_numpy(dtype=np.int16, copy=False)
+                        positive_exposure_rows = np.nonzero(exposure_values > 0)[0]
+                        bucket_values[positive_exposure_rows, index_values[positive_exposure_rows]] = exposure_values[positive_exposure_rows]
+                        df_processed[bucket_labels] = bucket_values
 
-                    df_processed['Check'] = df_processed[bucket_labels].sum(axis=1)
+                        df_processed['Check'] = df_processed[bucket_labels].sum(axis=1).astype(np.float32)
 
-                    # FTP Charge
-                    rates = zwg_rates if sheet == "ZWG LOANS" else usd_rates
-                    rate_vector = np.array(
-                        [(rates[i] if i < len(rates) else rates[-1]) / 100 for i in range(len(bucket_labels))],
-                        dtype=float
-                    )
-                    df_processed['FTP Charge'] = df_processed[bucket_labels].to_numpy(dtype=float, copy=False) @ rate_vector
+                        # FTP Charge
+                        rates = zwg_rates if sheet == "ZWG LOANS" else usd_rates
+                        rate_vector = np.array(
+                            [(rates[i] if i < len(rates) else rates[-1]) / 100 for i in range(len(bucket_labels))],
+                            dtype=np.float32
+                        )
+                        df_processed['FTP Charge'] = (
+                            df_processed[bucket_labels].to_numpy(dtype=np.float32, copy=False) @ rate_vector
+                        ).astype(np.float32)
 
-                    # Summary
-                    currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
-                    sbu_summary = df_processed.groupby('SBU').agg({
-                        'Currency Exposure + Currency Accrued Reporting': 'sum',
-                        'FTP Charge': 'sum'
-                    }).reset_index()
+                        # Summary
+                        currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
+                        sbu_summary = df_processed.groupby('SBU').agg({
+                            'Currency Exposure + Currency Accrued Reporting': 'sum',
+                            'FTP Charge': 'sum'
+                        }).reset_index()
 
-                    global_summaries[currency][sheet] = {
-                        'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
-                        'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
-                        'by_sbu': sbu_summary.to_dict(orient='records'),
-                        'row_count': len(df_processed)
-                    }
+                        global_summaries[currency][sheet] = {
+                            'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
+                            'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
+                            'by_sbu': sbu_summary.to_dict(orient='records'),
+                            'row_count': len(df_processed)
+                        }
 
-                    # Preview
-                    preview = df_processed.head(100).copy()
-                    for col in preview.select_dtypes(include=['datetime64']).columns:
-                        preview[col] = preview[col].astype(str).replace('NaT', None)
+                        # Preview
+                        preview = df_processed.head(100).copy()
+                        for col in preview.select_dtypes(include=['datetime64']).columns:
+                            preview[col] = preview[col].astype(str).replace('NaT', None)
 
-                    sheets_data[sheet] = {
-                        'columns': df_processed.columns.tolist(),
-                        'data': preview.to_dict(orient='records'),
-                        'shape': df_processed.shape
-                    }
+                        sheets_data[sheet] = {
+                            'columns': df_processed.columns.tolist(),
+                            'data': preview.to_dict(orient='records'),
+                            'shape': df_processed.shape
+                        }
 
-                    # Persist full processed worksheet for Excel download
-                    df_processed.to_excel(writer, sheet_name=sheet[:31], index=False)
-                    del df_processed
+                        # Persist full processed worksheet for Excel download
+                        df_processed.to_excel(writer, sheet_name=sheet[:31], index=False)
+                        del df_processed
 
-                else:
-                    preview = df.head(100).copy()
-                    sheets_data[sheet] = {
-                        'columns': df.columns.tolist(),
-                        'data': preview.to_dict(orient='records'),
-                        'shape': df.shape
-                    }
-                    # Include non-loan sheets in Excel output as-is
-                    df.to_excel(writer, sheet_name=sheet[:31], index=False)
-                    del df
+                    else:
+                        preview = df.head(100).copy()
+                        sheets_data[sheet] = {
+                            'columns': df.columns.tolist(),
+                            'data': preview.to_dict(orient='records'),
+                            'shape': df.shape
+                        }
+                        # Optional: include non-loan sheets in output when explicitly enabled.
+                        df.to_excel(writer, sheet_name=sheet[:31], index=False)
+                        del df
 
+                    gc.collect()
                     log_stage(f'Sheet {sheet}', sheet_start_time)
-                print(f"Completed: {sheet}")
+                    print(f"Completed: {sheet}")
+        except ImportError:
+            # Fallback when xlsxwriter is unavailable.
+            with pd.ExcelWriter(excel_output_path, engine='openpyxl') as writer:
+                for sheet in sheet_names:
+                    print(f"Processing: {sheet}")
+                    sheet_start_time = perf_counter()
+
+                    if sheet not in LOAN_SHEETS and not INCLUDE_NON_LOAN_SHEETS:
+                        sheets_data[sheet] = {
+                            'columns': [],
+                            'data': [],
+                            'shape': [0, 0],
+                            'note': 'Skipped for memory optimization (set INCLUDE_NON_LOAN_SHEETS=1 to include)'
+                        }
+                        log_stage(f'Sheet {sheet} (skipped)', sheet_start_time)
+                        print(f"Completed: {sheet} (skipped)")
+                        continue
+
+                    try:
+                        df = excel_file.parse(sheet_name=sheet)
+                    except Exception as e:
+                        print(f"Error: {e}")
+                        continue
+
+                    if sheet in LOAN_SHEETS:
+                        df_processed = df
+                        del df
+
+                        # Add SBU column
+                        branch_col = None
+                        for col in ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE']:
+                            if col in df_processed.columns:
+                                branch_col = col
+                                break
+
+                        if branch_col:
+                            df_processed[branch_col] = df_processed[branch_col].astype(str).str.strip()
+                            df_processed['SBU'] = df_processed[branch_col].map(branch_sbu_lookup).fillna('Unknown')
+                        else:
+                            df_processed['SBU'] = 'Unknown'
+
+                        # Date processing
+                        if 'BOOKING_DATE' in df_processed.columns:
+                            df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'], errors='coerce')
+                            df_processed['BOOKING_DATE'] = df_processed['BOOKING_DATE'].fillna(first_day)
+
+                        if 'MATURITY_DATE' in df_processed.columns:
+                            df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'], errors='coerce')
+                            df_processed['MATURITY_DATE'] = df_processed['MATURITY_DATE'].fillna(first_day + timedelta(days=365))
+
+                        # Calculate TENOR
+                        if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
+                            df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days
+                            df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
+
+                        # Calculate DimDays with vectorized date logic.
+                        first_day_ts = pd.Timestamp(first_day.date())
+                        last_day_ts = pd.Timestamp(last_day.date())
+                        booking_dates = df_processed['BOOKING_DATE']
+                        maturity_dates = df_processed['MATURITY_DATE']
+
+                        full_period_days = (last_day_ts - first_day_ts).days + 1
+                        dim_days = np.where(
+                            (booking_dates <= first_day_ts) & (maturity_dates >= last_day_ts),
+                            full_period_days,
+                            np.where(
+                                (booking_dates >= first_day_ts) & (maturity_dates >= last_day_ts),
+                                (last_day_ts - booking_dates).dt.days + 1,
+                                np.where(
+                                    (booking_dates >= first_day_ts) & (maturity_dates <= last_day_ts),
+                                    (maturity_dates - booking_dates).dt.days,
+                                    (maturity_dates - first_day_ts).dt.days
+                                )
+                            )
+                        )
+                        df_processed['DimDays'] = dim_days.astype(np.int32)
+
+                        # Calculate DTM and MTM
+                        df_processed['DTM'] = np.where(
+                            maturity_dates > last_day_ts,
+                            (maturity_dates - last_day_ts).dt.days,
+                            0
+                        ).astype(np.int32)
+                        df_processed['MTM'] = (df_processed['DTM'] / 30).round(1).astype(np.float32)
+
+                        # Bucket columns
+                        bucket_labels = ['<7days', '7-14days', '14-21days', '21-30days', '30-60days', '60-90days', '90-180days', '180-270days', '270-360days', '360-720days', '720-1080days', '1080-1460days', '1460-1800days', '+1800days']
+
+                        # Allocate to buckets
+                        exposure = pd.to_numeric(
+                            df_processed['Currency Exposure + Currency Accrued Reporting'],
+                            errors='coerce'
+                        ).fillna(0).astype(np.float32)
+                        mtm_days = (df_processed['MTM'] * 30).astype(np.float32)
+                        tenors_list = [7,14,21,30,60,90,180,270,360,720,1080,1460,1800]
+                        bin_edges = [0] + tenors_list + [float('inf')]
+                        bucket_indices = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
+                        bucket_indices = bucket_indices.fillna(len(bucket_labels)-1).astype(int)
+
+                        bucket_values = np.zeros((len(df_processed), len(bucket_labels)), dtype=np.float32)
+                        exposure_values = exposure.to_numpy(dtype=np.float32, copy=False)
+                        index_values = bucket_indices.to_numpy(dtype=np.int16, copy=False)
+                        positive_exposure_rows = np.nonzero(exposure_values > 0)[0]
+                        bucket_values[positive_exposure_rows, index_values[positive_exposure_rows]] = exposure_values[positive_exposure_rows]
+                        df_processed[bucket_labels] = bucket_values
+
+                        df_processed['Check'] = df_processed[bucket_labels].sum(axis=1).astype(np.float32)
+
+                        # FTP Charge
+                        rates = zwg_rates if sheet == "ZWG LOANS" else usd_rates
+                        rate_vector = np.array(
+                            [(rates[i] if i < len(rates) else rates[-1]) / 100 for i in range(len(bucket_labels))],
+                            dtype=np.float32
+                        )
+                        df_processed['FTP Charge'] = (
+                            df_processed[bucket_labels].to_numpy(dtype=np.float32, copy=False) @ rate_vector
+                        ).astype(np.float32)
+
+                        # Summary
+                        currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
+                        sbu_summary = df_processed.groupby('SBU').agg({
+                            'Currency Exposure + Currency Accrued Reporting': 'sum',
+                            'FTP Charge': 'sum'
+                        }).reset_index()
+
+                        global_summaries[currency][sheet] = {
+                            'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
+                            'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
+                            'by_sbu': sbu_summary.to_dict(orient='records'),
+                            'row_count': len(df_processed)
+                        }
+
+                        # Preview
+                        preview = df_processed.head(100).copy()
+                        for col in preview.select_dtypes(include=['datetime64']).columns:
+                            preview[col] = preview[col].astype(str).replace('NaT', None)
+
+                        sheets_data[sheet] = {
+                            'columns': df_processed.columns.tolist(),
+                            'data': preview.to_dict(orient='records'),
+                            'shape': df_processed.shape
+                        }
+
+                        # Persist full processed worksheet for Excel download
+                        df_processed.to_excel(writer, sheet_name=sheet[:31], index=False)
+                        del df_processed
+
+                    else:
+                        preview = df.head(100).copy()
+                        sheets_data[sheet] = {
+                            'columns': df.columns.tolist(),
+                            'data': preview.to_dict(orient='records'),
+                            'shape': df.shape
+                        }
+                        # Optional: include non-loan sheets in output when explicitly enabled.
+                        df.to_excel(writer, sheet_name=sheet[:31], index=False)
+                        del df
+
+                    gc.collect()
+                    log_stage(f'Sheet {sheet}', sheet_start_time)
+                    print(f"Completed: {sheet}")
                 log_stage('Write processed workbook', excel_write_start_time)
         
         # Store data
