@@ -641,6 +641,24 @@
             color: #921f1f;
         }
 
+        .export-option {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 10px 12px;
+            margin: 8px 0 14px;
+            color: #334155;
+            font-size: 13px;
+        }
+
+        .export-option input {
+            margin-top: 2px;
+            accent-color: #1d4ed8;
+        }
+
         .date-range-display {
             background: #fff6f6;
             border-radius: 20px;
@@ -1067,7 +1085,7 @@
             <div class="preview-pane">
                 <div class="preview-header">
                     <h3><i class="fas fa-table" style="margin-right: 8px;"></i>PREVIEW PANE</h3>
-                    <span class="preview-badge">READY</span>
+                    <span class="preview-badge" id="previewBadge">READY</span>
                 </div>
                 <div class="preview-content" id="previewContent"></div>
                 <!-- Download button moved inside preview pane -->
@@ -1256,6 +1274,14 @@
                 <span style="font-size: 12px; color: #a16f6f;">Any extra worksheets are optional and will only be previewed.</span>
             </div>
 
+            <label class="export-option" for="includeWorkingsCheckbox">
+                <input type="checkbox" id="includeWorkingsCheckbox" checked>
+                <span>
+                    <strong>Include workings sheets in Excel download</strong><br>
+                    <span style="font-size: 12px; color: #64748b;">Keeps full workbook content. If hosting memory is too low, you can uncheck this for a lighter results-only export.</span>
+                </span>
+            </label>
+
             <!-- Fancy file upload area - shown when no file selected -->
             <div class="fancy-file-upload" id="fancyFileUpload">
                 <div class="fancy-file-content">
@@ -1336,6 +1362,7 @@
     const downloadExcelBtn = document.getElementById('downloadExcelBtn');
     const downloadRangeX = document.getElementById('downloadRangeX');
     const downloadRangeY = document.getElementById('downloadRangeY');
+    const previewBadge = document.getElementById('previewBadge');
 
     // Upload modal elements
     const firstDaySpan = document.getElementById('firstDay');
@@ -1347,6 +1374,7 @@
     const fileInfo = document.getElementById('fileInfo');
     const fileNameSpan = document.getElementById('fileName');
     const fileMetaSpan = document.getElementById('fileMeta');
+    const includeWorkingsCheckbox = document.getElementById('includeWorkingsCheckbox');
     const removeFileBtn = document.getElementById('removeFileBtn');
     const saveCurveBtn = document.getElementById('saveCurveBtn');
     const resetCurveBtn = document.getElementById('resetCurveBtn');
@@ -1488,6 +1516,23 @@
         dynamicDiv.setAttribute('id', 'dynamicPreviewText');
         dynamicDiv.innerHTML = htmlMessage;
         previewContent.appendChild(dynamicDiv);
+    }
+
+    function updatePreviewBadgeMode(includesWorkings, skippedSheetCount = 0) {
+        if (!previewBadge) {
+            return;
+        }
+
+        if (includesWorkings) {
+            previewBadge.textContent = 'READY · FULL EXPORT';
+            return;
+        }
+
+        if (skippedSheetCount > 0) {
+            previewBadge.textContent = `READY · RESULTS ONLY (${skippedSheetCount} skipped)`;
+        } else {
+            previewBadge.textContent = 'READY · RESULTS ONLY';
+        }
     }
 
     function showProcessingOverlay(titleText) {
@@ -1960,6 +2005,7 @@
         uploadModal.style.display = 'flex';
         modalFileInput.value = '';
         selectedFile = null;
+        includeWorkingsCheckbox.checked = true;
         updateFileUploadUI();
     });
 
@@ -2053,6 +2099,7 @@
         try {
             const formData = new FormData();
             formData.append('file', file);
+            formData.append('include_workings', includeWorkingsCheckbox.checked ? '1' : '0');
             updateProcessingOverlay(28, 'Uploading workbook');
             
             const response = await fetch('/upload', {
@@ -2077,6 +2124,7 @@
                 downloadRangeY.textContent = lastDay;
                 downloadResultsBtn.disabled = false;
                 downloadExcelBtn.disabled = false;
+                updatePreviewBadgeMode(Boolean(result.excel_contains_workings), Number(result.skipped_sheet_count || 0));
                 
                 let summaryHtml = `
                     <div style="text-align: center; padding: 10px;">
@@ -2244,6 +2292,15 @@
                         <span style="color: #5b6472; font-size: 13px;">Use PDF for the report pack and Excel for the full processed workbook.</span>
                     </div>
                 </div>`;
+
+                if (!result.excel_contains_workings) {
+                    summaryHtml += `
+                        <div style="margin-top: 14px; padding: 12px; border-radius: 10px; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412;">
+                            <i class="fas fa-info-circle"></i>
+                            Workings sheets were excluded for this run to reduce memory usage. Re-run with <strong>Include workings sheets</strong> enabled for a full workbook.
+                        </div>
+                    `;
+                }
                 
                 updatePreviewWithData(summaryHtml);
                 updateProcessingOverlay(100, 'Completed');

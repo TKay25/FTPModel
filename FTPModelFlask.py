@@ -635,6 +635,10 @@ def upload_file():
         month_num = month_map.get(month_name.lower())
         if not month_num:
             return jsonify({'error': f'Invalid month: {month_name}'}), 400
+
+        include_workings_raw = str(request.form.get('include_workings', '1')).strip().lower()
+        include_workings_requested = include_workings_raw in {'1', 'true', 'yes', 'on'}
+        include_non_loan_sheets = INCLUDE_NON_LOAN_SHEETS or include_workings_requested
         
         first_day = datetime(year, month_num, 1)
         if month_num == 12:
@@ -655,6 +659,7 @@ def upload_file():
         
         sheets_data = {}
         global_summaries = {'ZWG': {}, 'FX': {}}
+        skipped_sheet_count = 0
         
         branch_sbu_map = load_branch_sbu_map()
         branch_sbu_lookup = {code: value.get('sbu', 'Unknown') for code, value in branch_sbu_map.items()}
@@ -668,7 +673,8 @@ def upload_file():
                     print(f"Processing: {sheet}")
                     sheet_start_time = perf_counter()
 
-                    if sheet not in LOAN_SHEETS and not INCLUDE_NON_LOAN_SHEETS:
+                    if sheet not in LOAN_SHEETS and not include_non_loan_sheets:
+                        skipped_sheet_count += 1
                         sheets_data[sheet] = {
                             'columns': [],
                             'data': [],
@@ -822,14 +828,15 @@ def upload_file():
                     gc.collect()
                     log_stage(f'Sheet {sheet}', sheet_start_time)
                     print(f"Completed: {sheet}")
-        except ImportError:
+        except (ImportError, ModuleNotFoundError, ValueError):
             # Fallback when xlsxwriter is unavailable.
             with pd.ExcelWriter(excel_output_path, engine='openpyxl') as writer:
                 for sheet in sheet_names:
                     print(f"Processing: {sheet}")
                     sheet_start_time = perf_counter()
 
-                    if sheet not in LOAN_SHEETS and not INCLUDE_NON_LOAN_SHEETS:
+                    if sheet not in LOAN_SHEETS and not include_non_loan_sheets:
+                        skipped_sheet_count += 1
                         sheets_data[sheet] = {
                             'columns': [],
                             'data': [],
@@ -998,6 +1005,8 @@ def upload_file():
         }
         latest_data['excel_output_path'] = excel_output_path
         latest_data['excel_filename'] = excel_filename
+        latest_data['excel_contains_workings'] = include_non_loan_sheets
+        latest_data['skipped_sheet_count'] = skipped_sheet_count
 
         save_latest_data_snapshot()
         log_stage('Persist snapshot', snapshot_start_time)
@@ -1008,7 +1017,9 @@ def upload_file():
         return jsonify({
             'status': 'success',
             'summary': global_summaries,
-            'period': latest_data['period']
+            'period': latest_data['period'],
+            'excel_contains_workings': include_non_loan_sheets,
+            'skipped_sheet_count': skipped_sheet_count
         })
     
     except Exception as e:
