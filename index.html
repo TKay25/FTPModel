@@ -42,6 +42,13 @@
             align-items: center;
             padding: 28px;
             color: var(--text);
+            zoom: 0.85;
+        }
+
+        @supports not (zoom: 1) {
+            html {
+                font-size: 85%;
+            }
         }
 
         .app-container {
