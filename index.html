@@ -391,6 +391,23 @@
             flex-wrap: wrap;
         }
 
+        .editor-search {
+            width: 100%;
+            margin: 0 0 14px;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 12px 14px;
+            font-size: 14px;
+            color: var(--text);
+            outline: none;
+        }
+
+        .editor-search:focus {
+            border-color: #94a3b8;
+            box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.14);
+        }
+
         .curve-table-wrapper {
             max-height: 250px;
             overflow-y: auto;
@@ -1108,6 +1125,7 @@
                         </button>
                     </div>
                 </div>
+                <input type="search" id="branchMapSearch" class="editor-search" placeholder="Search branch code, unit, or SBU...">
                 <div class="curve-table-wrapper">
                     <table class="curve-table">
                         <thead>
@@ -1243,6 +1261,7 @@
     const addBranchRowBtn = document.getElementById('addBranchRowBtn');
     const saveBranchMapBtn = document.getElementById('saveBranchMapBtn');
     const resetBranchMapBtn = document.getElementById('resetBranchMapBtn');
+    const branchMapSearch = document.getElementById('branchMapSearch');
     const branchMapTableBody = document.getElementById('branchMapTableBody');
     const branchMapStatus = document.getElementById('branchMapStatus');
 
@@ -1485,6 +1504,28 @@
         });
 
         setBranchMapStatus('');
+        applyBranchMapFilter();
+    }
+
+    function applyBranchMapFilter() {
+        if (!branchMapSearch) {
+            return;
+        }
+
+        const query = branchMapSearch.value.trim().toLowerCase();
+        const tableRows = Array.from(branchMapTableBody.querySelectorAll('tr'));
+
+        tableRows.forEach((tableRow) => {
+            if (!query) {
+                tableRow.style.display = '';
+                return;
+            }
+
+            const code = tableRow.querySelector('[data-field="code"]')?.value.toLowerCase() || '';
+            const unit = tableRow.querySelector('[data-field="unit"]')?.value.toLowerCase() || '';
+            const sbu = tableRow.querySelector('[data-field="sbu"]')?.value.toLowerCase() || '';
+            tableRow.style.display = (code.includes(query) || unit.includes(query) || sbu.includes(query)) ? '' : 'none';
+        });
     }
 
     function collectBranchMapData() {
@@ -1702,7 +1743,10 @@
 
     branchMapTableBody.addEventListener('input', () => {
         setBranchMapStatus('Unsaved changes');
+        applyBranchMapFilter();
     });
+
+    branchMapSearch.addEventListener('input', applyBranchMapFilter);
 
     resetCurveBtn.addEventListener('click', () => {
         if (!currentCurveData) {
