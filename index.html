@@ -2129,6 +2129,15 @@
                     const statusResp = await fetch(`/upload/status/${jobId}`);
                     const statusJson = await parseJsonSafely(statusResp);
 
+                    if (
+                        statusResp.status === 404 ||
+                        (statusJson && statusJson.error && String(statusJson.error).toLowerCase().includes('unknown job'))
+                    ) {
+                        clearActiveFtpJob();
+                        reject(new Error('Processing session expired on server. Please start computation again.'));
+                        return;
+                    }
+
                     if (!statusResp.ok) {
                         transientPollErrors += 1;
                         if (transientPollErrors <= 6) {
@@ -2497,6 +2506,12 @@
             let userFriendlyError = error.message || 'An error occurred while processing your file';
             if (userFriendlyError.toLowerCase().includes('failed to fetch')) {
                 userFriendlyError = 'Could not reach the server. Ensure the Flask app is running, then retry the computation.';
+            } else if (
+                userFriendlyError.toLowerCase().includes('processing session expired') ||
+                userFriendlyError.toLowerCase().includes('unknown job')
+            ) {
+                clearActiveFtpJob();
+                userFriendlyError = 'This processing session is no longer available on the server. Please click Try Again to start a fresh run.';
             } else if (
                 userFriendlyError.toLowerCase().includes('unexpected end of json input') ||
                 userFriendlyError.toLowerCase().includes('malformed json') ||
