@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, send_file
 import json
 import os
+import sqlite3
 import pandas as pd
 import io
 import openpyxl
@@ -17,6 +18,246 @@ from reportlab.lib.enums import TA_CENTER
 app = Flask(__name__)
 
 CURVE_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'curve_config.json')
+PROCESSED_DATA_PATH = os.path.join(os.path.dirname(__file__), 'latest_processed_data.json')
+PROCESSED_OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), 'processed_outputs')
+BRANCH_MAP_DB_PATH = os.path.join(os.path.dirname(__file__), 'branch_sbu_map.db')
+os.makedirs(PROCESSED_OUTPUTS_DIR, exist_ok=True)
+
+
+DEFAULT_BRANCH_SBU_MAP = {
+    '0': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '11': {'unit': 'Kwame Nkrumah', 'sbu': 'Retail Banking'},
+    '12': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
+    '13': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
+    '14': {'unit': 'Kwekwe', 'sbu': 'Retail Banking'},
+    '15': {'unit': 'Chitungwiza', 'sbu': 'Retail Banking'},
+    '17': {'unit': 'Gokwe', 'sbu': 'Retail Banking'},
+    '18': {'unit': 'Gweru', 'sbu': 'Retail Banking'},
+    '20': {'unit': 'Chivhu', 'sbu': 'Retail Banking'},
+    '21': {'unit': 'Selous', 'sbu': 'Retail Banking'},
+    '23': {'unit': 'Southerton', 'sbu': 'Retail Banking'},
+    '24': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+    '25': {'unit': 'Masvingo', 'sbu': 'Retail Banking'},
+    '26': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
+    '27': {'unit': 'Cash Depot Bulawayo', 'sbu': 'Retail Banking'},
+    '28': {'unit': 'Chiredzi', 'sbu': 'Retail Banking'},
+    '29': {'unit': 'Borrowdale', 'sbu': 'Retail Banking'},
+    '30': {'unit': 'Avondale', 'sbu': 'Retail Banking'},
+    '31': {'unit': 'Chinhoyi', 'sbu': 'Retail Banking'},
+    '32': {'unit': 'Kwekwe', 'sbu': 'Retail Banking'},
+    '33': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+    '34': {'unit': 'Cash Depot Harare', 'sbu': 'Retail Banking'},
+    '35': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '36': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '37': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '38': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '39': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '40': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '41': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '43': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '44': {'unit': 'Private Sector', 'sbu': 'Corporate Banking'},
+    '45': {'unit': 'Business Banking', 'sbu': 'Corporate Banking'},
+    '46': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '47': {'unit': 'Private Sector', 'sbu': 'Corporate Banking'},
+    '48': {'unit': 'Private Sector', 'sbu': 'Corporate Banking'},
+    '49': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '50': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '51': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'},
+    '52': {'unit': 'Kwame Nkrumah', 'sbu': 'Retail Banking'},
+    '53': {'unit': 'Private Sector', 'sbu': 'Corporate Banking'},
+    '54': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '55': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '56': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '57': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '58': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '61': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '62': {'unit': '8th Avenue', 'sbu': 'Retail Banking'},
+    '65': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '66': {'unit': 'Treasury', 'sbu': 'Treasury'},
+    '67': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '68': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '69': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '70': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '87': {'unit': 'Chisipite', 'sbu': 'Retail Banking'},
+    '88': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
+    '89': {'unit': 'Highfield', 'sbu': 'Retail Banking'},
+    '90': {'unit': 'Marondera', 'sbu': 'Retail Banking'},
+    '91': {'unit': 'Chitungwiza', 'sbu': 'Retail Banking'},
+    '92': {'unit': 'Gokwe', 'sbu': 'Retail Banking'},
+    '93': {'unit': 'Beitbridge', 'sbu': 'Retail Banking'},
+    '95': {'unit': 'Kariba', 'sbu': 'Retail Banking'},
+    '96': {'unit': 'Kariba', 'sbu': 'Retail Banking'},
+    '97': {'unit': 'Karoi', 'sbu': 'Retail Banking'},
+    '98': {'unit': 'Chinhoyi', 'sbu': 'Retail Banking'},
+    '99': {'unit': 'Masvingo', 'sbu': 'Retail Banking'},
+    '100': {'unit': 'Mvurwi', 'sbu': 'Retail Banking'},
+    '101': {'unit': 'Chipinge', 'sbu': 'Retail Banking'},
+    '102': {'unit': 'Rusape', 'sbu': 'Retail Banking'},
+    '103': {'unit': 'Murehwa', 'sbu': 'Retail Banking'},
+    '104': {'unit': 'Victoria Falls', 'sbu': 'Retail Banking'},
+    '105': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '106': {'unit': 'Agribusiness', 'sbu': 'Corporate Banking'},
+    '107': {'unit': 'Institutional Banking', 'sbu': 'Corporate Banking'},
+    '108': {'unit': 'Business Banking', 'sbu': 'Corporate Banking'},
+    '109': {'unit': 'Chiredzi', 'sbu': 'Retail Banking'},
+    '110': {'unit': 'Selous', 'sbu': 'Retail Banking'},
+    '111': {'unit': 'Selous', 'sbu': 'Retail Banking'},
+    '112': {'unit': 'Mvurwi', 'sbu': 'Retail Banking'},
+    '113': {'unit': 'Custodial Services', 'sbu': 'Corporate Banking'},
+    '114': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'},
+    '115': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '116': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '117': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '118': {'unit': 'Bureau De Change Hire', 'sbu': 'Shared Services'},
+    '120': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+    '121': {'unit': 'Retail Centralised', 'sbu': 'Retail Banking'},
+    '122': {'unit': 'Mat Centre Fire Street', 'sbu': 'Retail Banking'},
+    '123': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '124': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '125': {'unit': 'Passport Centre Harare', 'sbu': 'Retail Banking'},
+    '126': {'unit': 'Virtual Branch', 'sbu': 'Retail Banking'},
+    '127': {'unit': 'Passport Centre Harare', 'sbu': 'Retail Banking'},
+    '128': {'unit': 'Passport Centre Chitungwiza', 'sbu': 'Retail Banking'},
+    '129': {'unit': 'Passport Centre Lupar', 'sbu': 'Retail Banking'},
+    '130': {'unit': 'Passport Centre Hwange', 'sbu': 'Retail Banking'},
+    '131': {'unit': 'Passport Centre Gweru', 'sbu': 'Retail Banking'},
+    '132': {'unit': 'Passport Centre Beitbridge', 'sbu': 'Retail Banking'},
+    '133': {'unit': 'Passport Centre Chinhoyi', 'sbu': 'Retail Banking'},
+    '134': {'unit': 'Passport Centre Marondera', 'sbu': 'Retail Banking'},
+    '135': {'unit': 'Passport Centre Bindura', 'sbu': 'Retail Banking'},
+    '136': {'unit': 'Passport Centre Gwe', 'sbu': 'Retail Banking'},
+    '137': {'unit': 'Passport Centre Mutare', 'sbu': 'Retail Banking'},
+    '138': {'unit': 'Passport Centre Mvurwi', 'sbu': 'Retail Banking'},
+    '139': {'unit': 'Passport Centre Zvishavane', 'sbu': 'Retail Banking'},
+    '140': {'unit': 'Passport Centre Murehwa', 'sbu': 'Retail Banking'},
+    '141': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '142': {'unit': 'Retail Centralised', 'sbu': 'Retail Banking'},
+    '143': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'},
+    '144': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'},
+    '145': {'unit': 'Borrowdale', 'sbu': 'Retail Banking'},
+    '146': {'unit': 'Passport Centre Mwer', 'sbu': 'Retail Banking'},
+    '147': {'unit': 'Passport Centre Gokwe', 'sbu': 'Retail Banking'},
+    '203': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '600': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '601': {'unit': 'Treasury', 'sbu': 'Treasury'},
+    '602': {'unit': 'Mortgage Finance', 'sbu': 'Retail Banking'},
+    '611': {'unit': 'Masvingo', 'sbu': 'Retail Banking'},
+    '612': {'unit': 'Chiredzi', 'sbu': 'Retail Banking'},
+    '613': {'unit': 'Chinhoyi', 'sbu': 'Retail Banking'},
+    '614': {'unit': 'Zvishavane', 'sbu': 'Retail Banking'},
+    '615': {'unit': 'Gweru', 'sbu': 'Retail Banking'},
+    '616': {'unit': 'Kwekwe', 'sbu': 'Retail Banking'},
+    '617': {'unit': 'Kadoma', 'sbu': 'Retail Banking'},
+    '618': {'unit': 'Kadoma', 'sbu': 'Retail Banking'},
+    '619': {'unit': 'Gokwe', 'sbu': 'Retail Banking'},
+    '629': {'unit': 'Chipinge', 'sbu': 'Retail Banking'},
+    '630': {'unit': 'Chipinge', 'sbu': 'Retail Banking'},
+    '631': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
+    '632': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
+    '633': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
+    '634': {'unit': 'Rusape', 'sbu': 'Retail Banking'},
+    '644': {'unit': '8th Avenue', 'sbu': 'Retail Banking'},
+    '645': {'unit': '8th Avenue', 'sbu': 'Retail Banking'},
+    '646': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
+    '647': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
+    '648': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
+    '649': {'unit': 'Gwanda', 'sbu': 'Retail Banking'},
+    '658': {'unit': 'Cash Depot Bulawayo', 'sbu': 'Retail Banking'},
+    '660': {'unit': 'Samora Machel', 'sbu': 'Retail Banking'},
+    '661': {'unit': 'Avondale', 'sbu': 'Retail Banking'},
+    '662': {'unit': 'Bindura', 'sbu': 'Retail Banking'},
+    '663': {'unit': 'Msasa', 'sbu': 'Retail Banking'},
+    '664': {'unit': 'Chinhoyi', 'sbu': 'Retail Banking'},
+    '665': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+    '667': {'unit': 'Karoi', 'sbu': 'Retail Banking'},
+    '668': {'unit': 'Murehwa', 'sbu': 'Retail Banking'},
+    '669': {'unit': 'Samora Machel', 'sbu': 'Retail Banking'},
+    '670': {'unit': 'Samora Machel', 'sbu': 'Retail Banking'},
+    '671': {'unit': 'Cash Depot Harare', 'sbu': 'Retail Banking'},
+    '672': {'unit': 'Kariba', 'sbu': 'Retail Banking'},
+    '681': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+    '682': {'unit': 'Chivhu', 'sbu': 'Retail Banking'},
+    '683': {'unit': 'Chitungwiza', 'sbu': 'Retail Banking'},
+    '684': {'unit': 'Chivhu', 'sbu': 'Retail Banking'},
+    '685': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
+    '686': {'unit': 'Highfield', 'sbu': 'Retail Banking'},
+    '687': {'unit': 'Marondera', 'sbu': 'Retail Banking'},
+    '688': {'unit': 'Msasa', 'sbu': 'Retail Banking'},
+    '689': {'unit': 'Msasa', 'sbu': 'Retail Banking'},
+    '690': {'unit': 'Sapphire', 'sbu': 'Retail Banking'}
+}
+
+
+def init_branch_map_db():
+    with sqlite3.connect(BRANCH_MAP_DB_PATH) as connection:
+        connection.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS branch_sbu_map (
+                branch_code TEXT PRIMARY KEY,
+                unit TEXT NOT NULL,
+                sbu TEXT NOT NULL
+            )
+            '''
+        )
+        existing_count = connection.execute('SELECT COUNT(*) FROM branch_sbu_map').fetchone()[0]
+        if existing_count < len(DEFAULT_BRANCH_SBU_MAP):
+            connection.execute('DELETE FROM branch_sbu_map')
+            connection.executemany(
+                'INSERT INTO branch_sbu_map (branch_code, unit, sbu) VALUES (?, ?, ?)',
+                [(code, data['unit'], data['sbu']) for code, data in DEFAULT_BRANCH_SBU_MAP.items()]
+            )
+        connection.commit()
+
+
+def load_branch_sbu_map():
+    init_branch_map_db()
+    with sqlite3.connect(BRANCH_MAP_DB_PATH) as connection:
+        rows = connection.execute(
+            'SELECT branch_code, unit, sbu FROM branch_sbu_map ORDER BY CAST(branch_code AS INTEGER), branch_code'
+        ).fetchall()
+    return {str(code): {'unit': unit, 'sbu': sbu} for code, unit, sbu in rows}
+
+
+def load_branch_sbu_rows():
+    init_branch_map_db()
+    with sqlite3.connect(BRANCH_MAP_DB_PATH) as connection:
+        rows = connection.execute(
+            'SELECT branch_code, unit, sbu FROM branch_sbu_map ORDER BY CAST(branch_code AS INTEGER), branch_code'
+        ).fetchall()
+    return [{'code': str(code), 'unit': unit, 'sbu': sbu} for code, unit, sbu in rows]
+
+
+def save_branch_sbu_rows(rows):
+    normalized_rows = []
+    seen_codes = set()
+
+    for row in rows:
+        code = str(row.get('code', '')).strip()
+        unit = str(row.get('unit', '')).strip()
+        sbu = str(row.get('sbu', '')).strip()
+
+        if not code or not unit or not sbu:
+            continue
+
+        if code in seen_codes:
+            continue
+
+        seen_codes.add(code)
+        normalized_rows.append((code, unit, sbu))
+
+    if not normalized_rows:
+        raise ValueError('At least one valid branch mapping is required')
+
+    with sqlite3.connect(BRANCH_MAP_DB_PATH) as connection:
+        connection.execute('DELETE FROM branch_sbu_map')
+        connection.executemany(
+            'INSERT INTO branch_sbu_map (branch_code, unit, sbu) VALUES (?, ?, ?)',
+            normalized_rows
+        )
+        connection.commit()
+
+
+init_branch_map_db()
 
 
 def load_curve_config():
@@ -70,8 +311,52 @@ latest_data = {
     'sheets': {},
     'ftp_results': None,
     'summaries': {},
-    'period': {}
+    'period': {},
+    'excel_output_path': None,
+    'excel_filename': None
 }
+
+
+def save_latest_data_snapshot():
+    def _json_default(value):
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, (datetime, timedelta)):
+            return str(value)
+        return str(value)
+
+    with open(PROCESSED_DATA_PATH, 'w', encoding='utf-8') as snapshot_file:
+        json.dump(latest_data, snapshot_file, ensure_ascii=True, default=_json_default)
+
+
+def load_latest_data_snapshot():
+    global latest_data
+
+    if not os.path.exists(PROCESSED_DATA_PATH):
+        return False
+
+    try:
+        with open(PROCESSED_DATA_PATH, 'r', encoding='utf-8') as snapshot_file:
+            snapshot = json.load(snapshot_file)
+
+        latest_data = {
+            'filename': snapshot.get('filename'),
+            'sheets': snapshot.get('sheets', {}),
+            'ftp_results': snapshot.get('ftp_results'),
+            'summaries': snapshot.get('summaries', {}),
+            'period': snapshot.get('period', {}),
+            'excel_output_path': snapshot.get('excel_output_path'),
+            'excel_filename': snapshot.get('excel_filename')
+        }
+        return True
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return False
+
+
+def ensure_latest_data_available():
+    if latest_data.get('summaries') and latest_data.get('period'):
+        return True
+    return load_latest_data_snapshot()
 
 def format_number(num):
     if num is None:
@@ -253,7 +538,7 @@ def generate_pdf_report():
 def download_pdf():
     try:
         global latest_data
-        if not latest_data.get('summaries') or not latest_data.get('period'):
+        if not ensure_latest_data_available():
             return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
         pdf_buffer = generate_pdf_report()
         month = latest_data.get('period', {}).get('month', 'Report')
@@ -262,6 +547,29 @@ def download_pdf():
         return send_file(pdf_buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
     except Exception as e:
         return jsonify({'error': f'Failed to download PDF: {str(e)}'}), 500
+
+
+@app.route('/download-excel', methods=['GET'])
+def download_excel():
+    try:
+        global latest_data
+        if not ensure_latest_data_available():
+            return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
+
+        excel_path = latest_data.get('excel_output_path')
+        excel_filename = latest_data.get('excel_filename') or 'FTP_Results.xlsx'
+
+        if not excel_path or not os.path.exists(excel_path):
+            return jsonify({'error': 'Processed Excel output is not available. Please upload the file again.'}), 404
+
+        return send_file(
+            excel_path,
+            as_attachment=True,
+            download_name=excel_filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        return jsonify({'error': f'Failed to download Excel: {str(e)}'}), 500
 
 def compute_ftp_components(deposit, loan, tenure):
     try:
@@ -320,143 +628,145 @@ def upload_file():
         excel_file = pd.ExcelFile(file)
         sheet_names = excel_file.sheet_names
         print(f"Found sheets: {sheet_names}")
+
+        output_stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        excel_filename = f"FTP_Results_{month_name}_{year}_{output_stamp}.xlsx"
+        excel_output_path = os.path.join(PROCESSED_OUTPUTS_DIR, excel_filename)
         
         sheets_data = {}
         global_summaries = {'ZWG': {}, 'FX': {}}
         
-        # Your FULL branch mapping dictionary here (keep your complete one)
-        branch_sbu_map = {
-            '106': {'unit': 'Agribusiness', 'sbu': 'Corporate Banking'},
-            '108': {'unit': 'Business Banking', 'sbu': 'Corporate Banking'},
-            '47': {'unit': 'Private Sector', 'sbu': 'Corporate Banking'},
-            '11': {'unit': 'Kwame Nkrumah', 'sbu': 'Retail Banking'},
-            '12': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
-            # ... ADD YOUR FULL MAPPING HERE (all 200+ entries)
-        }
+        branch_sbu_map = load_branch_sbu_map()
         
-        for sheet in sheet_names:
-            print(f"Processing: {sheet}")
-            try:
-                df = pd.read_excel(file, sheet_name=sheet)
-            except Exception as e:
-                print(f"Error: {e}")
-                continue
-            
-            if sheet in ["ZWG LOANS", "FX LOANS"]:
-                df_processed = df.copy()
-                del df
-                
-                # Add SBU column
-                branch_col = None
-                for col in ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE']:
-                    if col in df_processed.columns:
-                        branch_col = col
-                        break
-                
-                if branch_col:
-                    df_processed[branch_col] = df_processed[branch_col].astype(str).str.strip()
-                    branch_info = df_processed[branch_col].map(branch_sbu_map)
-                    df_processed['SBU'] = branch_info.apply(lambda x: x['sbu'] if isinstance(x, dict) else 'Unknown')
-                else:
-                    df_processed['SBU'] = 'Unknown'
-                
-                # Date processing
-                if 'BOOKING_DATE' in df_processed.columns:
-                    df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'], errors='coerce')
-                    df_processed['BOOKING_DATE'] = df_processed['BOOKING_DATE'].fillna(first_day)
-                
-                if 'MATURITY_DATE' in df_processed.columns:
-                    df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'], errors='coerce')
-                    df_processed['MATURITY_DATE'] = df_processed['MATURITY_DATE'].fillna(first_day + timedelta(days=365))
-                
-                # Calculate TENOR
-                if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
-                    df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days
-                    df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
-                
-                # Calculate DimDays
-                def calc_days(row):
-                    bd = row['BOOKING_DATE'].date() if hasattr(row['BOOKING_DATE'], 'date') else row['BOOKING_DATE']
-                    md = row['MATURITY_DATE'].date() if hasattr(row['MATURITY_DATE'], 'date') else row['MATURITY_DATE']
-                    if bd <= first_day.date() and md >= last_day.date():
-                        return (last_day.date() - first_day.date()).days + 1
-                    elif bd >= first_day.date() and md >= last_day.date():
-                        return (last_day.date() - bd).days + 1
-                    elif bd >= first_day.date() and md <= last_day.date():
-                        return (md - bd).days
+        with pd.ExcelWriter(excel_output_path, engine='openpyxl') as writer:
+            for sheet in sheet_names:
+                print(f"Processing: {sheet}")
+                try:
+                    df = excel_file.parse(sheet_name=sheet)
+                except Exception as e:
+                    print(f"Error: {e}")
+                    continue
+
+                if sheet in ["ZWG LOANS", "FX LOANS"]:
+                    df_processed = df.copy()
+                    del df
+
+                    # Add SBU column
+                    branch_col = None
+                    for col in ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE']:
+                        if col in df_processed.columns:
+                            branch_col = col
+                            break
+
+                    if branch_col:
+                        df_processed[branch_col] = df_processed[branch_col].astype(str).str.strip()
+                        branch_info = df_processed[branch_col].map(branch_sbu_map)
+                        df_processed['SBU'] = branch_info.apply(lambda x: x['sbu'] if isinstance(x, dict) else 'Unknown')
                     else:
-                        return (md - first_day.date()).days
-                
-                df_processed['DimDays'] = df_processed.apply(calc_days, axis=1)
-                
-                # Calculate DTM and MTM
-                last_day_ts = pd.Timestamp(last_day.date())
-                df_processed['DTM'] = df_processed.apply(lambda r: (r['MATURITY_DATE'] - last_day_ts).days if r['MATURITY_DATE'] > last_day_ts else 0, axis=1)
-                df_processed['MTM'] = (df_processed['DTM'] / 30).round(1)
-                
-                # Bucket columns
-                bucket_labels = ['<7days', '7-14days', '14-21days', '21-30days', '30-60days', '60-90days', '90-180days', '180-270days', '270-360days', '360-720days', '720-1080days', '1080-1460days', '1460-1800days', '+1800days']
-                for label in bucket_labels:
-                    df_processed[label] = 0
-                
-                # Allocate to buckets
-                exposure = df_processed['Currency Exposure + Currency Accrued Reporting']
-                mtm_days = df_processed['MTM'] * 30
-                tenors_list = [7,14,21,30,60,90,180,270,360,720,1080,1460,1800]
-                bin_edges = [0] + tenors_list + [float('inf')]
-                bucket_indices = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
-                bucket_indices = bucket_indices.fillna(len(bucket_labels)-1).astype(int)
-                
-                for i, label in enumerate(bucket_labels):
-                    mask = (bucket_indices == i) & (exposure > 0)
-                    df_processed.loc[mask, label] = exposure.loc[mask]
-                
-                df_processed['Check'] = df_processed[bucket_labels].sum(axis=1)
-                
-                # FTP Charge
-                rates = zwg_rates if sheet == "ZWG LOANS" else usd_rates
-                rate_array = np.zeros(len(df_processed))
-                for i, label in enumerate(bucket_labels):
-                    rate = rates[i] if i < len(rates) else rates[-1]
-                    rate_array += df_processed[label] * (rate / 100)
-                df_processed['FTP Charge'] = rate_array
-                
-                # Summary
-                currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
-                sbu_summary = df_processed.groupby('SBU').agg({
-                    'Currency Exposure + Currency Accrued Reporting': 'sum',
-                    'FTP Charge': 'sum'
-                }).reset_index()
-                
-                global_summaries[currency][sheet] = {
-                    'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
-                    'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
-                    'by_sbu': sbu_summary.to_dict(orient='records'),
-                    'row_count': len(df_processed)
-                }
-                
-                # Preview
-                preview = df_processed.head(100).copy()
-                for col in preview.select_dtypes(include=['datetime64']).columns:
-                    preview[col] = preview[col].astype(str).replace('NaT', None)
-                
-                sheets_data[sheet] = {
-                    'columns': df_processed.columns.tolist(),
-                    'data': preview.to_dict(orient='records'),
-                    'shape': df_processed.shape
-                }
-                del df_processed
-                
-            else:
-                preview = df.head(100).copy()
-                sheets_data[sheet] = {
-                    'columns': df.columns.tolist(),
-                    'data': preview.to_dict(orient='records'),
-                    'shape': df.shape
-                }
-                del df
-            
-            print(f"Completed: {sheet}")
+                        df_processed['SBU'] = 'Unknown'
+
+                    # Date processing
+                    if 'BOOKING_DATE' in df_processed.columns:
+                        df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'], errors='coerce')
+                        df_processed['BOOKING_DATE'] = df_processed['BOOKING_DATE'].fillna(first_day)
+
+                    if 'MATURITY_DATE' in df_processed.columns:
+                        df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'], errors='coerce')
+                        df_processed['MATURITY_DATE'] = df_processed['MATURITY_DATE'].fillna(first_day + timedelta(days=365))
+
+                    # Calculate TENOR
+                    if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
+                        df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days
+                        df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
+
+                    # Calculate DimDays
+                    def calc_days(row):
+                        bd = row['BOOKING_DATE'].date() if hasattr(row['BOOKING_DATE'], 'date') else row['BOOKING_DATE']
+                        md = row['MATURITY_DATE'].date() if hasattr(row['MATURITY_DATE'], 'date') else row['MATURITY_DATE']
+                        if bd <= first_day.date() and md >= last_day.date():
+                            return (last_day.date() - first_day.date()).days + 1
+                        elif bd >= first_day.date() and md >= last_day.date():
+                            return (last_day.date() - bd).days + 1
+                        elif bd >= first_day.date() and md <= last_day.date():
+                            return (md - bd).days
+                        else:
+                            return (md - first_day.date()).days
+
+                    df_processed['DimDays'] = df_processed.apply(calc_days, axis=1)
+
+                    # Calculate DTM and MTM
+                    last_day_ts = pd.Timestamp(last_day.date())
+                    df_processed['DTM'] = df_processed.apply(lambda r: (r['MATURITY_DATE'] - last_day_ts).days if r['MATURITY_DATE'] > last_day_ts else 0, axis=1)
+                    df_processed['MTM'] = (df_processed['DTM'] / 30).round(1)
+
+                    # Bucket columns
+                    bucket_labels = ['<7days', '7-14days', '14-21days', '21-30days', '30-60days', '60-90days', '90-180days', '180-270days', '270-360days', '360-720days', '720-1080days', '1080-1460days', '1460-1800days', '+1800days']
+                    for label in bucket_labels:
+                        df_processed[label] = 0
+
+                    # Allocate to buckets
+                    exposure = df_processed['Currency Exposure + Currency Accrued Reporting']
+                    mtm_days = df_processed['MTM'] * 30
+                    tenors_list = [7,14,21,30,60,90,180,270,360,720,1080,1460,1800]
+                    bin_edges = [0] + tenors_list + [float('inf')]
+                    bucket_indices = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
+                    bucket_indices = bucket_indices.fillna(len(bucket_labels)-1).astype(int)
+
+                    for i, label in enumerate(bucket_labels):
+                        mask = (bucket_indices == i) & (exposure > 0)
+                        df_processed.loc[mask, label] = exposure.loc[mask]
+
+                    df_processed['Check'] = df_processed[bucket_labels].sum(axis=1)
+
+                    # FTP Charge
+                    rates = zwg_rates if sheet == "ZWG LOANS" else usd_rates
+                    rate_array = np.zeros(len(df_processed))
+                    for i, label in enumerate(bucket_labels):
+                        rate = rates[i] if i < len(rates) else rates[-1]
+                        rate_array += df_processed[label] * (rate / 100)
+                    df_processed['FTP Charge'] = rate_array
+
+                    # Summary
+                    currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
+                    sbu_summary = df_processed.groupby('SBU').agg({
+                        'Currency Exposure + Currency Accrued Reporting': 'sum',
+                        'FTP Charge': 'sum'
+                    }).reset_index()
+
+                    global_summaries[currency][sheet] = {
+                        'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
+                        'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
+                        'by_sbu': sbu_summary.to_dict(orient='records'),
+                        'row_count': len(df_processed)
+                    }
+
+                    # Preview
+                    preview = df_processed.head(100).copy()
+                    for col in preview.select_dtypes(include=['datetime64']).columns:
+                        preview[col] = preview[col].astype(str).replace('NaT', None)
+
+                    sheets_data[sheet] = {
+                        'columns': df_processed.columns.tolist(),
+                        'data': preview.to_dict(orient='records'),
+                        'shape': df_processed.shape
+                    }
+
+                    # Persist full processed worksheet for Excel download
+                    df_processed.to_excel(writer, sheet_name=sheet[:31], index=False)
+                    del df_processed
+
+                else:
+                    preview = df.head(100).copy()
+                    sheets_data[sheet] = {
+                        'columns': df.columns.tolist(),
+                        'data': preview.to_dict(orient='records'),
+                        'shape': df.shape
+                    }
+                    # Include non-loan sheets in Excel output as-is
+                    df.to_excel(writer, sheet_name=sheet[:31], index=False)
+                    del df
+
+                print(f"Completed: {sheet}")
         
         # Store data
         latest_data['filename'] = file.filename
@@ -468,6 +778,10 @@ def upload_file():
             'month': month_name,
             'year': year
         }
+        latest_data['excel_output_path'] = excel_output_path
+        latest_data['excel_filename'] = excel_filename
+
+        save_latest_data_snapshot()
         
         print(f"✅ Stored summaries: {list(global_summaries.keys())}")
         
@@ -548,9 +862,34 @@ def update_ftp_curve_data():
         'usd': {'name': 'USD FTP Curve', 'rates': usd_rates, 'color': '#2563eb', 'borderColor': '#1d4ed8'}
     })
 
+
+@app.route('/branch-sbu-map', methods=['GET'])
+def get_branch_sbu_map():
+    try:
+        return jsonify({'status': 'success', 'mappings': load_branch_sbu_rows()})
+    except Exception as e:
+        return jsonify({'error': f'Failed to load branch mappings: {str(e)}'}), 500
+
+
+@app.route('/branch-sbu-map', methods=['POST'])
+def update_branch_sbu_map():
+    payload = request.get_json(silent=True) or {}
+    mappings = payload.get('mappings')
+
+    if not isinstance(mappings, list):
+        return jsonify({'error': 'mappings must be an array'}), 400
+
+    try:
+        save_branch_sbu_rows(mappings)
+        return jsonify({'status': 'success', 'mappings': load_branch_sbu_rows()})
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': f'Failed to save branch mappings: {str(e)}'}), 500
+
 @app.route('/get-preview', methods=['GET'])
 def get_preview():
-    if latest_data['sheets']:
+    if latest_data['sheets'] or load_latest_data_snapshot():
         return jsonify({'filename': latest_data['filename'], 'sheets': latest_data['sheets']})
     return jsonify({'message': 'No data uploaded yet'}), 404
 

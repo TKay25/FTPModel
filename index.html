@@ -957,6 +957,9 @@
                     <button class="btn-download" id="viewCurveBtn">
                         <i class="fas fa-chart-line"></i> View FTP Curve
                     </button>
+                    <button class="btn-download" id="openBranchMapBtn">
+                        <i class="fas fa-sitemap"></i> Edit Branch Map
+                    </button>
                 </div>
 
                 <div style="margin-top: 32px; color: #b58b8b; font-size: 13px; border-left: 3px solid #d99; padding-left: 16px;">
@@ -973,7 +976,10 @@
                 <div class="preview-content" id="previewContent"></div>
                 <!-- Download button moved inside preview pane -->
                 <button class="preview-download-btn" id="downloadResultsBtn" disabled>
-                    <i class="fas fa-download"></i> Download Monthly FTP Results for <span id="downloadRangeX">—</span> to <span id="downloadRangeY">—</span>
+                    <i class="fas fa-file-pdf"></i> Download PDF Report for <span id="downloadRangeX">—</span> to <span id="downloadRangeY">—</span>
+                </button>
+                <button class="preview-download-btn" id="downloadExcelBtn" disabled style="margin-top: 10px; border-color: #1d4ed8; color: #1d4ed8;">
+                    <i class="fas fa-file-excel"></i> Download Excel Results (.xlsx)
                 </button>
             </div>
         </div>
@@ -1087,7 +1093,41 @@
         </div>
     </div>
 
-    <!-- MODAL 3: Upload XLSX - Month/year extracted from filename -->
+    <!-- MODAL 3: Edit branch mapping -->
+    <div class="modal" id="branchMapModal">
+        <div class="modal-card large-modal">
+            <h2><i class="fas fa-sitemap"></i> BRANCH MAP · CODE TO SBU</h2>
+            <div class="curve-editor">
+                <div class="curve-editor-header">
+                    <h3>Edit branch mapping</h3>
+                    <div class="curve-editor-actions">
+                        <button class="secondary-btn" id="resetBranchMapBtn" type="button">Reset</button>
+                        <button class="secondary-btn" id="addBranchRowBtn" type="button">Add Row</button>
+                        <button class="calculate-btn" id="saveBranchMapBtn" type="button" style="margin: 0; width: auto; padding: 12px 24px; font-size: 16px;">
+                            <i class="fas fa-save"></i> Save Map
+                        </button>
+                    </div>
+                </div>
+                <div class="curve-table-wrapper">
+                    <table class="curve-table">
+                        <thead>
+                            <tr>
+                                <th>Branch Code</th>
+                                <th>Unit</th>
+                                <th>SBU</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="branchMapTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="curve-status" id="branchMapStatus"></div>
+            </div>
+            <button class="close-modal" id="closeBranchMapModalBtn">Close</button>
+        </div>
+    </div>
+
+    <!-- MODAL 4: Upload XLSX - Month/year extracted from filename -->
     <div class="modal" id="uploadModal">
         <div class="modal-card upload-modal">
             <h2><i class="fas fa-file-excel"></i> UPLOAD FTP INPUT WORKBOOK</h2>
@@ -1150,6 +1190,7 @@
     const modal = document.getElementById('ftpModal');
     const curveModal = document.getElementById('curveModal');
     const uploadModal = document.getElementById('uploadModal');
+    const branchMapModal = document.getElementById('branchMapModal');
     
     const openModalBtn = document.getElementById('openFtpModalBtn');
     const openUploadModalBtn = document.getElementById('openUploadModalBtn');
@@ -1157,8 +1198,10 @@
     const closeModalBtn = document.getElementById('closeModalBtn');
     const closeCurveBtn = document.getElementById('closeCurveModalBtn');
     const closeUploadModalBtn = document.getElementById('closeUploadModalBtn');
+    const closeBranchMapModalBtn = document.getElementById('closeBranchMapModalBtn');
     
     const viewCurveBtn = document.getElementById('viewCurveBtn');
+    const openBranchMapBtn = document.getElementById('openBranchMapBtn');
     
     const calculateBtn = document.getElementById('calculateFtpBtn');
     const computeRangeBtn = document.getElementById('computeFtpRangeBtn');
@@ -1178,6 +1221,7 @@
 
     const previewContent = document.getElementById('previewContent');
     const downloadResultsBtn = document.getElementById('downloadResultsBtn');
+    const downloadExcelBtn = document.getElementById('downloadExcelBtn');
     const downloadRangeX = document.getElementById('downloadRangeX');
     const downloadRangeY = document.getElementById('downloadRangeY');
 
@@ -1196,12 +1240,18 @@
     const resetCurveBtn = document.getElementById('resetCurveBtn');
     const curveTableBody = document.getElementById('curveTableBody');
     const curveStatus = document.getElementById('curveStatus');
+    const addBranchRowBtn = document.getElementById('addBranchRowBtn');
+    const saveBranchMapBtn = document.getElementById('saveBranchMapBtn');
+    const resetBranchMapBtn = document.getElementById('resetBranchMapBtn');
+    const branchMapTableBody = document.getElementById('branchMapTableBody');
+    const branchMapStatus = document.getElementById('branchMapStatus');
 
     // Chart instance variable
     let ftpChart = null;
     let selectedFile = null;
     let lastComputedRange = { firstDay: null, lastDay: null, fileName: null, summary: null, period: null };
     let currentCurveData = null;
+    let currentBranchMapData = [];
 
     // Helper function to format large numbers
     function formatNumber(num) {
@@ -1329,6 +1379,14 @@
         }
     }
 
+    function setBranchMapStatus(message, type = '') {
+        branchMapStatus.textContent = message;
+        branchMapStatus.className = 'curve-status';
+        if (type) {
+            branchMapStatus.classList.add(type);
+        }
+    }
+
     function renderCurveEditor(curveData) {
         curveTableBody.innerHTML = '';
         curveData.tenors.forEach((tenor, index) => {
@@ -1404,6 +1462,90 @@
         };
     }
 
+    function normalizeBranchMapRow(row) {
+        return {
+            code: String(row.code ?? row.branch_code ?? '').trim(),
+            unit: String(row.unit ?? '').trim(),
+            sbu: String(row.sbu ?? '').trim()
+        };
+    }
+
+    function renderBranchMapEditor(rows) {
+        branchMapTableBody.innerHTML = '';
+
+        rows.forEach((row, index) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="text" value="${row.code}" data-field="code" data-index="${index}" placeholder="106"></td>
+                <td><input type="text" value="${row.unit}" data-field="unit" data-index="${index}" placeholder="Agribusiness"></td>
+                <td><input type="text" value="${row.sbu}" data-field="sbu" data-index="${index}" placeholder="Corporate Banking"></td>
+                <td><button type="button" class="secondary-btn" data-action="remove-branch-row" data-index="${index}">Remove</button></td>
+            `;
+            branchMapTableBody.appendChild(tr);
+        });
+
+        setBranchMapStatus('');
+    }
+
+    function collectBranchMapData() {
+        const rows = [];
+        const tableRows = Array.from(branchMapTableBody.querySelectorAll('tr'));
+
+        tableRows.forEach((tableRow) => {
+            const codeInput = tableRow.querySelector('[data-field="code"]');
+            const unitInput = tableRow.querySelector('[data-field="unit"]');
+            const sbuInput = tableRow.querySelector('[data-field="sbu"]');
+
+            const row = normalizeBranchMapRow({
+                code: codeInput.value,
+                unit: unitInput.value,
+                sbu: sbuInput.value
+            });
+
+            if (row.code || row.unit || row.sbu) {
+                rows.push(row);
+            }
+        });
+
+        return rows;
+    }
+
+    function validateBranchMapData(rows) {
+        if (!rows.length) {
+            return 'Add at least one branch mapping before saving';
+        }
+
+        const seenCodes = new Set();
+        for (const row of rows) {
+            if (!row.code || !row.unit || !row.sbu) {
+                return 'Each branch row must have code, unit, and SBU';
+            }
+
+            if (seenCodes.has(row.code)) {
+                return `Duplicate branch code found: ${row.code}`;
+            }
+
+            seenCodes.add(row.code);
+        }
+
+        return null;
+    }
+
+    async function fetchBranchMapData() {
+        try {
+            const response = await fetch('/branch-sbu-map');
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Unable to load branch mappings');
+            }
+            return data.mappings || [];
+        } catch (error) {
+            console.error('Error fetching branch mappings:', error);
+            setBranchMapStatus(error.message || 'Unable to load branch mappings', 'error');
+            return null;
+        }
+    }
+
     // Modal 1 controls (Singular FTP)
     openModalBtn.addEventListener('click', () => {
         modal.style.display = 'flex';
@@ -1458,6 +1600,97 @@
             await initChart(curveData);
         }
         chartCanvas.style.opacity = '1';
+    });
+
+    openBranchMapBtn.addEventListener('click', async () => {
+        branchMapModal.style.display = 'flex';
+        const mappings = await fetchBranchMapData();
+        if (mappings) {
+            currentBranchMapData = mappings.map(normalizeBranchMapRow);
+            renderBranchMapEditor(currentBranchMapData);
+        }
+    });
+
+    closeBranchMapModalBtn.addEventListener('click', () => {
+        branchMapModal.style.display = 'none';
+    });
+
+    branchMapModal.addEventListener('click', (e) => {
+        if (e.target === branchMapModal) {
+            branchMapModal.style.display = 'none';
+        }
+    });
+
+    addBranchRowBtn.addEventListener('click', () => {
+        currentBranchMapData = collectBranchMapData();
+        currentBranchMapData.push({ code: '', unit: '', sbu: '' });
+        renderBranchMapEditor(currentBranchMapData);
+    });
+
+    resetBranchMapBtn.addEventListener('click', async () => {
+        const mappings = await fetchBranchMapData();
+        if (mappings) {
+            currentBranchMapData = mappings.map(normalizeBranchMapRow);
+            renderBranchMapEditor(currentBranchMapData);
+            setBranchMapStatus('Branch map reset to the last saved version.');
+        }
+    });
+
+    saveBranchMapBtn.addEventListener('click', async () => {
+        const mappings = collectBranchMapData();
+        const validationError = validateBranchMapData(mappings);
+
+        if (validationError) {
+            setBranchMapStatus(validationError, 'error');
+            return;
+        }
+
+        saveBranchMapBtn.disabled = true;
+        resetBranchMapBtn.disabled = true;
+        addBranchRowBtn.disabled = true;
+        setBranchMapStatus('Saving branch map...');
+
+        try {
+            const response = await fetch('/branch-sbu-map', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ mappings })
+            });
+
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'Unable to save branch map');
+            }
+
+            currentBranchMapData = result.mappings || mappings;
+            renderBranchMapEditor(currentBranchMapData.map(normalizeBranchMapRow));
+            setBranchMapStatus('Branch map saved successfully.', 'success');
+        } catch (error) {
+            console.error('Error saving branch map:', error);
+            setBranchMapStatus(error.message || 'Unable to save branch map', 'error');
+        } finally {
+            saveBranchMapBtn.disabled = false;
+            resetBranchMapBtn.disabled = false;
+            addBranchRowBtn.disabled = false;
+        }
+    });
+
+    branchMapTableBody.addEventListener('click', (e) => {
+        const removeButton = e.target.closest('[data-action="remove-branch-row"]');
+        if (!removeButton) {
+            return;
+        }
+
+        const rowIndex = Number(removeButton.getAttribute('data-index'));
+        currentBranchMapData = collectBranchMapData();
+        currentBranchMapData.splice(rowIndex, 1);
+        renderBranchMapEditor(currentBranchMapData);
+    });
+
+    branchMapTableBody.addEventListener('input', () => {
+        setBranchMapStatus('Unsaved changes');
     });
 
     resetCurveBtn.addEventListener('click', () => {
@@ -1639,6 +1872,7 @@
                 downloadRangeX.textContent = firstDay;
                 downloadRangeY.textContent = lastDay;
                 downloadResultsBtn.disabled = false;
+                downloadExcelBtn.disabled = false;
                 
                 let summaryHtml = `
                     <div style="text-align: center; padding: 10px;">
@@ -1832,9 +2066,39 @@
         }
     });
 
-    // Download FTP Results button
+    async function downloadFile(endpoint, formatLabel) {
+        const response = await fetch(endpoint, { method: 'GET' });
 
-downloadResultsBtn.addEventListener('click', async () => {
+        if (!response.ok) {
+            let errorMessage = `Failed to download ${formatLabel}`;
+            try {
+                const errorPayload = await response.json();
+                if (errorPayload && errorPayload.error) {
+                    errorMessage = errorPayload.error;
+                }
+            } catch (parseError) {
+                // keep fallback error message
+            }
+            throw new Error(errorMessage);
+        }
+
+        const blob = await response.blob();
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const filenameMatch = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+        const filename = decodeURIComponent((filenameMatch && (filenameMatch[1] || filenameMatch[2])) || `ftp_results.${formatLabel}`);
+
+        const url = window.URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.URL.revokeObjectURL(url);
+    }
+
+    // Download PDF results button
+    downloadResultsBtn.addEventListener('click', async () => {
     if (!lastComputedRange.firstDay || !lastComputedRange.summary) {
         alert('Please compute FTP range first');
         return;
@@ -1850,8 +2114,7 @@ downloadResultsBtn.addEventListener('click', async () => {
     `);
     
     try {
-        // Call the PDF download endpoint
-        window.location.href = '/download-pdf';
+        await downloadFile('/download-pdf', 'pdf');
         
         // Update preview with success message
         updatePreviewWithData(`
@@ -1880,6 +2143,50 @@ downloadResultsBtn.addEventListener('click', async () => {
         `);
     }
 });
+
+    // Download Excel results button
+    downloadExcelBtn.addEventListener('click', async () => {
+        if (!lastComputedRange.firstDay || !lastComputedRange.summary) {
+            alert('Please compute FTP range first');
+            return;
+        }
+
+        updatePreviewWithData(`
+            <div style="text-align: center; padding: 20px;">
+                <i class="fas fa-spinner fa-pulse" style="font-size: 48px; color: #1d4ed8; margin-bottom: 20px;"></i>
+                <h3 style="color: #1d4ed8; margin-bottom: 10px;">Preparing Excel Results...</h3>
+                <p style="color: #64748b;">Please wait while we prepare your processed workbook</p>
+            </div>
+        `);
+
+        try {
+            await downloadFile('/download-excel', 'xlsx');
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 10px;">
+                    <i class="fas fa-file-excel" style="font-size: 48px; color: #16a34a; margin-bottom: 15px;"></i>
+                    <h3 style="color: #16a34a; margin-bottom: 10px;">✓ Excel Results Downloaded</h3>
+                    <p style="color: #1f2937;">Your processed workbook has been downloaded.</p>
+                    <div style="background: #f8fafc; border-radius: 12px; padding: 15px; margin-top: 15px; text-align: left;">
+                        <strong style="color: #1d4ed8;">Workbook Details:</strong><br>
+                        Period: ${lastComputedRange.firstDay} to ${lastComputedRange.lastDay}<br>
+                        Source: ${lastComputedRange.fileName}<br>
+                        Format: XLSX
+                    </div>
+                </div>
+            `);
+        } catch (error) {
+            console.error('Error downloading Excel:', error);
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
+                    <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Download Failed</h3>
+                    <p style="color: #632424;">${error.message}</p>
+                </div>
+            `);
+        }
+    });
 
     function computeFtpComponents(deposit, loan, tenure, currency) {
         const d = parseFloat(deposit) || 0;
