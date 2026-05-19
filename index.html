@@ -362,6 +362,11 @@
             max-width: 90vw;
         }
 
+        .modal-card.branch-map-modal {
+            width: 1100px;
+            max-width: 96vw;
+        }
+
         .curve-editor {
             margin-top: 22px;
             background: #fafbfc;
@@ -414,6 +419,10 @@
             border-radius: 14px;
             border: 1px solid var(--border);
             background: #ffffff;
+        }
+
+        .branch-map-table-wrapper {
+            max-height: 480px;
         }
 
         .curve-table {
@@ -1112,7 +1121,7 @@
 
     <!-- MODAL 3: Edit branch mapping -->
     <div class="modal" id="branchMapModal">
-        <div class="modal-card large-modal">
+        <div class="modal-card large-modal branch-map-modal">
             <h2><i class="fas fa-sitemap"></i> BRANCH MAP · CODE TO SBU</h2>
             <div class="curve-editor">
                 <div class="curve-editor-header">
@@ -1127,7 +1136,7 @@
                 </div>
                 <input type="search" id="branchMapSearch" class="editor-search" placeholder="Search branch code, unit, or SBU...">
                 <div class="curve-status" id="branchMapCount">Showing 0 rows</div>
-                <div class="curve-table-wrapper">
+                <div class="curve-table-wrapper branch-map-table-wrapper">
                     <table class="curve-table">
                         <thead>
                             <tr>
