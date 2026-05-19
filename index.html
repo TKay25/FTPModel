@@ -45,6 +45,13 @@
             zoom: 0.6;
         }
 
+        body.app-busy .app-container {
+            filter: blur(6px);
+            transform: scale(0.995);
+            pointer-events: none;
+            user-select: none;
+        }
+
         @supports not (zoom: 1) {
             html {
                 font-size: 60%;
@@ -945,6 +952,69 @@
             padding: 12px 30px;
             font-size: 16px;
         }
+
+        .processing-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 2000;
+            background: rgba(15, 23, 42, 0.28);
+            backdrop-filter: blur(3px);
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .processing-overlay.show {
+            display: flex;
+        }
+
+        .processing-card {
+            width: 520px;
+            max-width: 96vw;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 22px;
+            box-shadow: 0 24px 48px rgba(15, 23, 42, 0.24);
+        }
+
+        .processing-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 8px;
+        }
+
+        .processing-subtitle {
+            font-size: 13px;
+            color: #5b6472;
+            margin-bottom: 14px;
+        }
+
+        .processing-track {
+            width: 100%;
+            height: 10px;
+            border-radius: 999px;
+            background: #e2e8f0;
+            overflow: hidden;
+            border: 1px solid #cbd5e1;
+        }
+
+        .processing-fill {
+            height: 100%;
+            width: 0%;
+            background: #1d4ed8;
+            transition: width 0.35s ease;
+        }
+
+        .processing-meta {
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #475569;
+        }
     </style>
 </head>
 <body>
@@ -1012,6 +1082,20 @@
 
         <div class="footer-note">
             <i class="fas fa-lock-open" style="color:#a16666;"></i>  transparent environment · FTP v.1.1.1
+        </div>
+    </div>
+
+    <div class="processing-overlay" id="processingOverlay" aria-hidden="true">
+        <div class="processing-card">
+            <div class="processing-title" id="processingTitle">Computing FTP...</div>
+            <div class="processing-subtitle" id="processingStage">Preparing upload</div>
+            <div class="processing-track">
+                <div class="processing-fill" id="processingFill"></div>
+            </div>
+            <div class="processing-meta">
+                <span id="processingPercent">0%</span>
+                <span>Please do not close this window</span>
+            </div>
         </div>
     </div>
 
@@ -1275,6 +1359,11 @@
     const branchMapCount = document.getElementById('branchMapCount');
     const branchMapTableBody = document.getElementById('branchMapTableBody');
     const branchMapStatus = document.getElementById('branchMapStatus');
+    const processingOverlay = document.getElementById('processingOverlay');
+    const processingTitle = document.getElementById('processingTitle');
+    const processingStage = document.getElementById('processingStage');
+    const processingFill = document.getElementById('processingFill');
+    const processingPercent = document.getElementById('processingPercent');
 
     // Chart instance variable
     let ftpChart = null;
@@ -1399,6 +1488,29 @@
         dynamicDiv.setAttribute('id', 'dynamicPreviewText');
         dynamicDiv.innerHTML = htmlMessage;
         previewContent.appendChild(dynamicDiv);
+    }
+
+    function showProcessingOverlay(titleText) {
+        processingTitle.textContent = titleText || 'Computing FTP...';
+        processingStage.textContent = 'Preparing upload';
+        processingFill.style.width = '6%';
+        processingPercent.textContent = '6%';
+        processingOverlay.classList.add('show');
+        document.body.classList.add('app-busy');
+    }
+
+    function updateProcessingOverlay(percent, stageText) {
+        const bounded = Math.max(0, Math.min(100, percent));
+        processingFill.style.width = `${bounded}%`;
+        processingPercent.textContent = `${Math.round(bounded)}%`;
+        if (stageText) {
+            processingStage.textContent = stageText;
+        }
+    }
+
+    function hideProcessingOverlay() {
+        processingOverlay.classList.remove('show');
+        document.body.classList.remove('app-busy');
     }
 
     function setCurveStatus(message, type = '') {
@@ -1932,21 +2044,27 @@
                 <p style="color: #a16f6f; margin-top: 15px;">Please wait while FTP is being computed...</p>
             </div>
         `);
+
+        showProcessingOverlay('Computing FTP...');
+        updateProcessingOverlay(12, 'Validating workbook and date range');
         
         uploadModal.style.display = 'none';
         
         try {
             const formData = new FormData();
             formData.append('file', file);
+            updateProcessingOverlay(28, 'Uploading workbook');
             
             const response = await fetch('/upload', {
                 method: 'POST',
                 body: formData
             });
+            updateProcessingOverlay(72, 'Processing workbook and calculating FTP');
             
             const result = await response.json();
             
             if (result.status === 'success') {
+                updateProcessingOverlay(96, 'Finalizing output files');
                 lastComputedRange = { 
                     firstDay, 
                     lastDay, 
@@ -2128,6 +2246,8 @@
                 </div>`;
                 
                 updatePreviewWithData(summaryHtml);
+                updateProcessingOverlay(100, 'Completed');
+                setTimeout(hideProcessingOverlay, 180);
                 
             } else {
                 throw new Error(result.error || 'Upload failed');
@@ -2135,6 +2255,12 @@
             
         } catch (error) {
             console.error('Error uploading file:', error);
+            hideProcessingOverlay();
+
+            let userFriendlyError = error.message || 'An error occurred while processing your file';
+            if (userFriendlyError.toLowerCase().includes('failed to fetch')) {
+                userFriendlyError = 'Could not reach the server. Ensure the Flask app is running, then retry the computation.';
+            }
             
             updatePreviewWithData(`
                 <div style="text-align: center; padding: 20px;">
@@ -2143,7 +2269,7 @@
                     <p style="color: #632424; margin-bottom: 15px;">${firstDay} to ${lastDay}</p>
                     <div style="background: #fff1f1; border-radius: 12px; padding: 15px; color: #dc3545;">
                         <i class="fas fa-info-circle"></i> 
-                        ${error.message || 'An error occurred while processing your file'}
+                        ${userFriendlyError}
                     </div>
                     <button class="calculate-btn" style="margin-top: 20px; width: auto; padding: 12px 30px;" onclick="document.getElementById('openUploadModalBtn').click()">
                         <i class="fas fa-redo"></i> Try Again
@@ -2268,50 +2394,6 @@
                 <div style="text-align: center; padding: 20px;">
                     <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
                     <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Excel Download Failed</h3>
-                    <p style="color: #632424;">${error.message}</p>
-                </div>
-            `);
-        }
-    });
-
-    // Download Excel results button
-    downloadExcelBtn.addEventListener('click', async () => {
-        if (!lastComputedRange.firstDay || !lastComputedRange.summary) {
-            alert('Please compute FTP range first');
-            return;
-        }
-
-        updatePreviewWithData(`
-            <div style="text-align: center; padding: 20px;">
-                <i class="fas fa-spinner fa-pulse" style="font-size: 48px; color: #1d4ed8; margin-bottom: 20px;"></i>
-                <h3 style="color: #1d4ed8; margin-bottom: 10px;">Preparing Excel Results...</h3>
-                <p style="color: #64748b;">Please wait while we prepare your processed workbook</p>
-            </div>
-        `);
-
-        try {
-            await downloadFile('/download-excel', 'xlsx');
-
-            updatePreviewWithData(`
-                <div style="text-align: center; padding: 10px;">
-                    <i class="fas fa-file-excel" style="font-size: 48px; color: #16a34a; margin-bottom: 15px;"></i>
-                    <h3 style="color: #16a34a; margin-bottom: 10px;">✓ Excel Results Downloaded</h3>
-                    <p style="color: #1f2937;">Your processed workbook has been downloaded.</p>
-                    <div style="background: #f8fafc; border-radius: 12px; padding: 15px; margin-top: 15px; text-align: left;">
-                        <strong style="color: #1d4ed8;">Workbook Details:</strong><br>
-                        Period: ${lastComputedRange.firstDay} to ${lastComputedRange.lastDay}<br>
-                        Source: ${lastComputedRange.fileName}<br>
-                        Format: XLSX
-                    </div>
-                </div>
-            `);
-        } catch (error) {
-            console.error('Error downloading Excel:', error);
-
-            updatePreviewWithData(`
-                <div style="text-align: center; padding: 20px;">
-                    <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
-                    <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Download Failed</h3>
                     <p style="color: #632424;">${error.message}</p>
                 </div>
             `);
