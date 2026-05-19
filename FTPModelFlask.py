@@ -1,4 +1,6 @@
 from flask import Flask, request, jsonify, send_file
+import json
+import os
 import pandas as pd
 import io
 import openpyxl
@@ -14,14 +16,53 @@ from reportlab.lib.enums import TA_CENTER
 
 app = Flask(__name__)
 
+CURVE_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'curve_config.json')
+
+
+def load_curve_config():
+    default_curves = {
+        'tenors': [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1460, 1800],
+        'usd_rates': [3.29, 3.36, 6.15, 10.97, 11.02, 11.13, 12.22, 12.22, 12.22, 13.96, 15.41, 18.32, 18.32],
+        'zwg_rates': [16.90, 16.90, 16.90, 16.90, 17.90, 18.10, 19.10, 19.10, 20.10, 23.47, 26.54, 32.67, 32.67]
+    }
+
+    if not os.path.exists(CURVE_CONFIG_PATH):
+        return default_curves
+
+    try:
+        with open(CURVE_CONFIG_PATH, 'r', encoding='utf-8') as curve_file:
+            curve_config = json.load(curve_file)
+
+        tenors = [int(value) for value in curve_config.get('tenors', default_curves['tenors'])]
+        usd_curve = [float(value) for value in curve_config.get('usd_rates', default_curves['usd_rates'])]
+        zwg_curve = [float(value) for value in curve_config.get('zwg_rates', default_curves['zwg_rates'])]
+
+        if len(tenors) != len(usd_curve) or len(tenors) != len(zwg_curve):
+            raise ValueError('Curve config lengths do not match')
+
+        return {
+            'tenors': tenors,
+            'usd_rates': usd_curve,
+            'zwg_rates': zwg_curve
+        }
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return default_curves
+
+
+def save_curve_config(curve_config):
+    with open(CURVE_CONFIG_PATH, 'w', encoding='utf-8') as curve_file:
+        json.dump(curve_config, curve_file, indent=2)
+
+curve_config = load_curve_config()
+
 # Define the tenor points (in days)
-tenors = [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1460, 1800]
+tenors = curve_config['tenors']
 
 # USD FTP curve data
-usd_rates = [3.29, 3.36, 6.15, 10.97, 11.02, 11.13, 12.22, 12.22, 12.22, 13.96, 15.41, 18.32, 18.32]
+usd_rates = curve_config['usd_rates']
 
 # ZWG FTP curve data
-zwg_rates = [16.90, 16.90, 16.90, 16.90, 17.90, 18.10, 19.10, 19.10, 20.10, 23.47, 26.54, 32.67, 32.67]
+zwg_rates = curve_config['zwg_rates']
 
 # Global variable
 latest_data = {
@@ -451,6 +492,57 @@ def calculate():
 @app.route('/ftp-curve-data', methods=['GET'])
 def ftp_curve_data():
     return jsonify({
+        'tenors': tenors,
+        'zwg': {'name': 'ZWG FTP Curve', 'rates': zwg_rates, 'color': '#b33a3a', 'borderColor': '#921f1f'},
+        'usd': {'name': 'USD FTP Curve', 'rates': usd_rates, 'color': '#2563eb', 'borderColor': '#1d4ed8'}
+    })
+
+
+@app.route('/ftp-curve-data', methods=['POST'])
+def update_ftp_curve_data():
+    global tenors, usd_rates, zwg_rates
+
+    payload = request.get_json(silent=True) or {}
+    updated_tenors = payload.get('tenors')
+    updated_usd_rates = payload.get('usd_rates')
+    updated_zwg_rates = payload.get('zwg_rates')
+
+    if not isinstance(updated_tenors, list) or not isinstance(updated_usd_rates, list) or not isinstance(updated_zwg_rates, list):
+        return jsonify({'error': 'tenors, usd_rates, and zwg_rates must all be arrays'}), 400
+
+    if not updated_tenors or len(updated_tenors) != len(updated_usd_rates) or len(updated_tenors) != len(updated_zwg_rates):
+        return jsonify({'error': 'Curve arrays must be non-empty and have matching lengths'}), 400
+
+    try:
+        normalized_tenors = [int(value) for value in updated_tenors]
+        normalized_usd_rates = [float(value) for value in updated_usd_rates]
+        normalized_zwg_rates = [float(value) for value in updated_zwg_rates]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'All curve values must be numeric'}), 400
+
+    if any(value <= 0 for value in normalized_tenors):
+        return jsonify({'error': 'Tenors must be greater than zero'}), 400
+
+    if normalized_tenors != sorted(normalized_tenors):
+        return jsonify({'error': 'Tenors must be sorted in ascending order'}), 400
+
+    curve_config = {
+        'tenors': normalized_tenors,
+        'usd_rates': normalized_usd_rates,
+        'zwg_rates': normalized_zwg_rates
+    }
+
+    try:
+        save_curve_config(curve_config)
+    except OSError as exc:
+        return jsonify({'error': f'Unable to save curve config: {str(exc)}'}), 500
+
+    tenors = normalized_tenors
+    usd_rates = normalized_usd_rates
+    zwg_rates = normalized_zwg_rates
+
+    return jsonify({
+        'status': 'success',
         'tenors': tenors,
         'zwg': {'name': 'ZWG FTP Curve', 'rates': zwg_rates, 'color': '#b33a3a', 'borderColor': '#921f1f'},
         'usd': {'name': 'USD FTP Curve', 'rates': usd_rates, 'color': '#2563eb', 'borderColor': '#1d4ed8'}

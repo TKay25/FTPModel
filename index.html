@@ -338,6 +338,96 @@
             max-width: 90vw;
         }
 
+        .curve-editor {
+            margin-top: 22px;
+            background: #fff8f8;
+            border: 1px solid #f0d7d7;
+            border-radius: 24px;
+            padding: 20px;
+        }
+
+        .curve-editor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .curve-editor-header h3 {
+            font-size: 18px;
+            color: #632424;
+            font-weight: 600;
+        }
+
+        .curve-editor-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .curve-table-wrapper {
+            max-height: 280px;
+            overflow-y: auto;
+            border-radius: 18px;
+            border: 1px solid #f0d7d7;
+            background: #ffffff;
+        }
+
+        .curve-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .curve-table th,
+        .curve-table td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #f5e3e3;
+            text-align: left;
+        }
+
+        .curve-table th {
+            position: sticky;
+            top: 0;
+            background: #fff1f1;
+            color: #7d3d3d;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        .curve-table input {
+            width: 100%;
+            background: #fffbfb;
+            border: 1px solid #f0cccc;
+            border-radius: 14px;
+            padding: 10px 12px;
+            font-size: 14px;
+            color: #2f1a1a;
+            outline: none;
+        }
+
+        .curve-table input:focus {
+            border-color: #b95858;
+            box-shadow: 0 0 0 3px rgba(185, 80, 80, 0.1);
+        }
+
+        .curve-status {
+            min-height: 22px;
+            margin-top: 12px;
+            font-size: 14px;
+            color: #7d3d3d;
+        }
+
+        .curve-status.success {
+            color: #1f7a3c;
+        }
+
+        .curve-status.error {
+            color: #b42318;
+        }
+
         .modal-card.upload-modal {
             width: 600px;
         }
@@ -346,6 +436,27 @@
         .modal-card.singular-ftp-modal {
             width: 750px;
             max-width: 95%;
+        }
+
+        .secondary-btn {
+            background: #ffffff;
+            border: 2px solid #d9a6a6;
+            color: #784a4a;
+            padding: 12px 18px;
+            border-radius: 40px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.15s ease;
+        }
+
+        .secondary-btn:hover:not(:disabled) {
+            background: #fdf3f3;
+            transform: translateY(-1px);
+        }
+
+        .secondary-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
         }
 
         .modal-card h2 {
@@ -904,6 +1015,30 @@
             <div class="chart-container">
                 <canvas id="ftpChart"></canvas>
             </div>
+            <div class="curve-editor">
+                <div class="curve-editor-header">
+                    <h3>Edit yield curves</h3>
+                    <div class="curve-editor-actions">
+                        <button class="secondary-btn" id="resetCurveBtn" type="button">Reset</button>
+                        <button class="calculate-btn" id="saveCurveBtn" type="button" style="margin: 0; width: auto; padding: 12px 24px; font-size: 16px;">
+                            <i class="fas fa-save"></i> Save Curves
+                        </button>
+                    </div>
+                </div>
+                <div class="curve-table-wrapper">
+                    <table class="curve-table">
+                        <thead>
+                            <tr>
+                                <th>Tenor (days)</th>
+                                <th>USD rate (%)</th>
+                                <th>ZWG rate (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="curveTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="curve-status" id="curveStatus"></div>
+            </div>
             <button class="close-modal" id="closeCurveModalBtn">Close</button>
         </div>
     </div>
@@ -1007,11 +1142,16 @@
     const fileNameSpan = document.getElementById('fileName');
     const fileMetaSpan = document.getElementById('fileMeta');
     const removeFileBtn = document.getElementById('removeFileBtn');
+    const saveCurveBtn = document.getElementById('saveCurveBtn');
+    const resetCurveBtn = document.getElementById('resetCurveBtn');
+    const curveTableBody = document.getElementById('curveTableBody');
+    const curveStatus = document.getElementById('curveStatus');
 
     // Chart instance variable
     let ftpChart = null;
     let selectedFile = null;
     let lastComputedRange = { firstDay: null, lastDay: null, fileName: null, summary: null, period: null };
+    let currentCurveData = null;
 
     // Helper function to format large numbers
     function formatNumber(num) {
@@ -1131,6 +1271,89 @@
         previewContent.appendChild(dynamicDiv);
     }
 
+    function setCurveStatus(message, type = '') {
+        curveStatus.textContent = message;
+        curveStatus.className = 'curve-status';
+        if (type) {
+            curveStatus.classList.add(type);
+        }
+    }
+
+    function renderCurveEditor(curveData) {
+        curveTableBody.innerHTML = '';
+        curveData.tenors.forEach((tenor, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><input type="number" min="1" step="1" value="${tenor}" data-field="tenor" data-index="${index}"></td>
+                <td><input type="number" min="0" step="0.01" value="${curveData.usd.rates[index]}" data-field="usd" data-index="${index}"></td>
+                <td><input type="number" min="0" step="0.01" value="${curveData.zwg.rates[index]}" data-field="zwg" data-index="${index}"></td>
+            `;
+            curveTableBody.appendChild(row);
+        });
+        setCurveStatus('');
+    }
+
+    function collectCurveFormData() {
+        const rows = Array.from(curveTableBody.querySelectorAll('tr'));
+        return rows.reduce((accumulator, row) => {
+            const tenorInput = row.querySelector('[data-field="tenor"]');
+            const usdInput = row.querySelector('[data-field="usd"]');
+            const zwgInput = row.querySelector('[data-field="zwg"]');
+
+            accumulator.tenors.push(Number(tenorInput.value));
+            accumulator.usd_rates.push(Number(usdInput.value));
+            accumulator.zwg_rates.push(Number(zwgInput.value));
+
+            return accumulator;
+        }, { tenors: [], usd_rates: [], zwg_rates: [] });
+    }
+
+    function validateCurveFormData(curveFormData) {
+        if (!curveFormData.tenors.length) {
+            return 'Curve data is empty';
+        }
+
+        const hasInvalidNumber = [
+            ...curveFormData.tenors,
+            ...curveFormData.usd_rates,
+            ...curveFormData.zwg_rates
+        ].some(value => Number.isNaN(value));
+
+        if (hasInvalidNumber) {
+            return 'All tenor and rate values must be numeric';
+        }
+
+        if (curveFormData.tenors.some(value => value <= 0)) {
+            return 'Tenors must be greater than zero';
+        }
+
+        for (let index = 1; index < curveFormData.tenors.length; index += 1) {
+            if (curveFormData.tenors[index] < curveFormData.tenors[index - 1]) {
+                return 'Tenors must be in ascending order';
+            }
+        }
+
+        return null;
+    }
+
+    function buildCurveChartPayload(curveFormData) {
+        return {
+            tenors: curveFormData.tenors,
+            usd: {
+                name: 'USD FTP Curve',
+                rates: curveFormData.usd_rates,
+                color: '#2563eb',
+                borderColor: '#1d4ed8'
+            },
+            zwg: {
+                name: 'ZWG FTP Curve',
+                rates: curveFormData.zwg_rates,
+                color: '#b33a3a',
+                borderColor: '#921f1f'
+            }
+        };
+    }
+
     // Modal 1 controls (Singular FTP)
     openModalBtn.addEventListener('click', () => {
         modal.style.display = 'flex';
@@ -1178,8 +1401,77 @@
         curveModal.style.display = 'flex';
         const chartCanvas = document.getElementById('ftpChart');
         chartCanvas.style.opacity = '0.5';
-        await initChart();
+        const curveData = await fetchFtpCurveData();
+        if (curveData) {
+            currentCurveData = curveData;
+            renderCurveEditor(curveData);
+            await initChart(curveData);
+        }
         chartCanvas.style.opacity = '1';
+    });
+
+    resetCurveBtn.addEventListener('click', () => {
+        if (!currentCurveData) {
+            return;
+        }
+
+        renderCurveEditor(currentCurveData);
+        initChart(currentCurveData);
+        setCurveStatus('Curve inputs reset to the last saved values.');
+    });
+
+    saveCurveBtn.addEventListener('click', async () => {
+        const curveFormData = collectCurveFormData();
+        const validationError = validateCurveFormData(curveFormData);
+
+        if (validationError) {
+            setCurveStatus(validationError, 'error');
+            return;
+        }
+
+        saveCurveBtn.disabled = true;
+        resetCurveBtn.disabled = true;
+        setCurveStatus('Saving updated curves...');
+
+        try {
+            const response = await fetch('/ftp-curve-data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(curveFormData)
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Unable to save curve data');
+            }
+
+            currentCurveData = result;
+            renderCurveEditor(result);
+            await initChart(result);
+            setCurveStatus('Yield curves updated. New uploads will use these saved rates.', 'success');
+        } catch (error) {
+            console.error('Error saving FTP curve data:', error);
+            setCurveStatus(error.message || 'Unable to save curve data', 'error');
+        } finally {
+            saveCurveBtn.disabled = false;
+            resetCurveBtn.disabled = false;
+        }
+    });
+
+    curveTableBody.addEventListener('input', () => {
+        const curveFormData = collectCurveFormData();
+        const validationError = validateCurveFormData(curveFormData);
+
+        if (validationError) {
+            setCurveStatus(validationError, 'error');
+            return;
+        }
+
+        setCurveStatus('Unsaved changes');
+        initChart(buildCurveChartPayload(curveFormData));
     });
 
     // Modal 3 controls (Upload)
@@ -1636,20 +1928,20 @@ downloadResultsBtn.addEventListener('click', async () => {
         return `${days}D`;
     }
 
-    async function initChart() {
+    async function initChart(curveData = null) {
         const ctx = document.getElementById('ftpChart').getContext('2d');
         
         if (ftpChart) {
             ftpChart.destroy();
         }
 
-        const curveData = await fetchFtpCurveData();
-        if (!curveData) return;
+        const chartCurveData = curveData || await fetchFtpCurveData();
+        if (!chartCurveData) return;
 
-        const tenors = curveData.tenors.map(d => formatTenorLabel(d));
+        const tenors = chartCurveData.tenors.map(d => formatTenorLabel(d));
         
-        while (tenors.length < curveData.usd.rates.length) {
-            tenors.push(formatTenorLabel(curveData.tenors[curveData.tenors.length - 1]));
+        while (tenors.length < chartCurveData.usd.rates.length) {
+            tenors.push(formatTenorLabel(chartCurveData.tenors[chartCurveData.tenors.length - 1]));
         }
 
         ftpChart = new Chart(ctx, {
@@ -1658,12 +1950,12 @@ downloadResultsBtn.addEventListener('click', async () => {
                 labels: tenors,
                 datasets: [
                     {
-                        label: curveData.zwg.name,
-                        data: curveData.zwg.rates,
-                        borderColor: curveData.zwg.borderColor,
+                        label: chartCurveData.zwg.name,
+                        data: chartCurveData.zwg.rates,
+                        borderColor: chartCurveData.zwg.borderColor,
                         backgroundColor: 'rgba(179, 58, 58, 0.1)',
                         borderWidth: 3,
-                        pointBackgroundColor: curveData.zwg.color,
+                        pointBackgroundColor: chartCurveData.zwg.color,
                         pointBorderColor: '#fff',
                         pointBorderWidth: 2,
                         pointRadius: 4,
@@ -1672,12 +1964,12 @@ downloadResultsBtn.addEventListener('click', async () => {
                         fill: false
                     },
                     {
-                        label: curveData.usd.name,
-                        data: curveData.usd.rates,
-                        borderColor: curveData.usd.borderColor,
+                        label: chartCurveData.usd.name,
+                        data: chartCurveData.usd.rates,
+                        borderColor: chartCurveData.usd.borderColor,
                         backgroundColor: 'rgba(37, 99, 235, 0.1)',
                         borderWidth: 3,
-                        pointBackgroundColor: curveData.usd.color,
+                        pointBackgroundColor: chartCurveData.usd.color,
                         pointBorderColor: '#fff',
                         pointBorderWidth: 2,
                         pointRadius: 4,
