@@ -2066,6 +2066,167 @@
         updateFileUploadUI();
     });
 
+    async function parseJsonSafely(response) {
+        const raw = await response.text();
+        if (!raw || !raw.trim()) {
+            return null;
+        }
+        try {
+            return JSON.parse(raw);
+        } catch (err) {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.toLowerCase().includes('application/json')) {
+                throw new Error('Server returned malformed JSON response.');
+            }
+            return {
+                error: 'Server returned a non-JSON response. Please retry.'
+            };
+        }
+    }
+
+    const ACTIVE_FTP_JOB_KEY = 'activeFtpJob';
+    let activeFtpJob = null;
+
+    function saveActiveFtpJob(job) {
+        activeFtpJob = job;
+        try {
+            localStorage.setItem(ACTIVE_FTP_JOB_KEY, JSON.stringify(job));
+        } catch (err) {
+            console.warn('Could not persist active FTP job', err);
+        }
+    }
+
+    function clearActiveFtpJob() {
+        activeFtpJob = null;
+        try {
+            localStorage.removeItem(ACTIVE_FTP_JOB_KEY);
+        } catch (err) {
+            console.warn('Could not clear active FTP job', err);
+        }
+    }
+
+    function loadActiveFtpJob() {
+        try {
+            const saved = localStorage.getItem(ACTIVE_FTP_JOB_KEY);
+            if (!saved) {
+                return null;
+            }
+            const parsed = JSON.parse(saved);
+            if (!parsed || !parsed.jobId) {
+                return null;
+            }
+            return parsed;
+        } catch (err) {
+            return null;
+        }
+    }
+
+    async function waitForFtpJobCompletion(jobId, onProgressUpdate) {
+        return new Promise((resolve, reject) => {
+            let transientPollErrors = 0;
+            const poll = async () => {
+                try {
+                    const statusResp = await fetch(`/upload/status/${jobId}`);
+                    const statusJson = await parseJsonSafely(statusResp);
+
+                    if (!statusResp.ok) {
+                        transientPollErrors += 1;
+                        if (transientPollErrors <= 6) {
+                            if (onProgressUpdate) {
+                                onProgressUpdate(20, 'Waiting for processing status...');
+                            }
+                            setTimeout(poll, 2500);
+                            return;
+                        }
+                        throw new Error((statusJson && statusJson.error) || 'Failed to get processing status');
+                    }
+
+                    if (!statusJson || !statusJson.status) {
+                        transientPollErrors += 1;
+                        if (transientPollErrors <= 6) {
+                            if (onProgressUpdate) {
+                                onProgressUpdate(20, 'Waiting for processing status...');
+                            }
+                            setTimeout(poll, 2500);
+                            return;
+                        }
+                        throw new Error('Empty status response from server.');
+                    }
+
+                    transientPollErrors = 0;
+                    if (statusJson.status === 'done') {
+                        resolve(statusJson.result);
+                    } else if (statusJson.status === 'error') {
+                        clearActiveFtpJob();
+                        reject(new Error(statusJson.error || 'Processing failed'));
+                    } else {
+                        const serverPct = Math.max(20, Math.min(90, statusJson.progress || 20));
+                        if (onProgressUpdate) {
+                            onProgressUpdate(serverPct, statusJson.stage || 'Processing...');
+                        }
+                        setTimeout(poll, 2500);
+                    }
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            poll();
+        });
+    }
+
+    window.resumeFtpPolling = async function () {
+        const savedJob = activeFtpJob || loadActiveFtpJob();
+        if (!savedJob || !savedJob.jobId) {
+            alert('No active computation job found to resume.');
+            return;
+        }
+
+        activeFtpJob = savedJob;
+        showProcessingOverlay('Reconnecting to running job...');
+        updateProcessingOverlay(18, 'Reconnecting to server status stream');
+
+        try {
+            const result = await waitForFtpJobCompletion(savedJob.jobId, updateProcessingOverlay);
+            if (!result || result.status !== 'success') {
+                throw new Error((result && result.error) || 'Processing failed');
+            }
+
+            lastComputedRange = {
+                firstDay: savedJob.firstDay || 'N/A',
+                lastDay: savedJob.lastDay || 'N/A',
+                fileName: savedJob.fileName || 'Uploaded workbook',
+                summary: result.summary,
+                period: result.period
+            };
+
+            downloadRangeX.textContent = savedJob.firstDay || 'N/A';
+            downloadRangeY.textContent = savedJob.lastDay || 'N/A';
+            downloadResultsBtn.disabled = false;
+            downloadExcelBtn.disabled = false;
+            updatePreviewBadgeMode(Boolean(result.excel_contains_workings), Number(result.skipped_sheet_count || 0));
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-check-circle" style="font-size: 48px; color: #28a745; margin-bottom: 15px;"></i>
+                    <h3 style="color: #28a745; margin-bottom: 12px;">✓ FTP Computation Complete</h3>
+                    <p style="color: #632424; margin-bottom: 15px;">${savedJob.firstDay || 'N/A'} to ${savedJob.lastDay || 'N/A'}</p>
+                    <div style="background: #f8fafc; border-radius: 12px; border-left: 5px solid #1d4ed8; padding: 14px; text-align: left; display: inline-block; max-width: 520px;">
+                        <div style="color: #2f1a1a; margin-bottom: 4px;">Connection restored. Job completed successfully.</div>
+                        <div style="color: #5b6472; font-size: 13px;">Your PDF and Excel downloads are now ready below.</div>
+                    </div>
+                </div>
+            `);
+
+            updateProcessingOverlay(100, 'Completed');
+            setTimeout(hideProcessingOverlay, 180);
+            clearActiveFtpJob();
+        } catch (error) {
+            hideProcessingOverlay();
+            const message = (error && error.message) ? error.message : 'Unable to resume job status check.';
+            alert(message);
+        }
+    };
+
     // Compute FTP for range button
     computeRangeBtn.addEventListener('click', async () => {
         const file = selectedFile;
@@ -2106,37 +2267,30 @@
                 method: 'POST',
                 body: formData
             });
-            const uploadJson = await uploadResp.json();
+            const uploadJson = await parseJsonSafely(uploadResp);
+            if (!uploadJson) {
+                throw new Error('Empty response from server while starting processing. Please retry.');
+            }
             if (!uploadResp.ok || uploadJson.error) {
                 throw new Error(uploadJson.error || 'Upload failed');
             }
 
             const jobId = uploadJson.job_id;
-
-            // Poll for completion
-            const result = await new Promise((resolve, reject) => {
-                const poll = async () => {
-                    try {
-                        const statusResp = await fetch(`/upload/status/${jobId}`);
-                        const statusJson = await statusResp.json();
-                        if (statusJson.status === 'done') {
-                            resolve(statusJson.result);
-                        } else if (statusJson.status === 'error') {
-                            reject(new Error(statusJson.error || 'Processing failed'));
-                        } else {
-                            // still running
-                            const serverPct = Math.max(20, Math.min(90, statusJson.progress || 20));
-                            updateProcessingOverlay(serverPct, statusJson.stage || 'Processing…');
-                            setTimeout(poll, 2500);
-                        }
-                    } catch (err) {
-                        reject(err);
-                    }
-                };
-                poll();
+            if (!jobId) {
+                throw new Error('Server did not return a job identifier. Please retry.');
+            }
+            saveActiveFtpJob({
+                jobId,
+                firstDay,
+                lastDay,
+                fileName: file.name
             });
 
+            // Poll for completion
+            const result = await waitForFtpJobCompletion(jobId, updateProcessingOverlay);
+
             if (result && result.status === 'success') {
+                clearActiveFtpJob();
                 updateProcessingOverlay(96, 'Finalizing output files');
                 lastComputedRange = { 
                     firstDay, 
@@ -2343,6 +2497,13 @@
             let userFriendlyError = error.message || 'An error occurred while processing your file';
             if (userFriendlyError.toLowerCase().includes('failed to fetch')) {
                 userFriendlyError = 'Could not reach the server. Ensure the Flask app is running, then retry the computation.';
+            } else if (
+                userFriendlyError.toLowerCase().includes('unexpected end of json input') ||
+                userFriendlyError.toLowerCase().includes('malformed json') ||
+                userFriendlyError.toLowerCase().includes('non-json response') ||
+                userFriendlyError.toLowerCase().includes('empty response from server')
+            ) {
+                userFriendlyError = 'Server returned an incomplete response while processing. Please retry in a few seconds.';
             }
             
             updatePreviewWithData(`
@@ -2354,6 +2515,11 @@
                         <i class="fas fa-info-circle"></i> 
                         ${userFriendlyError}
                     </div>
+                    ${(activeFtpJob && activeFtpJob.jobId) ? `
+                        <button class="calculate-btn" style="margin-top: 14px; width: auto; padding: 12px 30px; background: #1d4ed8;" onclick="resumeFtpPolling()">
+                            <i class="fas fa-plug"></i> Resume Status Check
+                        </button>
+                    ` : ''}
                     <button class="calculate-btn" style="margin-top: 20px; width: auto; padding: 12px 30px;" onclick="document.getElementById('openUploadModalBtn').click()">
                         <i class="fas fa-redo"></i> Try Again
                     </button>
