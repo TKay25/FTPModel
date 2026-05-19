@@ -11,6 +11,7 @@ import openpyxl
 import numpy as np
 from datetime import datetime, timedelta
 from time import perf_counter
+import time
 import re
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import portrait, A4
@@ -604,16 +605,149 @@ def compute_ftp_components(deposit, loan, tenure):
 # ---------------------------------------------------------------------------
 # Async job registry
 # ---------------------------------------------------------------------------
-_jobs = {}  # job_id -> { status, progress, stage, result, error }
+_jobs = {}  # job_id -> { status, progress, stage, result, error, created_at, updated_at, completed_at }
 _jobs_lock = threading.Lock()
+JOB_RETENTION_SECONDS = int(os.environ.get('JOB_RETENTION_SECONDS', '1800'))
+UPLOAD_JOBS_DB_PATH = os.path.join(os.path.dirname(__file__), 'upload_jobs.db')
 
 TEMP_UPLOADS_DIR = os.path.join(os.path.dirname(__file__), 'temp_uploads')
 os.makedirs(TEMP_UPLOADS_DIR, exist_ok=True)
 
 
 def _update_job(job_id, **kwargs):
+    now_ts = time.time()
+
     with _jobs_lock:
-        _jobs[job_id].update(kwargs)
+        if job_id in _jobs:
+            _jobs[job_id].update(kwargs)
+            _jobs[job_id]['updated_at'] = now_ts
+            if kwargs.get('status') in {'done', 'error'}:
+                _jobs[job_id]['completed_at'] = now_ts
+
+    try:
+        with sqlite3.connect(UPLOAD_JOBS_DB_PATH) as conn:
+            cur = conn.cursor()
+            fields = []
+            values = []
+
+            if 'status' in kwargs:
+                fields.append('status = ?')
+                values.append(kwargs['status'])
+            if 'progress' in kwargs:
+                fields.append('progress = ?')
+                values.append(int(kwargs['progress']))
+            if 'stage' in kwargs:
+                fields.append('stage = ?')
+                values.append(kwargs['stage'])
+            if 'result' in kwargs:
+                fields.append('result_json = ?')
+                values.append(json.dumps(kwargs['result']))
+            if 'error' in kwargs:
+                fields.append('error = ?')
+                values.append(kwargs['error'])
+
+            fields.append('updated_at = ?')
+            values.append(now_ts)
+
+            if kwargs.get('status') in {'done', 'error'}:
+                fields.append('completed_at = ?')
+                values.append(now_ts)
+
+            values.append(job_id)
+            cur.execute(
+                f"UPDATE upload_jobs SET {', '.join(fields)} WHERE job_id = ?",
+                values
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[WARN] Failed to persist job update for {job_id}: {exc}")
+
+
+def _cleanup_expired_jobs():
+    now = time.time()
+    with _jobs_lock:
+        expired_ids = []
+        for jid, job in _jobs.items():
+            completed_at = job.get('completed_at')
+            if completed_at is None:
+                continue
+            if now - completed_at > JOB_RETENTION_SECONDS:
+                expired_ids.append(jid)
+        for jid in expired_ids:
+            _jobs.pop(jid, None)
+
+    try:
+        threshold = now - JOB_RETENTION_SECONDS
+        with sqlite3.connect(UPLOAD_JOBS_DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "DELETE FROM upload_jobs WHERE completed_at IS NOT NULL AND completed_at < ?",
+                (threshold,)
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[WARN] Failed to cleanup expired upload jobs: {exc}")
+
+
+def _ensure_upload_jobs_db():
+    with sqlite3.connect(UPLOAD_JOBS_DB_PATH) as conn:
+        cur = conn.cursor()
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS upload_jobs (
+                job_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                progress INTEGER NOT NULL DEFAULT 0,
+                stage TEXT NOT NULL DEFAULT 'Queued',
+                result_json TEXT,
+                error TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                completed_at REAL
+            )
+        ''')
+        conn.commit()
+
+
+def _insert_upload_job(job_id):
+    now_ts = time.time()
+    with sqlite3.connect(UPLOAD_JOBS_DB_PATH) as conn:
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT OR REPLACE INTO upload_jobs
+            (job_id, status, progress, stage, result_json, error, created_at, updated_at, completed_at)
+            VALUES (?, 'running', 0, 'Queued', NULL, NULL, ?, ?, NULL)
+        ''', (job_id, now_ts, now_ts))
+        conn.commit()
+
+
+def _fetch_upload_job(job_id):
+    with sqlite3.connect(UPLOAD_JOBS_DB_PATH) as conn:
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT status, progress, stage, result_json, error
+            FROM upload_jobs
+            WHERE job_id = ?
+        ''', (job_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        result_json = row[3]
+        result_payload = None
+        if result_json:
+            try:
+                result_payload = json.loads(result_json)
+            except Exception:
+                result_payload = None
+        return {
+            'status': row[0],
+            'progress': row[1],
+            'stage': row[2],
+            'result': result_payload,
+            'error': row[4]
+        }
+
+
+_ensure_upload_jobs_db()
 
 
 def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets):
@@ -866,6 +1000,8 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
+    _cleanup_expired_jobs()
+
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
 
@@ -885,8 +1021,19 @@ def upload_file():
     include_non_loan_sheets = INCLUDE_NON_LOAN_SHEETS or (include_workings_raw in {'1', 'true', 'yes', 'on'})
 
     job_id = str(uuid.uuid4())
+    now = time.time()
     with _jobs_lock:
-        _jobs[job_id] = {'status': 'running', 'progress': 0, 'stage': 'Queued', 'result': None, 'error': None}
+        _jobs[job_id] = {
+            'status': 'running',
+            'progress': 0,
+            'stage': 'Queued',
+            'result': None,
+            'error': None,
+            'created_at': now,
+            'updated_at': now,
+            'completed_at': None
+        }
+    _insert_upload_job(job_id)
 
     thread = threading.Thread(
         target=_run_ftp_job,
@@ -900,8 +1047,10 @@ def upload_file():
 
 @app.route('/upload/status/<job_id>', methods=['GET'])
 def upload_status(job_id):
-    with _jobs_lock:
-        job = _jobs.get(job_id)
+    _cleanup_expired_jobs()
+
+    # Use SQLite as the authoritative store so status checks work across workers.
+    job = _fetch_upload_job(job_id)
     if not job:
         return jsonify({'error': 'Unknown job'}), 404
     response = {
@@ -911,13 +1060,8 @@ def upload_status(job_id):
     }
     if job['status'] == 'done':
         response['result'] = job['result']
-        # Clean up old jobs lazily
-        with _jobs_lock:
-            _jobs.pop(job_id, None)
     elif job['status'] == 'error':
         response['error'] = job['error']
-        with _jobs_lock:
-            _jobs.pop(job_id, None)
     return jsonify(response)
 
 
