@@ -3,6 +3,8 @@ import json
 import os
 import sqlite3
 import gc
+import threading
+import uuid
 import pandas as pd
 import io
 import openpyxl
@@ -599,22 +601,332 @@ def compute_ftp_components(deposit, loan, tenure):
     except:
         return {'charge': '1.12', 'gain': '0.72', 'net': '1.84'}
 
+# ---------------------------------------------------------------------------
+# Async job registry
+# ---------------------------------------------------------------------------
+_jobs = {}  # job_id -> { status, progress, stage, result, error }
+_jobs_lock = threading.Lock()
+
+TEMP_UPLOADS_DIR = os.path.join(os.path.dirname(__file__), 'temp_uploads')
+os.makedirs(TEMP_UPLOADS_DIR, exist_ok=True)
+
+
+def _update_job(job_id, **kwargs):
+    with _jobs_lock:
+        _jobs[job_id].update(kwargs)
+
+
+def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets):
+    """Background thread: process workbook and write results."""
+    global latest_data
+
+    def log_stage(stage_name, t0):
+        print(f"[PERF] {stage_name}: {perf_counter() - t0:.3f}s")
+
+    def progress(pct, stage):
+        _update_job(job_id, progress=pct, stage=stage)
+
+    try:
+        upload_start_time = perf_counter()
+        progress(5, 'Parsing filename')
+
+        filename_match = re.search(r'FTP Input File (\w+) (\d{4})', filename)
+        if not filename_match:
+            _update_job(job_id, status='error', error='Filename must be: FTP Input File Month Year.xlsx')
+            return
+
+        month_name = filename_match.group(1)
+        year = int(filename_match.group(2))
+
+        month_map = {
+            'january':1,'february':2,'march':3,'april':4,'may':5,'june':6,
+            'july':7,'august':8,'september':9,'october':10,'november':11,'december':12
+        }
+        month_num = month_map.get(month_name.lower())
+        if not month_num:
+            _update_job(job_id, status='error', error=f'Invalid month: {month_name}')
+            return
+
+        first_day = datetime(year, month_num, 1)
+        last_day = (datetime(year + 1, 1, 1) if month_num == 12 else datetime(year, month_num + 1, 1)) - timedelta(days=1)
+
+        progress(10, 'Reading workbook')
+        read_start = perf_counter()
+        excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
+        sheet_names = excel_file.sheet_names
+        log_stage('Read workbook metadata', read_start)
+        print(f"Found sheets: {sheet_names}")
+
+        output_stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        excel_filename = f"FTP_Results_{month_name}_{year}_{output_stamp}.xlsx"
+        excel_output_path = os.path.join(PROCESSED_OUTPUTS_DIR, excel_filename)
+
+        sheets_data = {}
+        global_summaries = {'ZWG': {}, 'FX': {}}
+        skipped_sheet_count = 0
+
+        branch_sbu_map = load_branch_sbu_map()
+        branch_sbu_lookup = {code: v.get('sbu', 'Unknown') for code, v in branch_sbu_map.items()}
+
+        loan_sheet_names = [s for s in sheet_names if s in LOAN_SHEETS]
+        total_loan_sheets = max(len(loan_sheet_names), 1)
+
+        excel_write_start = perf_counter()
+        writer_engine = 'xlsxwriter'
+        writer_kwargs = {'engine_kwargs': {'options': {'constant_memory': True}}}
+
+        def process_sheets(writer):
+            nonlocal skipped_sheet_count
+            completed_loan = 0
+
+            for sheet in sheet_names:
+                print(f"Processing: {sheet}")
+                sheet_start = perf_counter()
+
+                if sheet not in LOAN_SHEETS and not include_non_loan_sheets:
+                    skipped_sheet_count += 1
+                    sheets_data[sheet] = {'columns': [], 'data': [], 'shape': [0, 0],
+                                          'note': 'Skipped (memory optimisation)'}
+                    log_stage(f'Sheet {sheet} (skipped)', sheet_start)
+                    continue
+
+                try:
+                    df = excel_file.parse(sheet_name=sheet)
+                except Exception as exc:
+                    print(f"Error parsing {sheet}: {exc}")
+                    continue
+
+                if sheet in LOAN_SHEETS:
+                    df_processed = df
+                    del df
+
+                    branch_col = next(
+                        (c for c in ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE'] if c in df_processed.columns),
+                        None
+                    )
+                    if branch_col:
+                        df_processed[branch_col] = df_processed[branch_col].astype(str).str.strip()
+                        df_processed['SBU'] = df_processed[branch_col].map(branch_sbu_lookup).fillna('Unknown')
+                    else:
+                        df_processed['SBU'] = 'Unknown'
+
+                    if 'BOOKING_DATE' in df_processed.columns:
+                        df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'], errors='coerce').fillna(first_day)
+                    if 'MATURITY_DATE' in df_processed.columns:
+                        df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'], errors='coerce').fillna(first_day + timedelta(days=365))
+
+                    if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
+                        df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days.clip(lower=0)
+
+                    first_day_ts = pd.Timestamp(first_day.date())
+                    last_day_ts = pd.Timestamp(last_day.date())
+                    bd = df_processed['BOOKING_DATE']
+                    md = df_processed['MATURITY_DATE']
+
+                    full_period = (last_day_ts - first_day_ts).days + 1
+                    df_processed['DimDays'] = np.where(
+                        (bd <= first_day_ts) & (md >= last_day_ts), full_period,
+                        np.where((bd >= first_day_ts) & (md >= last_day_ts), (last_day_ts - bd).dt.days + 1,
+                        np.where((bd >= first_day_ts) & (md <= last_day_ts), (md - bd).dt.days,
+                                 (md - first_day_ts).dt.days))
+                    ).astype(np.int32)
+
+                    df_processed['DTM'] = np.where(md > last_day_ts, (md - last_day_ts).dt.days, 0).astype(np.int32)
+                    df_processed['MTM'] = (df_processed['DTM'] / 30).round(1).astype(np.float32)
+
+                    bucket_labels = ['<7days','7-14days','14-21days','21-30days','30-60days','60-90days',
+                                     '90-180days','180-270days','270-360days','360-720days',
+                                     '720-1080days','1080-1460days','1460-1800days','+1800days']
+                    bin_edges = [0, 7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1460, 1800, float('inf')]
+
+                    exposure = pd.to_numeric(
+                        df_processed['Currency Exposure + Currency Accrued Reporting'], errors='coerce'
+                    ).fillna(0).astype(np.float32)
+                    mtm_days = (df_processed['MTM'] * 30).astype(np.float32)
+                    bucket_idx = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
+                    bucket_idx = bucket_idx.fillna(len(bucket_labels) - 1).astype(int)
+
+                    bv = np.zeros((len(df_processed), len(bucket_labels)), dtype=np.float32)
+                    ev = exposure.to_numpy(dtype=np.float32, copy=False)
+                    iv = bucket_idx.to_numpy(dtype=np.int16, copy=False)
+                    pos = np.nonzero(ev > 0)[0]
+                    bv[pos, iv[pos]] = ev[pos]
+                    df_processed[bucket_labels] = bv
+                    df_processed['Check'] = bv.sum(axis=1).astype(np.float32)
+
+                    rates = zwg_rates if sheet == 'ZWG LOANS' else usd_rates
+                    rv = np.array([(rates[i] if i < len(rates) else rates[-1]) / 100
+                                   for i in range(len(bucket_labels))], dtype=np.float32)
+                    df_processed['FTP Charge'] = (bv @ rv).astype(np.float32)
+
+                    currency = 'ZWG' if sheet == 'ZWG LOANS' else 'FX'
+                    sbu_summary = df_processed.groupby('SBU').agg({
+                        'Currency Exposure + Currency Accrued Reporting': 'sum',
+                        'FTP Charge': 'sum'
+                    }).reset_index()
+
+                    global_summaries[currency][sheet] = {
+                        'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
+                        'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
+                        'by_sbu': sbu_summary.to_dict(orient='records'),
+                        'row_count': len(df_processed)
+                    }
+
+                    preview = df_processed.head(100).copy()
+                    for col in preview.select_dtypes(include=['datetime64']).columns:
+                        preview[col] = preview[col].astype(str).replace('NaT', None)
+                    sheets_data[sheet] = {
+                        'columns': df_processed.columns.tolist(),
+                        'data': preview.to_dict(orient='records'),
+                        'shape': df_processed.shape
+                    }
+
+                    df_processed.to_excel(writer, sheet_name=sheet[:31], index=False)
+                    del df_processed
+
+                    completed_loan += 1
+                    pct = 15 + int(75 * completed_loan / total_loan_sheets)
+                    progress(pct, f'Processed {sheet}')
+
+                else:
+                    preview = df.head(100).copy()
+                    sheets_data[sheet] = {
+                        'columns': df.columns.tolist(),
+                        'data': preview.to_dict(orient='records'),
+                        'shape': df.shape
+                    }
+                    df.to_excel(writer, sheet_name=sheet[:31], index=False)
+                    del df
+
+                gc.collect()
+                log_stage(f'Sheet {sheet}', sheet_start)
+                print(f"Completed: {sheet}")
+
+        try:
+            with pd.ExcelWriter(excel_output_path, engine=writer_engine, **writer_kwargs) as writer:
+                process_sheets(writer)
+        except (ImportError, ModuleNotFoundError, ValueError):
+            with pd.ExcelWriter(excel_output_path, engine='openpyxl') as writer:
+                process_sheets(writer)
+
+        log_stage('Write processed workbook', excel_write_start)
+        progress(92, 'Saving results')
+
+        snapshot_start_time = perf_counter()
+        latest_data['filename'] = filename
+        latest_data['sheets'] = sheets_data
+        latest_data['summaries'] = global_summaries
+        latest_data['period'] = {
+            'first_day': first_day.strftime('%d %B %Y'),
+            'last_day': last_day.strftime('%d %B %Y'),
+            'month': month_name,
+            'year': year
+        }
+        latest_data['excel_output_path'] = excel_output_path
+        latest_data['excel_filename'] = excel_filename
+        latest_data['excel_contains_workings'] = include_non_loan_sheets
+        latest_data['skipped_sheet_count'] = skipped_sheet_count
+
+        save_latest_data_snapshot()
+        log_stage('Persist snapshot', snapshot_start_time)
+        log_stage('Total upload pipeline', upload_start_time)
+        print(f"✅ Stored summaries: {list(global_summaries.keys())}")
+
+        _update_job(job_id,
+                    status='done',
+                    progress=100,
+                    stage='Complete',
+                    result={
+                        'status': 'success',
+                        'summary': global_summaries,
+                        'period': latest_data['period'],
+                        'excel_contains_workings': include_non_loan_sheets,
+                        'skipped_sheet_count': skipped_sheet_count
+                    })
+
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        _update_job(job_id, status='error', error=str(exc))
+
+
 @app.route('/')
 def index():
     from flask import send_from_directory
     return send_from_directory('.', 'index.html')
 
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    global latest_data
-    
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
-    
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
-    
+
+    # Read file bytes immediately while still in request context
+    file_bytes = file.read()
+    filename = file.filename
+
+    filename_match = re.search(r'FTP Input File (\w+) (\d{4})', filename)
+    if not filename_match:
+        return jsonify({'error': 'Filename must be: FTP Input File Month Year.xlsx'}), 400
+
+    include_workings_raw = str(request.form.get('include_workings', '1')).strip().lower()
+    include_non_loan_sheets = INCLUDE_NON_LOAN_SHEETS or (include_workings_raw in {'1', 'true', 'yes', 'on'})
+
+    job_id = str(uuid.uuid4())
+    with _jobs_lock:
+        _jobs[job_id] = {'status': 'running', 'progress': 0, 'stage': 'Queued', 'result': None, 'error': None}
+
+    thread = threading.Thread(
+        target=_run_ftp_job,
+        args=(job_id, file_bytes, filename, include_non_loan_sheets),
+        daemon=True
+    )
+    thread.start()
+
+    return jsonify({'job_id': job_id, 'status': 'running'})
+
+
+@app.route('/upload/status/<job_id>', methods=['GET'])
+def upload_status(job_id):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if not job:
+        return jsonify({'error': 'Unknown job'}), 404
+    response = {
+        'status': job['status'],
+        'progress': job['progress'],
+        'stage': job['stage'],
+    }
+    if job['status'] == 'done':
+        response['result'] = job['result']
+        # Clean up old jobs lazily
+        with _jobs_lock:
+            _jobs.pop(job_id, None)
+    elif job['status'] == 'error':
+        response['error'] = job['error']
+        with _jobs_lock:
+            _jobs.pop(job_id, None)
+    return jsonify(response)
+
+
+# ---------------------------------------------------------------------------
+# Legacy synchronous path kept for local dev / non-Render environments.
+# Remove once async path is proven in production.
+# ---------------------------------------------------------------------------
+def _upload_file_sync():
+    global latest_data
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+
     try:
         upload_start_time = perf_counter()
 

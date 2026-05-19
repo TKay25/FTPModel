@@ -2100,17 +2100,43 @@
             const formData = new FormData();
             formData.append('file', file);
             formData.append('include_workings', includeWorkingsCheckbox.checked ? '1' : '0');
-            updateProcessingOverlay(28, 'Uploading workbook');
-            
-            const response = await fetch('/upload', {
+            updateProcessingOverlay(15, 'Uploading workbook to server');
+
+            const uploadResp = await fetch('/upload', {
                 method: 'POST',
                 body: formData
             });
-            updateProcessingOverlay(72, 'Processing workbook and calculating FTP');
-            
-            const result = await response.json();
-            
-            if (result.status === 'success') {
+            const uploadJson = await uploadResp.json();
+            if (!uploadResp.ok || uploadJson.error) {
+                throw new Error(uploadJson.error || 'Upload failed');
+            }
+
+            const jobId = uploadJson.job_id;
+
+            // Poll for completion
+            const result = await new Promise((resolve, reject) => {
+                const poll = async () => {
+                    try {
+                        const statusResp = await fetch(`/upload/status/${jobId}`);
+                        const statusJson = await statusResp.json();
+                        if (statusJson.status === 'done') {
+                            resolve(statusJson.result);
+                        } else if (statusJson.status === 'error') {
+                            reject(new Error(statusJson.error || 'Processing failed'));
+                        } else {
+                            // still running
+                            const serverPct = Math.max(20, Math.min(90, statusJson.progress || 20));
+                            updateProcessingOverlay(serverPct, statusJson.stage || 'Processing…');
+                            setTimeout(poll, 2500);
+                        }
+                    } catch (err) {
+                        reject(err);
+                    }
+                };
+                poll();
+            });
+
+            if (result && result.status === 'success') {
                 updateProcessingOverlay(96, 'Finalizing output files');
                 lastComputedRange = { 
                     firstDay, 
@@ -2307,7 +2333,7 @@
                 setTimeout(hideProcessingOverlay, 180);
                 
             } else {
-                throw new Error(result.error || 'Upload failed');
+                throw new Error((result && result.error) || 'Upload failed');
             }
             
         } catch (error) {
