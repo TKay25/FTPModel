@@ -257,6 +257,13 @@ def save_branch_sbu_rows(rows):
         connection.commit()
 
 
+def reset_branch_sbu_map_to_default():
+    save_branch_sbu_rows([
+        {'code': code, 'unit': data['unit'], 'sbu': data['sbu']}
+        for code, data in DEFAULT_BRANCH_SBU_MAP.items()
+    ])
+
+
 init_branch_map_db()
 
 
@@ -886,6 +893,15 @@ def update_branch_sbu_map():
         return jsonify({'error': str(e)}), 400
     except Exception as e:
         return jsonify({'error': f'Failed to save branch mappings: {str(e)}'}), 500
+
+
+@app.route('/branch-sbu-map/reset', methods=['POST'])
+def reset_branch_sbu_map():
+    try:
+        reset_branch_sbu_map_to_default()
+        return jsonify({'status': 'success', 'mappings': load_branch_sbu_rows()})
+    except Exception as e:
+        return jsonify({'error': f'Failed to reset branch mappings: {str(e)}'}), 500
 
 @app.route('/get-preview', methods=['GET'])
 def get_preview():

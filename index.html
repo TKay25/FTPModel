@@ -1101,7 +1101,7 @@
                 <div class="curve-editor-header">
                     <h3>Edit branch mapping</h3>
                     <div class="curve-editor-actions">
-                        <button class="secondary-btn" id="resetBranchMapBtn" type="button">Reset</button>
+                        <button class="secondary-btn" id="resetBranchMapBtn" type="button">Reset Default</button>
                         <button class="secondary-btn" id="addBranchRowBtn" type="button">Add Row</button>
                         <button class="calculate-btn" id="saveBranchMapBtn" type="button" style="margin: 0; width: auto; padding: 12px 24px; font-size: 16px;">
                             <i class="fas fa-save"></i> Save Map
@@ -1628,11 +1628,22 @@
     });
 
     resetBranchMapBtn.addEventListener('click', async () => {
-        const mappings = await fetchBranchMapData();
-        if (mappings) {
-            currentBranchMapData = mappings.map(normalizeBranchMapRow);
+        try {
+            const response = await fetch('/branch-sbu-map/reset', {
+                method: 'POST'
+            });
+
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'Unable to reset branch map');
+            }
+
+            currentBranchMapData = (result.mappings || []).map(normalizeBranchMapRow);
             renderBranchMapEditor(currentBranchMapData);
-            setBranchMapStatus('Branch map reset to the last saved version.');
+            setBranchMapStatus('Branch map reset to the default attached list.', 'success');
+        } catch (error) {
+            console.error('Error resetting branch map:', error);
+            setBranchMapStatus(error.message || 'Unable to reset branch map', 'error');
         }
     });
 
