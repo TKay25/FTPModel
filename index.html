@@ -588,6 +588,26 @@
             border-radius: 8px;
         }
 
+        .worksheet-hint {
+            background: #fff6f6;
+            border-radius: 16px;
+            padding: 12px 16px;
+            margin: 10px 0 18px;
+            border: 1px solid #f0cfcf;
+            font-size: 13px;
+            color: #632424;
+            line-height: 1.5;
+        }
+
+        .worksheet-hint i {
+            color: #921f1f;
+            margin-right: 8px;
+        }
+
+        .worksheet-hint strong {
+            color: #921f1f;
+        }
+
         .date-range-display {
             background: #fff6f6;
             border-radius: 20px;
@@ -1070,12 +1090,18 @@
     <!-- MODAL 3: Upload XLSX - Month/year extracted from filename -->
     <div class="modal" id="uploadModal">
         <div class="modal-card upload-modal">
-            <h2><i class="fas fa-file-excel"></i> UPLOAD WORKSHEET</h2>
+            <h2><i class="fas fa-file-excel"></i> UPLOAD FTP INPUT WORKBOOK</h2>
             
             <div class="filename-hint">
                 <i class="fas fa-info-circle"></i> 
                 File must be named: <strong>FTP Input File Month Year.xlsx</strong><br>
                 <span style="font-size: 12px; color: #a16f6f;">Example: FTP Input File January 2026.xlsx</span>
+            </div>
+
+            <div class="worksheet-hint">
+                <i class="fas fa-table"></i>
+                <strong>Required worksheets for upload:</strong> ZWG LOANS, FX LOANS<br>
+                <span style="font-size: 12px; color: #a16f6f;">Any extra worksheets are optional and will only be previewed.</span>
             </div>
 
             <!-- Fancy file upload area - shown when no file selected -->
