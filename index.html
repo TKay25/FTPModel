@@ -1126,6 +1126,7 @@
                     </div>
                 </div>
                 <input type="search" id="branchMapSearch" class="editor-search" placeholder="Search branch code, unit, or SBU...">
+                <div class="curve-status" id="branchMapCount">Showing 0 rows</div>
                 <div class="curve-table-wrapper">
                     <table class="curve-table">
                         <thead>
@@ -1262,6 +1263,7 @@
     const saveBranchMapBtn = document.getElementById('saveBranchMapBtn');
     const resetBranchMapBtn = document.getElementById('resetBranchMapBtn');
     const branchMapSearch = document.getElementById('branchMapSearch');
+    const branchMapCount = document.getElementById('branchMapCount');
     const branchMapTableBody = document.getElementById('branchMapTableBody');
     const branchMapStatus = document.getElementById('branchMapStatus');
 
@@ -1505,6 +1507,24 @@
 
         setBranchMapStatus('');
         applyBranchMapFilter();
+        updateBranchMapCount();
+    }
+
+    function updateBranchMapCount() {
+        if (!branchMapCount) {
+            return;
+        }
+
+        const rows = Array.from(branchMapTableBody.querySelectorAll('tr'));
+        const visibleRows = rows.filter(row => row.style.display !== 'none');
+        const total = rows.length;
+        const visible = visibleRows.length;
+
+        if (branchMapSearch && branchMapSearch.value.trim()) {
+            branchMapCount.textContent = `Showing ${visible} of ${total} rows`;
+        } else {
+            branchMapCount.textContent = `Showing ${total} rows`;
+        }
     }
 
     function applyBranchMapFilter() {
@@ -1526,6 +1546,8 @@
             const sbu = tableRow.querySelector('[data-field="sbu"]')?.value.toLowerCase() || '';
             tableRow.style.display = (code.includes(query) || unit.includes(query) || sbu.includes(query)) ? '' : 'none';
         });
+
+        updateBranchMapCount();
     }
 
     function collectBranchMapData() {
