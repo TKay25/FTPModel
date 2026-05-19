@@ -807,9 +807,9 @@ def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets):
 
         excel_write_start = perf_counter()
         if include_non_loan_sheets:
-            # Pandas + xlsxwriter constant_memory can truncate exports to first column.
-            # Use openpyxl for full-workbook correctness.
-            writer_engine = 'openpyxl'
+            # openpyxl is significantly more memory-hungry on large workbooks.
+            # Use xlsxwriter without constant_memory for full-workbook exports.
+            writer_engine = 'xlsxwriter'
             writer_kwargs = {}
         else:
             writer_engine = 'xlsxwriter'
@@ -946,8 +946,6 @@ def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets):
             with pd.ExcelWriter(excel_output_path, engine=writer_engine, **writer_kwargs) as writer:
                 process_sheets(writer)
         except (ImportError, ModuleNotFoundError, ValueError):
-            if writer_engine == 'openpyxl':
-                raise
             with pd.ExcelWriter(excel_output_path, engine='openpyxl') as writer:
                 process_sheets(writer)
 
@@ -1130,8 +1128,8 @@ def _upload_file_sync():
         
         excel_write_start_time = perf_counter()
         if include_non_loan_sheets:
-            # Full-workbook export prioritizes correctness over memory optimization.
-            writer_engine = 'openpyxl'
+            # openpyxl can exceed memory limits for large files; prefer xlsxwriter here.
+            writer_engine = 'xlsxwriter'
             writer_kwargs = {}
         else:
             writer_engine = 'xlsxwriter'

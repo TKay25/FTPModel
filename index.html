@@ -2512,6 +2512,9 @@
             ) {
                 clearActiveFtpJob();
                 userFriendlyError = 'This processing session is no longer available on the server. Please click Try Again to start a fresh run.';
+            } else if (userFriendlyError.toLowerCase().includes('failed to get processing status')) {
+                clearActiveFtpJob();
+                userFriendlyError = 'Lost connection to processing status. The server may have restarted due to memory pressure. Please retry, and if this persists uncheck Include workings sheets for a lighter export.';
             } else if (
                 userFriendlyError.toLowerCase().includes('unexpected end of json input') ||
                 userFriendlyError.toLowerCase().includes('malformed json') ||
