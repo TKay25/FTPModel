@@ -672,8 +672,14 @@ def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets):
         total_loan_sheets = max(len(loan_sheet_names), 1)
 
         excel_write_start = perf_counter()
-        writer_engine = 'xlsxwriter'
-        writer_kwargs = {'engine_kwargs': {'options': {'constant_memory': True}}}
+        if include_non_loan_sheets:
+            # Pandas + xlsxwriter constant_memory can truncate exports to first column.
+            # Use openpyxl for full-workbook correctness.
+            writer_engine = 'openpyxl'
+            writer_kwargs = {}
+        else:
+            writer_engine = 'xlsxwriter'
+            writer_kwargs = {'engine_kwargs': {'options': {'constant_memory': True}}}
 
         def process_sheets(writer):
             nonlocal skipped_sheet_count
@@ -806,6 +812,8 @@ def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets):
             with pd.ExcelWriter(excel_output_path, engine=writer_engine, **writer_kwargs) as writer:
                 process_sheets(writer)
         except (ImportError, ModuleNotFoundError, ValueError):
+            if writer_engine == 'openpyxl':
+                raise
             with pd.ExcelWriter(excel_output_path, engine='openpyxl') as writer:
                 process_sheets(writer)
 
@@ -977,8 +985,13 @@ def _upload_file_sync():
         branch_sbu_lookup = {code: value.get('sbu', 'Unknown') for code, value in branch_sbu_map.items()}
         
         excel_write_start_time = perf_counter()
-        writer_engine = 'xlsxwriter'
-        writer_kwargs = {'engine_kwargs': {'options': {'constant_memory': True}}}
+        if include_non_loan_sheets:
+            # Full-workbook export prioritizes correctness over memory optimization.
+            writer_engine = 'openpyxl'
+            writer_kwargs = {}
+        else:
+            writer_engine = 'xlsxwriter'
+            writer_kwargs = {'engine_kwargs': {'options': {'constant_memory': True}}}
         try:
             with pd.ExcelWriter(excel_output_path, engine=writer_engine, **writer_kwargs) as writer:
                 for sheet in sheet_names:
