@@ -1965,6 +1965,21 @@ def processed_reports():
         return jsonify({'error': f'Failed to list processed reports: {str(exc)}'}), 500
 
 
+@app.route('/processed-reports/<report_key>', methods=['DELETE'])
+def delete_processed_report_route(report_key):
+    try:
+        if not report_key:
+            return jsonify({'error': 'report_key is required'}), 400
+
+        deleted = delete_processed_report(report_key)
+        if not deleted:
+            return jsonify({'error': 'Report version not found'}), 404
+
+        return jsonify({'status': 'success', 'report_key': report_key})
+    except Exception as exc:
+        return jsonify({'error': f'Failed to delete processed report: {str(exc)}'}), 500
+
+
 _ensure_processed_reports_db()
 
 if __name__ == '__main__':

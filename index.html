@@ -1187,6 +1187,9 @@
                         <button type="button" id="openArchivePdfBtn" disabled><i class="fas fa-file-pdf"></i> PDF</button>
                         <button type="button" id="openArchiveExcelBtn" disabled><i class="fas fa-file-excel"></i> Excel</button>
                     </div>
+                    <div class="archive-actions">
+                        <button type="button" id="deleteArchiveBtn" disabled><i class="fas fa-trash-alt"></i> Delete version</button>
+                    </div>
                     <div class="archive-status" id="archiveStatus">Load a month and year to browse saved versions.</div>
                 </div>
 
@@ -1461,6 +1464,7 @@
     const archiveVersionSelect = document.getElementById('archiveVersionSelect');
     const openArchivePdfBtn = document.getElementById('openArchivePdfBtn');
     const openArchiveExcelBtn = document.getElementById('openArchiveExcelBtn');
+    const deleteArchiveBtn = document.getElementById('deleteArchiveBtn');
     const archiveStatus = document.getElementById('archiveStatus');
     
     const calculateBtn = document.getElementById('calculateFtpBtn');
@@ -1681,9 +1685,18 @@
         }
         const parts = report.report_key.split('-');
         if (parts.length >= 3) {
-            return `Version ${parts[2]}`;
+            return `v${parts[2]}`;
         }
         return 'Base version';
+    }
+
+    function getArchiveDisplayLabel(report) {
+        if (!report) {
+            return 'Unknown report';
+        }
+
+        const suffix = report.report_key.split('-').length > 2 ? ` ${getVersionLabel(report)}` : '';
+        return `${report.month} ${report.year}${suffix}`;
     }
 
     function setArchiveControlsEnabled(enabled) {
@@ -1695,6 +1708,9 @@
         }
         if (openArchiveExcelBtn) {
             openArchiveExcelBtn.disabled = !enabled;
+        }
+        if (deleteArchiveBtn) {
+            deleteArchiveBtn.disabled = !enabled;
         }
     }
 
@@ -1714,8 +1730,7 @@
         currentArchiveReports.forEach((report, index) => {
             const option = document.createElement('option');
             option.value = report.report_key;
-            const suffix = report.report_key.split('-').length > 2 ? ` (${getVersionLabel(report)})` : '';
-            option.textContent = `${report.month} ${report.year}${suffix}`;
+            option.textContent = getArchiveDisplayLabel(report);
             if (index === 0) {
                 option.selected = true;
             }
@@ -1763,7 +1778,7 @@
             const year = period.year || '';
             const firstDay = period.first_day || 'N/A';
             const lastDay = period.last_day || 'N/A';
-            const selectedReport = getSelectedArchiveReport();
+            const selectedReport = currentArchiveReports.find((report) => report.report_key === reportKey) || null;
             const reportKeyValue = selectedReport?.report_key || reportKey;
 
             lastComputedRange = {
@@ -1780,6 +1795,9 @@
             downloadResultsBtn.disabled = false;
             downloadExcelBtn.disabled = false;
             updatePreviewBadgeMode(Boolean(selectedReport?.excel_contains_workings), Number(selectedReport?.skipped_sheet_count || 0));
+            if (archiveVersionSelect && archiveVersionSelect.value !== reportKey) {
+                archiveVersionSelect.value = reportKey;
+            }
             updatePreviewWithData(`
                 <div style="text-align: center; padding: 20px;">
                     <i class="fas fa-folder-open" style="font-size: 48px; color: #1d4ed8; margin-bottom: 15px;"></i>
@@ -2278,6 +2296,48 @@
         }
         lastComputedRange.reportKey = selectedReport.report_key;
         await downloadFile('/download-excel', 'xlsx');
+    });
+
+    deleteArchiveBtn.addEventListener('click', async () => {
+        const selectedReport = getSelectedArchiveReport();
+        if (!selectedReport) {
+            setArchiveStatus('Select a report version first.', 'error');
+            return;
+        }
+
+        const label = getArchiveDisplayLabel(selectedReport);
+        const confirmed = window.confirm(`Delete ${label}? This cannot be undone.`);
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            setArchiveStatus(`Deleting ${label}...`);
+            const response = await fetch(`/processed-reports/${encodeURIComponent(selectedReport.report_key)}`, {
+                method: 'DELETE'
+            });
+            const payload = await parseJsonSafely(response);
+            if (!response.ok || !payload || payload.error) {
+                throw new Error((payload && payload.error) || 'Failed to delete archive version');
+            }
+
+            setArchiveStatus(`${label} deleted.`, 'success');
+
+            const month = archiveMonthSelect?.value || selectedReport.month;
+            const year = archiveYearInput?.value || selectedReport.year;
+            if (month && year) {
+                await refreshArchiveVersions(month, year);
+            } else {
+                clearArchiveBrowser();
+            }
+
+            if (lastComputedRange && lastComputedRange.reportKey === selectedReport.report_key) {
+                lastComputedRange.reportKey = null;
+            }
+        } catch (error) {
+            console.error('Error deleting archive version:', error);
+            setArchiveStatus(error.message || 'Unable to delete archived version.', 'error');
+        }
     });
 
     resetCurveBtn.addEventListener('click', () => {
