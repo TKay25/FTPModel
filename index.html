@@ -1304,6 +1304,58 @@
             margin-bottom: 14px;
         }
 
+        .processing-steps {
+            list-style: none;
+            display: grid;
+            gap: 8px;
+            margin: 0 0 16px;
+            padding: 0;
+        }
+
+        .processing-step {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            color: #64748b;
+            transition: color 0.2s ease;
+        }
+
+        .processing-step-indicator {
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            color: #94a3b8;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            flex: 0 0 auto;
+        }
+
+        .processing-step.active {
+            color: #1f2937;
+        }
+
+        .processing-step.active .processing-step-indicator {
+            border-color: #1d4ed8;
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .processing-step.done {
+            color: #166534;
+        }
+
+        .processing-step.done .processing-step-indicator {
+            border-color: #16a34a;
+            background: #dcfce7;
+            color: #166534;
+        }
+
         .processing-track {
             width: 100%;
             height: 10px;
@@ -1413,6 +1465,28 @@
         <div class="processing-card">
             <div class="processing-title" id="processingTitle">Computing FTP...</div>
             <div class="processing-subtitle" id="processingStage">Preparing upload</div>
+            <ul class="processing-steps" id="processingSteps">
+                <li class="processing-step" data-step-key="prepare">
+                    <span class="processing-step-indicator">1</span>
+                    <span>Prepare upload</span>
+                </li>
+                <li class="processing-step" data-step-key="read">
+                    <span class="processing-step-indicator">2</span>
+                    <span>Read workbook</span>
+                </li>
+                <li class="processing-step" data-step-key="compute">
+                    <span class="processing-step-indicator">3</span>
+                    <span>Compute FTP</span>
+                </li>
+                <li class="processing-step" data-step-key="merge">
+                    <span class="processing-step-indicator">4</span>
+                    <span>Build workbook</span>
+                </li>
+                <li class="processing-step" data-step-key="save">
+                    <span class="processing-step-indicator">5</span>
+                    <span>Save results</span>
+                </li>
+            </ul>
             <div class="processing-track">
                 <div class="processing-fill" id="processingFill"></div>
             </div>
@@ -1889,6 +1963,7 @@
     const processingStage = document.getElementById('processingStage');
     const processingFill = document.getElementById('processingFill');
     const processingPercent = document.getElementById('processingPercent');
+    const processingSteps = Array.from(document.querySelectorAll('#processingSteps .processing-step'));
 
     // Chart instance variable
     let ftpChart = null;
@@ -2614,8 +2689,47 @@
         processingStage.textContent = 'Preparing upload';
         processingFill.style.width = '6%';
         processingPercent.textContent = '6%';
+        setProcessingSteps('prepare');
         processingOverlay.classList.add('show');
         document.body.classList.add('app-busy');
+    }
+
+    function inferProcessingStep(stageText = '', percent = 0) {
+        const normalized = String(stageText || '').toLowerCase();
+        if (percent >= 100 || normalized.includes('complete')) {
+            return 'save';
+        }
+        if (normalized.includes('saving') || normalized.includes('persist')) {
+            return 'save';
+        }
+        if (normalized.includes('merge') || normalized.includes('build workbook')) {
+            return 'merge';
+        }
+        if (normalized.includes('processed ') || normalized.includes('processing ') || normalized.includes('comput') || normalized.includes('chunk')) {
+            return 'compute';
+        }
+        if (normalized.includes('reading workbook') || normalized.includes('streamed') || normalized.includes('write_raw')) {
+            return 'read';
+        }
+        return 'prepare';
+    }
+
+    function setProcessingSteps(activeKey) {
+        const stepOrder = ['prepare', 'read', 'compute', 'merge', 'save'];
+        const activeIndex = stepOrder.indexOf(activeKey);
+        processingSteps.forEach((stepEl) => {
+            const stepKey = stepEl.dataset.stepKey;
+            const stepIndex = stepOrder.indexOf(stepKey);
+            stepEl.classList.remove('active', 'done');
+            if (activeIndex === -1) {
+                return;
+            }
+            if (stepIndex < activeIndex) {
+                stepEl.classList.add('done');
+            } else if (stepIndex === activeIndex) {
+                stepEl.classList.add('active');
+            }
+        });
     }
 
     function updateProcessingOverlay(percent, stageText) {
@@ -2625,11 +2739,19 @@
         if (stageText) {
             processingStage.textContent = stageText;
         }
+        setProcessingSteps(inferProcessingStep(stageText, bounded));
     }
 
     function hideProcessingOverlay() {
         processingOverlay.classList.remove('show');
         document.body.classList.remove('app-busy');
+    }
+
+    function formatProcessingTitle(period) {
+        if (!period || !period.month || !period.year) {
+            return 'Computing FTP...';
+        }
+        return `Computing FTP for ${period.month} ${period.year}`;
     }
 
     function setCurveStatus(message, type = '') {
@@ -3660,7 +3782,8 @@
         }
 
         activeFtpJob = savedJob;
-        showProcessingOverlay('Reconnecting to running job...');
+        const reconnectPeriod = savedJob.fileName ? extractMonthYearFromFilename(savedJob.fileName) : null;
+        showProcessingOverlay(reconnectPeriod ? formatProcessingTitle(reconnectPeriod) : 'Reconnecting to running job...');
         updateProcessingOverlay(18, 'Reconnecting to server status stream');
 
         try {
@@ -3713,6 +3836,7 @@
         const file = selectedFile;
         const firstDay = firstDaySpan.textContent;
         const lastDay = lastDaySpan.textContent;
+        const extractedPeriod = file ? extractMonthYearFromFilename(file.name) : null;
         
         if (!file) {
             alert('Please select an XLSX file');
@@ -3733,7 +3857,7 @@
             </div>
         `);
 
-        showProcessingOverlay('Computing FTP...');
+        showProcessingOverlay(formatProcessingTitle(extractedPeriod));
         updateProcessingOverlay(12, 'Validating workbook and date range');
         
         uploadModal.style.display = 'none';
@@ -3761,7 +3885,6 @@
             return;
         }
 
-        const extractedPeriod = extractMonthYearFromFilename(file.name);
         let overwriteExisting = false;
         if (extractedPeriod) {
             try {

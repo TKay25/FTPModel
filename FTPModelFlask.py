@@ -1669,7 +1669,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
 
     try:
         upload_start_time = perf_counter()
-        progress(5, 'Parsing filename')
+        progress(5, 'Preparing upload')
 
         filename_match = re.search(r'FTP Input File (\w+) (\d{4})', filename)
         if not filename_match:
@@ -1688,6 +1688,8 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
             _update_job(job_id, status='error', error=f'Invalid month: {month_name}')
             return
 
+        progress(8, f'Preparing upload for {month_name} {year}')
+
         report_key_suffix = None if overwrite_existing else _next_report_version_suffix(year, month_num)
         report_key = _make_report_key(year, month_num, report_key_suffix)
         workings_manifest_path = _build_workings_manifest_path(report_key)
@@ -1702,7 +1704,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
         first_day = datetime(year, month_num, 1)
         last_day = (datetime(year + 1, 1, 1) if month_num == 12 else datetime(year, month_num + 1, 1)) - timedelta(days=1)
 
-        progress(10, 'Reading workbook')
+        progress(10, 'Reading workbook structure')
         read_start = perf_counter()
         excel_file = pd.ExcelFile(upload_path)
         sheet_names = excel_file.sheet_names
@@ -1796,6 +1798,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
 
                     raw_stream_result = _stream_workbook_sheet_to_ndjson(upload_path, sheet, raw_data_path)
                     if raw_stream_result is None:
+                        progress(18 + int(40 * completed_loan / total_loan_sheets), f'Reading raw rows from {sheet}')
                         try:
                             df_raw = excel_file.parse(sheet_name=sheet)
                         except Exception as exc:
@@ -1829,6 +1832,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                     chunk_buffer = []
                     chunk_count = 0
                     output_file = open(sheet_data_path, 'w', encoding='utf-8')
+                    progress(20 + int(45 * completed_loan / total_loan_sheets), f'Computing FTP for {sheet}')
 
                     try:
                         with open(raw_data_path, 'r', encoding='utf-8') as raw_file:
@@ -1844,6 +1848,8 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                     chunk_idx = line_idx - len(chunk_buffer) + 1
                                     chunk_end = min(line_idx + 1, total_rows)
                                     print(f"[CHUNK] {sheet} rows {chunk_idx}-{chunk_end}/{total_rows}")
+                                    chunk_pct = 20 + int(45 * (completed_loan + (chunk_end / max(total_rows, 1))) / total_loan_sheets)
+                                    progress(chunk_pct, f'Computing FTP for {month_name} {year}: {sheet} {chunk_end}/{total_rows}')
 
                                     # Add SBU mapping
                                     branch_col = next((column for column in branch_column_candidates if column in chunk.columns), None)
@@ -1977,9 +1983,15 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
 
                     completed_loan += 1
                     pct = 15 + int(75 * completed_loan / total_loan_sheets)
-                    progress(pct, f'Processed {sheet}')
+                    progress(pct, f'Computed {sheet}')
 
                 else:
+                    try:
+                        df = excel_file.parse(sheet_name=sheet)
+                    except Exception as exc:
+                        print(f"Error parsing {sheet}: {exc}")
+                        continue
+
                     preview = df.head(100).copy()
                     sheets_data[sheet] = {
                         'columns': df.columns.tolist(),
@@ -2001,7 +2013,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                 process_sheets(writer)
 
         if include_non_loan_sheets:
-            progress(90, 'Merging processed loans with original workbook')
+            progress(90, 'Building workbook with workings sheets')
             try:
                 _merge_processed_loans_into_original_workbook(upload_path, loan_results_output_path, excel_output_path)
             finally:
@@ -2012,7 +2024,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                         print(f"[WARN] Failed to remove temporary loan-only workbook {loan_results_output_path}: {exc}")
 
         log_stage('Write processed workbook', excel_write_start)
-        progress(92, 'Saving results')
+        progress(92, 'Saving results to archive')
 
         with open(workings_manifest_path, 'w', encoding='utf-8') as workings_manifest_file:
             json.dump(workings_manifest, workings_manifest_file, ensure_ascii=True, default=_json_default, allow_nan=False)
