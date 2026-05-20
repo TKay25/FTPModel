@@ -5,6 +5,7 @@ import sqlite3
 import gc
 import threading
 import uuid
+import shutil
 import pandas as pd
 import io
 import openpyxl
@@ -31,6 +32,13 @@ LOAN_SHEETS = {'ZWG LOANS', 'FX LOANS'}
 INCLUDE_NON_LOAN_SHEETS = os.getenv('INCLUDE_NON_LOAN_SHEETS', '0').lower() in {'1', 'true', 'yes'}
 # Guardrail for low-memory hosts: downgrade full-workbook export if upload is too large.
 INCLUDE_WORKINGS_MAX_UPLOAD_MB = float(os.getenv('INCLUDE_WORKINGS_MAX_UPLOAD_MB', '6'))
+REPORT_RETENTION_MAX_VERSIONS = int(os.getenv('REPORT_RETENTION_MAX_VERSIONS', '3'))
+REPORT_RETENTION_MAX_MONTHS = int(os.getenv('REPORT_RETENTION_MAX_MONTHS', '24'))
+FTP_REQUIRE_ROLE = os.getenv('FTP_REQUIRE_ROLE', '0').lower() in {'1', 'true', 'yes', 'on'}
+FTP_DEFAULT_ROLE = os.getenv('FTP_DEFAULT_ROLE', 'admin').strip().lower() or 'admin'
+ENABLE_SCHEDULER = os.getenv('ENABLE_SCHEDULER', '0').lower() in {'1', 'true', 'yes', 'on'}
+SCHEDULER_POLL_SECONDS = int(os.getenv('SCHEDULER_POLL_SECONDS', '30'))
+ENABLE_NOTIFICATIONS = os.getenv('ENABLE_NOTIFICATIONS', '1').lower() in {'1', 'true', 'yes', 'on'}
 os.makedirs(PROCESSED_OUTPUTS_DIR, exist_ok=True)
 
 
@@ -384,7 +392,188 @@ def _ensure_processed_reports_db():
             )
             '''
         )
+        connection.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS report_notes (
+                note_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_key TEXT NOT NULL,
+                note_text TEXT NOT NULL,
+                created_by TEXT,
+                created_at REAL NOT NULL
+            )
+            '''
+        )
+        connection.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS audit_log (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                report_key TEXT,
+                actor TEXT,
+                actor_role TEXT,
+                details_json TEXT,
+                created_at REAL NOT NULL
+            )
+            '''
+        )
+        connection.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS scheduler_jobs (
+                job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                folder_path TEXT NOT NULL,
+                include_workings INTEGER NOT NULL DEFAULT 0,
+                overwrite_existing INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                last_run_at REAL,
+                last_status TEXT,
+                last_message TEXT
+            )
+            '''
+        )
         connection.commit()
+
+
+def _current_actor():
+    actor = (request.headers.get('X-FTP-Actor') if request else None) or request.args.get('actor') if request else None
+    if not actor:
+        actor = 'local-user'
+    return str(actor).strip() or 'local-user'
+
+
+def _current_role():
+    role = (request.headers.get('X-FTP-Role') if request else None) or request.args.get('role') if request else None
+    if not role:
+        role = FTP_DEFAULT_ROLE
+    return str(role).strip().lower() or FTP_DEFAULT_ROLE
+
+
+def _require_role(*allowed_roles):
+    if not FTP_REQUIRE_ROLE:
+        return None
+
+    role = _current_role()
+    normalized_allowed = {str(value).strip().lower() for value in allowed_roles}
+    if role not in normalized_allowed:
+        return jsonify({'error': f'Action requires one of the following roles: {", ".join(sorted(normalized_allowed))}'}), 403
+    return None
+
+
+def _audit_event(event_type, report_key=None, details=None):
+    _ensure_processed_reports_db()
+    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+        connection.execute(
+            '''
+            INSERT INTO audit_log (event_type, report_key, actor, actor_role, details_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                event_type,
+                report_key,
+                _current_actor() if request else 'system',
+                _current_role() if request else 'system',
+                json.dumps(details or {}, ensure_ascii=True, default=_json_default),
+                time.time(),
+            )
+        )
+        connection.commit()
+
+
+def _register_notification(message, level='info', report_key=None):
+    if not ENABLE_NOTIFICATIONS:
+        return
+    _audit_event('notification', report_key=report_key, details={'message': message, 'level': level})
+
+
+def _fetch_report_metadata(report_key):
+    _ensure_processed_reports_db()
+    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+        connection.row_factory = sqlite3.Row
+        cursor = connection.cursor()
+        cursor.execute(
+            '''
+            SELECT report_key, month_number, month_name, year, filename, excel_filename,
+                   excel_output_path, excel_contains_workings, skipped_sheet_count, export_warning,
+                   created_at, updated_at, period_json, summaries_json, sheets_json
+            FROM processed_reports
+            WHERE report_key = ?
+            ''',
+            (report_key,)
+        )
+        return cursor.fetchone()
+
+
+def _load_report_notes(report_key):
+    _ensure_processed_reports_db()
+    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            'SELECT note_id, note_text, created_by, created_at FROM report_notes WHERE report_key = ? ORDER BY created_at DESC',
+            (report_key,)
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _delete_report_workbook(excel_output_path):
+    if excel_output_path and os.path.exists(excel_output_path):
+        try:
+            os.remove(excel_output_path)
+        except OSError as exc:
+            print(f"[WARN] Failed to remove archived workbook {excel_output_path}: {exc}")
+
+
+def _cleanup_report_retention(month_number=None, year=None):
+    _ensure_processed_reports_db()
+    now = datetime.now()
+    cutoff_year = now.year
+    cutoff_month = now.month - REPORT_RETENTION_MAX_MONTHS
+    while cutoff_month <= 0:
+        cutoff_month += 12
+        cutoff_year -= 1
+
+    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+        connection.row_factory = sqlite3.Row
+        rows_to_delete = []
+
+        if REPORT_RETENTION_MAX_MONTHS > 0:
+            old_rows = connection.execute(
+                '''
+                SELECT report_key, excel_output_path
+                FROM processed_reports
+                WHERE (year < ?) OR (year = ? AND month_number < ?)
+                ''',
+                (cutoff_year, cutoff_year, cutoff_month)
+            ).fetchall()
+            rows_to_delete.extend(old_rows)
+
+        if month_number and year and REPORT_RETENTION_MAX_VERSIONS > 0:
+            version_rows = connection.execute(
+                '''
+                SELECT report_key, excel_output_path
+                FROM processed_reports
+                WHERE month_number = ? AND year = ?
+                ORDER BY updated_at DESC
+                ''',
+                (int(month_number), int(year))
+            ).fetchall()
+            rows_to_delete.extend(version_rows[REPORT_RETENTION_MAX_VERSIONS:])
+
+        unique_rows = {}
+        for row in rows_to_delete:
+            unique_rows[row['report_key']] = row['excel_output_path']
+
+        if not unique_rows:
+            return 0
+
+        for report_key, excel_output_path in unique_rows.items():
+            connection.execute('DELETE FROM report_notes WHERE report_key = ?', (report_key,))
+            connection.execute('DELETE FROM processed_reports WHERE report_key = ?', (report_key,))
+            _audit_event('retention_delete', report_key=report_key, details={'reason': 'retention_policy'})
+            _delete_report_workbook(excel_output_path)
+
+        connection.commit()
+        return len(unique_rows)
 
 
 def save_latest_data_snapshot():
@@ -464,6 +653,20 @@ def save_latest_data_snapshot():
             )
         )
         connection.commit()
+
+    _audit_event(
+        'report_saved',
+        report_key=report_key,
+        details={
+            'month': payload['period'].get('month'),
+            'year': payload['period'].get('year'),
+            'excel_contains_workings': payload['excel_contains_workings'],
+            'skipped_sheet_count': payload['skipped_sheet_count'],
+            'filename': payload['filename'],
+        }
+    )
+    _register_notification(f'Report {report_key} is ready for download.', level='success', report_key=report_key)
+    _cleanup_report_retention(month_number=month_number, year=year_value)
 
 
 def _normalize_month_number(month_value):
@@ -581,14 +784,13 @@ def delete_processed_report(report_key):
             return False
 
         excel_output_path = row['excel_output_path']
+        cursor.execute('DELETE FROM report_notes WHERE report_key = ?', (report_key,))
         cursor.execute('DELETE FROM processed_reports WHERE report_key = ?', (report_key,))
         connection.commit()
 
-    if excel_output_path and os.path.exists(excel_output_path):
-        try:
-            os.remove(excel_output_path)
-        except OSError as exc:
-            print(f"[WARN] Failed to remove archived workbook {excel_output_path}: {exc}")
+    _delete_report_workbook(excel_output_path)
+    _audit_event('report_deleted', report_key=report_key, details={'deleted_via': 'api'})
+    _register_notification(f'Report {report_key} was deleted.', level='warning', report_key=report_key)
 
     return True
 
@@ -999,6 +1201,105 @@ def _fetch_upload_job(job_id):
 _ensure_upload_jobs_db()
 
 
+def _validate_upload_file(file_path, filename):
+    validation = {
+        'filename_valid': False,
+        'required_sheets_present': False,
+        'missing_sheets': [],
+        'sheet_count': 0,
+        'file_size_bytes': os.path.getsize(file_path) if file_path and os.path.exists(file_path) else 0,
+        'warnings': [],
+    }
+
+    filename_match = re.search(r'FTP Input File (\w+) (\d{4})', filename or '')
+    validation['filename_valid'] = bool(filename_match)
+    if not validation['filename_valid']:
+        validation['warnings'].append('Filename must be: FTP Input File Month Year.xlsx')
+        return validation
+
+    try:
+        excel_file = pd.ExcelFile(file_path)
+        sheet_names = excel_file.sheet_names
+    except Exception as exc:
+        validation['warnings'].append(f'Could not read workbook: {str(exc)}')
+        return validation
+
+    validation['sheet_count'] = len(sheet_names)
+    missing_sheets = sorted(LOAN_SHEETS.difference(sheet_names))
+    validation['missing_sheets'] = missing_sheets
+    validation['required_sheets_present'] = not missing_sheets
+    if missing_sheets:
+        validation['warnings'].append(f'Missing required sheets: {", ".join(missing_sheets)}')
+
+    if validation['file_size_bytes'] > int(INCLUDE_WORKINGS_MAX_UPLOAD_MB * 1024 * 1024):
+        validation['warnings'].append('Workbook size exceeds the safe full-export threshold; results-only mode may be used.')
+
+    return validation
+
+
+def _run_scheduler_cycle():
+    if not ENABLE_SCHEDULER:
+        return 0
+
+    _ensure_processed_reports_db()
+    processed_files = 0
+    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+        connection.row_factory = sqlite3.Row
+        jobs = connection.execute(
+            'SELECT job_id, folder_path, include_workings, overwrite_existing FROM scheduler_jobs WHERE active = 1'
+        ).fetchall()
+
+        for job in jobs:
+            folder_path = job['folder_path']
+            if not os.path.isdir(folder_path):
+                connection.execute(
+                    'UPDATE scheduler_jobs SET updated_at = ?, last_status = ?, last_message = ? WHERE job_id = ?',
+                    (time.time(), 'error', 'Folder not found', job['job_id'])
+                )
+                continue
+
+            for entry in os.listdir(folder_path):
+                file_path = os.path.join(folder_path, entry)
+                if not os.path.isfile(file_path):
+                    continue
+                if not re.search(r'FTP Input File \w+ \d{4}.*\.(xlsx|xls)$', entry, flags=re.IGNORECASE):
+                    continue
+
+                archive_path = f'{file_path}.processed'
+                if os.path.exists(archive_path):
+                    continue
+
+                validation = _validate_upload_file(file_path, entry)
+                if not validation['filename_valid'] or not validation['required_sheets_present']:
+                    connection.execute(
+                        'UPDATE scheduler_jobs SET updated_at = ?, last_status = ?, last_message = ? WHERE job_id = ?',
+                        (time.time(), 'error', '; '.join(validation['warnings']) or 'Validation failed', job['job_id'])
+                    )
+                    continue
+
+                scheduler_job_id = f'scheduler-{uuid.uuid4()}'
+                _insert_upload_job(scheduler_job_id)
+                _run_ftp_job(
+                    scheduler_job_id,
+                    file_path,
+                    entry,
+                    bool(job['include_workings']),
+                    bool(job['overwrite_existing']),
+                    export_warning='Processed automatically by scheduler.'
+                )
+                shutil.copyfile(file_path, archive_path)
+                connection.execute(
+                    'UPDATE scheduler_jobs SET updated_at = ?, last_run_at = ?, last_status = ?, last_message = ? WHERE job_id = ?',
+                    (time.time(), time.time(), 'success', f'Processed {entry}', job['job_id'])
+                )
+                processed_files += 1
+                _audit_event('scheduler_processed', details={'folder_path': folder_path, 'filename': entry})
+
+        connection.commit()
+
+    return processed_files
+
+
 def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwrite_existing=False, export_warning=None):
     """Background thread: process workbook and write results."""
     global latest_data
@@ -1322,6 +1623,30 @@ def upload_file():
     thread.start()
 
     return jsonify({'job_id': job_id, 'status': 'running'})
+
+
+@app.route('/upload/preflight', methods=['POST'])
+def upload_preflight():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+
+    temp_upload_path = os.path.join(TEMP_UPLOADS_DIR, f'{uuid.uuid4()}_{os.path.basename(file.filename)}')
+    try:
+        file.save(temp_upload_path)
+        validation = _validate_upload_file(temp_upload_path, file.filename)
+        return jsonify(validation)
+    except Exception as exc:
+        return jsonify({'error': f'Failed to validate workbook: {str(exc)}'}), 500
+    finally:
+        if os.path.exists(temp_upload_path):
+            try:
+                os.remove(temp_upload_path)
+            except OSError:
+                pass
 
 
 @app.route('/upload/status/<job_id>', methods=['GET'])
@@ -1956,13 +2281,222 @@ def processed_reports():
                     'updated_at': row['updated_at'],
                     'excel_contains_workings': bool(row['excel_contains_workings']),
                     'skipped_sheet_count': row['skipped_sheet_count'],
-                    'export_warning': row['export_warning']
+                    'export_warning': row['export_warning'],
+                    'notes_count': len(_load_report_notes(row['report_key']))
                 }
                 for row in rows
             ]
         })
     except Exception as exc:
         return jsonify({'error': f'Failed to list processed reports: {str(exc)}'}), 500
+
+
+@app.route('/processed-reports/<report_key>/metadata', methods=['GET'])
+def processed_report_metadata(report_key):
+    try:
+        row = _fetch_report_metadata(report_key)
+        if not row:
+            return jsonify({'error': 'Report version not found'}), 404
+
+        summaries = json.loads(row['summaries_json']) if row['summaries_json'] else {}
+        sheets = json.loads(row['sheets_json']) if row['sheets_json'] else {}
+        total_rows = sum((sheet_data.get('row_count') or 0) for currency in summaries.values() for sheet_data in currency.values())
+
+        return jsonify({
+            'report_key': row['report_key'],
+            'month': row['month_name'],
+            'month_number': row['month_number'],
+            'year': row['year'],
+            'filename': row['filename'],
+            'excel_filename': row['excel_filename'],
+            'excel_contains_workings': bool(row['excel_contains_workings']),
+            'skipped_sheet_count': row['skipped_sheet_count'],
+            'export_warning': row['export_warning'],
+            'sheet_count': len(sheets),
+            'total_rows': total_rows,
+            'file_size_bytes': os.path.getsize(row['excel_output_path']) if row['excel_output_path'] and os.path.exists(row['excel_output_path']) else None,
+            'notes': _load_report_notes(report_key),
+        })
+    except Exception as exc:
+        return jsonify({'error': f'Failed to load report metadata: {str(exc)}'}), 500
+
+
+@app.route('/processed-reports/<report_key>/notes', methods=['GET', 'POST'])
+def processed_report_notes(report_key):
+    try:
+        if request.method == 'GET':
+            return jsonify({'notes': _load_report_notes(report_key)})
+
+        role_error = _require_role('admin', 'editor')
+        if role_error:
+            return role_error
+
+        payload = request.get_json(silent=True) or {}
+        note_text = str(payload.get('note', '')).strip()
+        if not note_text:
+            return jsonify({'error': 'note is required'}), 400
+
+        _ensure_processed_reports_db()
+        with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+            connection.execute(
+                'INSERT INTO report_notes (report_key, note_text, created_by, created_at) VALUES (?, ?, ?, ?)',
+                (report_key, note_text, _current_actor(), time.time())
+            )
+            connection.commit()
+
+        _audit_event('note_added', report_key=report_key, details={'note': note_text})
+        return jsonify({'status': 'success', 'notes': _load_report_notes(report_key)})
+    except Exception as exc:
+        return jsonify({'error': f'Failed to manage report notes: {str(exc)}'}), 500
+
+
+@app.route('/processed-reports/compare', methods=['GET'])
+def compare_processed_reports():
+    report_key_a = request.args.get('report_key_a')
+    report_key_b = request.args.get('report_key_b')
+    if not report_key_a or not report_key_b:
+        return jsonify({'error': 'report_key_a and report_key_b are required'}), 400
+
+    row_a = _fetch_report_metadata(report_key_a)
+    row_b = _fetch_report_metadata(report_key_b)
+    if not row_a or not row_b:
+        return jsonify({'error': 'One or both report versions were not found'}), 404
+
+    summaries_a = json.loads(row_a['summaries_json']) if row_a['summaries_json'] else {}
+    summaries_b = json.loads(row_b['summaries_json']) if row_b['summaries_json'] else {}
+
+    comparison = []
+    currencies = sorted(set(summaries_a.keys()) | set(summaries_b.keys()))
+    for currency in currencies:
+        sheets = sorted(set((summaries_a.get(currency) or {}).keys()) | set((summaries_b.get(currency) or {}).keys()))
+        for sheet in sheets:
+            left = (summaries_a.get(currency) or {}).get(sheet, {})
+            right = (summaries_b.get(currency) or {}).get(sheet, {})
+            comparison.append({
+                'currency': currency,
+                'sheet': sheet,
+                'exposure_delta': float((right.get('total_exposure') or 0) - (left.get('total_exposure') or 0)),
+                'ftp_delta': float((right.get('total_ftp_charge') or 0) - (left.get('total_ftp_charge') or 0)),
+                'row_count_delta': int((right.get('row_count') or 0) - (left.get('row_count') or 0)),
+            })
+
+    _audit_event('report_compared', details={'report_key_a': report_key_a, 'report_key_b': report_key_b})
+    return jsonify({'comparison': comparison})
+
+
+@app.route('/audit-log', methods=['GET'])
+def audit_log():
+    try:
+        limit = request.args.get('limit', default=100, type=int)
+        with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                'SELECT event_id, event_type, report_key, actor, actor_role, details_json, created_at FROM audit_log ORDER BY created_at DESC LIMIT ?',
+                (max(1, min(limit, 500)),)
+            ).fetchall()
+
+        return jsonify({
+            'events': [
+                {
+                    'event_id': row['event_id'],
+                    'event_type': row['event_type'],
+                    'report_key': row['report_key'],
+                    'actor': row['actor'],
+                    'actor_role': row['actor_role'],
+                    'details': json.loads(row['details_json']) if row['details_json'] else {},
+                    'created_at': row['created_at'],
+                }
+                for row in rows
+            ]
+        })
+    except Exception as exc:
+        return jsonify({'error': f'Failed to load audit log: {str(exc)}'}), 500
+
+
+@app.route('/notifications', methods=['GET'])
+def notifications():
+    try:
+        with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                "SELECT event_id, report_key, details_json, created_at FROM audit_log WHERE event_type = 'notification' ORDER BY created_at DESC LIMIT 20"
+            ).fetchall()
+
+        return jsonify({
+            'notifications': [
+                {
+                    'event_id': row['event_id'],
+                    'report_key': row['report_key'],
+                    'created_at': row['created_at'],
+                    **(json.loads(row['details_json']) if row['details_json'] else {})
+                }
+                for row in rows
+            ]
+        })
+    except Exception as exc:
+        return jsonify({'error': f'Failed to load notifications: {str(exc)}'}), 500
+
+
+@app.route('/settings/retention', methods=['GET'])
+def retention_settings():
+    return jsonify({
+        'max_versions_per_month': REPORT_RETENTION_MAX_VERSIONS,
+        'max_months': REPORT_RETENTION_MAX_MONTHS,
+        'role_enforced': FTP_REQUIRE_ROLE,
+        'default_role': FTP_DEFAULT_ROLE,
+        'scheduler_enabled': ENABLE_SCHEDULER,
+    })
+
+
+@app.route('/scheduler-jobs', methods=['GET', 'POST'])
+def scheduler_jobs():
+    try:
+        _ensure_processed_reports_db()
+        if request.method == 'GET':
+            with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+                connection.row_factory = sqlite3.Row
+                rows = connection.execute(
+                    'SELECT job_id, folder_path, include_workings, overwrite_existing, active, created_at, updated_at, last_run_at, last_status, last_message FROM scheduler_jobs ORDER BY updated_at DESC'
+                ).fetchall()
+            return jsonify({'jobs': [dict(row) for row in rows]})
+
+        role_error = _require_role('admin')
+        if role_error:
+            return role_error
+
+        payload = request.get_json(silent=True) or {}
+        folder_path = str(payload.get('folder_path', '')).strip()
+        if not folder_path:
+            return jsonify({'error': 'folder_path is required'}), 400
+
+        now_ts = time.time()
+        with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+            connection.execute(
+                '''
+                INSERT INTO scheduler_jobs (folder_path, include_workings, overwrite_existing, active, created_at, updated_at)
+                VALUES (?, ?, ?, 1, ?, ?)
+                ''',
+                (folder_path, int(bool(payload.get('include_workings'))), int(bool(payload.get('overwrite_existing'))), now_ts, now_ts)
+            )
+            connection.commit()
+
+        _audit_event('scheduler_job_added', details={'folder_path': folder_path})
+        return scheduler_jobs()
+    except Exception as exc:
+        return jsonify({'error': f'Failed to manage scheduler jobs: {str(exc)}'}), 500
+
+
+@app.route('/scheduler-jobs/run', methods=['POST'])
+def run_scheduler_jobs():
+    try:
+        role_error = _require_role('admin')
+        if role_error:
+            return role_error
+
+        processed_files = _run_scheduler_cycle()
+        return jsonify({'status': 'success', 'processed_files': processed_files})
+    except Exception as exc:
+        return jsonify({'error': f'Failed to run scheduler: {str(exc)}'}), 500
 
 
 @app.route('/processed-reports/<report_key>', methods=['DELETE'])

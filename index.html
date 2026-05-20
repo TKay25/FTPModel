@@ -281,6 +281,102 @@
             min-height: 18px;
         }
 
+        .ops-panel {
+            margin-top: 18px;
+            padding: 18px;
+            border-radius: 18px;
+            border: 1px solid var(--border);
+            background: #fcfcfd;
+        }
+
+        .ops-panel h4 {
+            font-size: 14px;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        .ops-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .ops-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .ops-panel textarea,
+        .ops-panel input,
+        .ops-panel select {
+            width: 100%;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 10px 12px;
+            font-size: 13px;
+            color: var(--text);
+            outline: none;
+        }
+
+        .ops-panel textarea {
+            min-height: 74px;
+            resize: vertical;
+        }
+
+        .ops-panel button {
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border-strong);
+            background: #ffffff;
+            color: var(--text);
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.15s ease;
+        }
+
+        .ops-panel button:hover:not(:disabled) {
+            background: #f8fafc;
+            transform: translateY(-1px);
+        }
+
+        .ops-panel button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .ops-list {
+            max-height: 140px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 10px;
+            background: #ffffff;
+            font-size: 12px;
+            color: var(--text-soft);
+        }
+
+        .ops-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #eef2f7;
+        }
+
+        .ops-item:last-child {
+            border-bottom: none;
+        }
+
+        .ops-muted {
+            font-size: 12px;
+            color: var(--text-soft);
+        }
+
         .btn-download {
             background: var(--surface-muted);
             border: 1px solid var(--border-strong);
@@ -1193,6 +1289,40 @@
                     <div class="archive-status" id="archiveStatus">Load a month and year to browse saved versions.</div>
                 </div>
 
+                <div class="ops-panel">
+                    <h4><i class="fas fa-tools"></i> Operations Hub</h4>
+                    <div class="ops-stack">
+                        <div class="ops-row">
+                            <input type="text" id="compareLeftInput" placeholder="Compare left report key">
+                            <input type="text" id="compareRightInput" placeholder="Compare right report key">
+                        </div>
+                        <button type="button" id="compareReportsBtn"><i class="fas fa-code-compare"></i> Compare versions</button>
+                        <div class="ops-list" id="compareResultsList">No comparison loaded.</div>
+
+                        <textarea id="reportNoteInput" placeholder="Add a note to the selected report version..."></textarea>
+                        <button type="button" id="saveReportNoteBtn"><i class="fas fa-sticky-note"></i> Save note</button>
+                        <div class="ops-list" id="reportNotesList">No notes loaded.</div>
+
+                        <div class="ops-row">
+                            <button type="button" id="refreshAuditBtn"><i class="fas fa-clipboard-list"></i> Audit log</button>
+                            <button type="button" id="refreshNotificationsBtn"><i class="fas fa-bell"></i> Notifications</button>
+                        </div>
+                        <div class="ops-list" id="auditLogList">No audit entries loaded.</div>
+                        <div class="ops-list" id="notificationsList">No notifications loaded.</div>
+
+                        <input type="text" id="schedulerFolderInput" placeholder="Scheduler folder path">
+                        <div class="ops-row">
+                            <button type="button" id="saveSchedulerJobBtn"><i class="fas fa-clock"></i> Save watcher</button>
+                            <button type="button" id="runSchedulerBtn"><i class="fas fa-play"></i> Run watcher</button>
+                        </div>
+                        <div class="ops-list" id="schedulerJobsList">No scheduler jobs loaded.</div>
+
+                        <button type="button" id="loadSettingsBtn"><i class="fas fa-sliders-h"></i> Load settings</button>
+                        <div class="ops-list" id="settingsList">No settings loaded.</div>
+                        <div class="ops-muted">Role headers are optional unless role enforcement is enabled on the server.</div>
+                    </div>
+                </div>
+
                 <div style="margin-top: 32px; color: #b58b8b; font-size: 13px; border-left: 3px solid #d99; padding-left: 16px;">
                     <i class="fas fa-shield-alt"></i>  100% data privacy · Local SQLite archive · No third-party access
                 </div>
@@ -1466,6 +1596,23 @@
     const openArchiveExcelBtn = document.getElementById('openArchiveExcelBtn');
     const deleteArchiveBtn = document.getElementById('deleteArchiveBtn');
     const archiveStatus = document.getElementById('archiveStatus');
+    const compareLeftInput = document.getElementById('compareLeftInput');
+    const compareRightInput = document.getElementById('compareRightInput');
+    const compareReportsBtn = document.getElementById('compareReportsBtn');
+    const compareResultsList = document.getElementById('compareResultsList');
+    const reportNoteInput = document.getElementById('reportNoteInput');
+    const saveReportNoteBtn = document.getElementById('saveReportNoteBtn');
+    const reportNotesList = document.getElementById('reportNotesList');
+    const refreshAuditBtn = document.getElementById('refreshAuditBtn');
+    const refreshNotificationsBtn = document.getElementById('refreshNotificationsBtn');
+    const auditLogList = document.getElementById('auditLogList');
+    const notificationsList = document.getElementById('notificationsList');
+    const schedulerFolderInput = document.getElementById('schedulerFolderInput');
+    const saveSchedulerJobBtn = document.getElementById('saveSchedulerJobBtn');
+    const runSchedulerBtn = document.getElementById('runSchedulerBtn');
+    const schedulerJobsList = document.getElementById('schedulerJobsList');
+    const loadSettingsBtn = document.getElementById('loadSettingsBtn');
+    const settingsList = document.getElementById('settingsList');
     
     const calculateBtn = document.getElementById('calculateFtpBtn');
     const computeRangeBtn = document.getElementById('computeFtpRangeBtn');
@@ -1526,6 +1673,7 @@
     let currentCurveData = null;
     let currentBranchMapData = [];
     let currentArchiveReports = [];
+    let currentReportMetadata = null;
 
     // Helper function to format large numbers
     function formatNumber(num) {
@@ -1809,6 +1957,7 @@
                     </div>
                 </div>
             `);
+            await loadReportMetadata(reportKeyValue);
             setArchiveStatus(`Loaded ${reportKey}.`, 'success');
         } catch (error) {
             console.error('Failed to load archive report:', error);
@@ -1851,6 +2000,112 @@
         currentArchiveReports = [];
         setArchiveControlsEnabled(false);
         setArchiveStatus('Load a month and year to browse saved versions.');
+    }
+
+    function renderOpsList(container, items, emptyMessage, formatter) {
+        if (!container) {
+            return;
+        }
+
+        if (!items || !items.length) {
+            container.innerHTML = emptyMessage;
+            return;
+        }
+
+        container.innerHTML = items.map((item) => `<div class="ops-item">${formatter(item)}</div>`).join('');
+    }
+
+    async function loadReportMetadata(reportKey) {
+        if (!reportKey) {
+            currentReportMetadata = null;
+            renderOpsList(reportNotesList, [], 'No notes loaded.', () => '');
+            return null;
+        }
+
+        const response = await fetch(`/processed-reports/${encodeURIComponent(reportKey)}/metadata`);
+        const payload = await parseJsonSafely(response);
+        if (!response.ok || !payload || payload.error) {
+            throw new Error((payload && payload.error) || 'Failed to load report metadata');
+        }
+
+        currentReportMetadata = payload;
+        renderOpsList(
+            reportNotesList,
+            payload.notes || [],
+            'No notes loaded.',
+            (note) => `<strong>${note.created_by || 'unknown'}</strong><br>${note.note_text}`
+        );
+        return payload;
+    }
+
+    async function loadAuditLog() {
+        const response = await fetch('/audit-log?limit=20');
+        const payload = await parseJsonSafely(response);
+        if (!response.ok || !payload || payload.error) {
+            throw new Error((payload && payload.error) || 'Failed to load audit log');
+        }
+        renderOpsList(
+            auditLogList,
+            payload.events || [],
+            'No audit entries loaded.',
+            (event) => `<strong>${event.event_type}</strong> · ${event.report_key || 'n/a'}<br>${event.actor || 'unknown'} · ${new Date(event.created_at * 1000).toLocaleString()}`
+        );
+    }
+
+    async function loadNotifications() {
+        const response = await fetch('/notifications');
+        const payload = await parseJsonSafely(response);
+        if (!response.ok || !payload || payload.error) {
+            throw new Error((payload && payload.error) || 'Failed to load notifications');
+        }
+        renderOpsList(
+            notificationsList,
+            payload.notifications || [],
+            'No notifications loaded.',
+            (notification) => `<strong>${notification.level || 'info'}</strong><br>${notification.message || 'Notification'}<br>${new Date(notification.created_at * 1000).toLocaleString()}`
+        );
+    }
+
+    async function loadSettings() {
+        const response = await fetch('/settings/retention');
+        const payload = await parseJsonSafely(response);
+        if (!response.ok || !payload || payload.error) {
+            throw new Error((payload && payload.error) || 'Failed to load settings');
+        }
+        renderOpsList(
+            settingsList,
+            [payload],
+            'No settings loaded.',
+            (settings) => `Retention: ${settings.max_versions_per_month} versions / ${settings.max_months} months<br>Role enforcement: ${settings.role_enforced ? 'Enabled' : 'Disabled'}<br>Scheduler: ${settings.scheduler_enabled ? 'Enabled' : 'Manual only'}`
+        );
+    }
+
+    async function loadSchedulerJobs() {
+        const response = await fetch('/scheduler-jobs');
+        const payload = await parseJsonSafely(response);
+        if (!response.ok || !payload || payload.error) {
+            throw new Error((payload && payload.error) || 'Failed to load scheduler jobs');
+        }
+        renderOpsList(
+            schedulerJobsList,
+            payload.jobs || [],
+            'No scheduler jobs loaded.',
+            (job) => `<strong>${job.folder_path}</strong><br>Status: ${job.last_status || 'idle'}${job.last_message ? ` · ${job.last_message}` : ''}`
+        );
+    }
+
+    async function runUploadPreflight(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await fetch('/upload/preflight', {
+            method: 'POST',
+            body: formData
+        });
+        const payload = await parseJsonSafely(response);
+        if (!response.ok || !payload || payload.error) {
+            throw new Error((payload && payload.error) || 'Failed to run preflight checks');
+        }
+        return payload;
     }
 
     function showProcessingOverlay(titleText) {
@@ -2271,6 +2526,123 @@
         }
     });
 
+    compareReportsBtn.addEventListener('click', async () => {
+        const reportKeyA = compareLeftInput.value.trim();
+        const reportKeyB = compareRightInput.value.trim() || lastComputedRange.reportKey || '';
+        if (!reportKeyA || !reportKeyB) {
+            compareResultsList.innerHTML = 'Provide two report keys to compare.';
+            return;
+        }
+        try {
+            const response = await fetch(`/processed-reports/compare?report_key_a=${encodeURIComponent(reportKeyA)}&report_key_b=${encodeURIComponent(reportKeyB)}`);
+            const payload = await parseJsonSafely(response);
+            if (!response.ok || !payload || payload.error) {
+                throw new Error((payload && payload.error) || 'Failed to compare reports');
+            }
+            renderOpsList(
+                compareResultsList,
+                payload.comparison || [],
+                'No comparison data.',
+                (item) => `<strong>${item.currency} · ${item.sheet}</strong><br>Exposure Δ: ${formatNumber(item.exposure_delta)} · FTP Δ: ${formatNumber(item.ftp_delta)} · Rows Δ: ${item.row_count_delta}`
+            );
+        } catch (error) {
+            compareResultsList.innerHTML = error.message || 'Failed to compare reports.';
+        }
+    });
+
+    saveReportNoteBtn.addEventListener('click', async () => {
+        const selectedReport = getSelectedArchiveReport();
+        const note = reportNoteInput.value.trim();
+        if (!selectedReport || !note) {
+            reportNotesList.innerHTML = 'Select a report version and enter a note first.';
+            return;
+        }
+        try {
+            const response = await fetch(`/processed-reports/${encodeURIComponent(selectedReport.report_key)}/notes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ note })
+            });
+            const payload = await parseJsonSafely(response);
+            if (!response.ok || !payload || payload.error) {
+                throw new Error((payload && payload.error) || 'Failed to save note');
+            }
+            reportNoteInput.value = '';
+            renderOpsList(
+                reportNotesList,
+                payload.notes || [],
+                'No notes loaded.',
+                (item) => `<strong>${item.created_by || 'unknown'}</strong><br>${item.note_text}`
+            );
+        } catch (error) {
+            reportNotesList.innerHTML = error.message || 'Failed to save note.';
+        }
+    });
+
+    refreshAuditBtn.addEventListener('click', async () => {
+        try {
+            await loadAuditLog();
+        } catch (error) {
+            auditLogList.innerHTML = error.message || 'Failed to load audit log.';
+        }
+    });
+
+    refreshNotificationsBtn.addEventListener('click', async () => {
+        try {
+            await loadNotifications();
+        } catch (error) {
+            notificationsList.innerHTML = error.message || 'Failed to load notifications.';
+        }
+    });
+
+    saveSchedulerJobBtn.addEventListener('click', async () => {
+        const folderPath = schedulerFolderInput.value.trim();
+        if (!folderPath) {
+            schedulerJobsList.innerHTML = 'Enter a folder path first.';
+            return;
+        }
+        try {
+            const response = await fetch('/scheduler-jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    folder_path: folderPath,
+                    include_workings: includeWorkingsCheckbox.checked,
+                    overwrite_existing: false
+                })
+            });
+            const payload = await parseJsonSafely(response);
+            if (!response.ok || !payload || payload.error) {
+                throw new Error((payload && payload.error) || 'Failed to save scheduler job');
+            }
+            await loadSchedulerJobs();
+        } catch (error) {
+            schedulerJobsList.innerHTML = error.message || 'Failed to save scheduler job.';
+        }
+    });
+
+    runSchedulerBtn.addEventListener('click', async () => {
+        try {
+            const response = await fetch('/scheduler-jobs/run', { method: 'POST' });
+            const payload = await parseJsonSafely(response);
+            if (!response.ok || !payload || payload.error) {
+                throw new Error((payload && payload.error) || 'Failed to run scheduler');
+            }
+            await loadSchedulerJobs();
+            await loadNotifications();
+        } catch (error) {
+            schedulerJobsList.innerHTML = error.message || 'Failed to run scheduler.';
+        }
+    });
+
+    loadSettingsBtn.addEventListener('click', async () => {
+        try {
+            await loadSettings();
+        } catch (error) {
+            settingsList.innerHTML = error.message || 'Failed to load settings.';
+        }
+    });
+
     archiveVersionSelect.addEventListener('change', async () => {
         const selectedReport = getSelectedArchiveReport();
         if (selectedReport) {
@@ -2671,6 +3043,29 @@
         
         uploadModal.style.display = 'none';
 
+        try {
+            const validation = await runUploadPreflight(file);
+            if (!validation.filename_valid) {
+                throw new Error('Filename is invalid. It must be FTP Input File Month Year.xlsx');
+            }
+            if (!validation.required_sheets_present) {
+                throw new Error(`Missing required sheets: ${(validation.missing_sheets || []).join(', ')}`);
+            }
+            if (validation.warnings && validation.warnings.length) {
+                updateProcessingOverlay(14, validation.warnings[0]);
+            }
+        } catch (validationError) {
+            hideProcessingOverlay();
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
+                    <h3 style="color: #dc3545; margin-bottom: 10px;">Upload validation failed</h3>
+                    <p style="color: #632424;">${validationError.message}</p>
+                </div>
+            `);
+            return;
+        }
+
         const extractedPeriod = extractMonthYearFromFilename(file.name);
         let overwriteExisting = false;
         if (extractedPeriod) {
@@ -2734,6 +3129,13 @@
                     period: result.period,
                     reportKey: result.report_key || result?.period?.report_key || null
                 };
+
+                if (result.report_key) {
+                    compareRightInput.value = result.report_key;
+                    await loadReportMetadata(result.report_key);
+                }
+                await loadAuditLog().catch(() => {});
+                await loadNotifications().catch(() => {});
                 
                 downloadRangeX.textContent = firstDay;
                 downloadRangeY.textContent = lastDay;
