@@ -1,0 +1,1 @@
+web: gunicorn FTPModelFlask:app --worker-class gthread --workers 1 --threads 8 --timeout 0 --graceful-timeout 120 --log-file -

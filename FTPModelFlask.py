@@ -39,6 +39,10 @@ LOAN_SHEETS = {'ZWG LOANS', 'FX LOANS'}
 INCLUDE_NON_LOAN_SHEETS = os.getenv('INCLUDE_NON_LOAN_SHEETS', '0').lower() in {'1', 'true', 'yes'}
 # Guardrail for low-memory hosts: downgrade full-workbook export if upload is too large.
 INCLUDE_WORKINGS_MAX_UPLOAD_MB = float(os.getenv('INCLUDE_WORKINGS_MAX_UPLOAD_MB', '6'))
+FORCE_RESULTS_ONLY_ON_HOSTED = os.getenv(
+    'FTP_FORCE_RESULTS_ONLY_ON_HOSTED',
+    '1' if (os.getenv('RENDER') or os.getenv('RENDER_EXTERNAL_URL')) else '0'
+).lower() in {'1', 'true', 'yes', 'on'}
 REPORT_RETENTION_MAX_VERSIONS = int(os.getenv('REPORT_RETENTION_MAX_VERSIONS', '3'))
 REPORT_RETENTION_MAX_MONTHS = int(os.getenv('REPORT_RETENTION_MAX_MONTHS', '24'))
 FTP_REQUIRE_ROLE = os.getenv('FTP_REQUIRE_ROLE', '0').lower() in {'1', 'true', 'yes', 'on'}
@@ -2124,7 +2128,13 @@ def upload_file():
 
     upload_size_mb = os.path.getsize(temp_upload_path) / (1024 * 1024)
     export_warning = None
-    if (
+    if include_non_loan_sheets and FORCE_RESULTS_ONLY_ON_HOSTED:
+        include_non_loan_sheets = False
+        export_warning = (
+            'Full workbook export is disabled on this hosted deployment to prevent worker restarts. '
+            'Use the processed Excel results, the original uploaded workbook, and the workings workbook generated from JSON.'
+        )
+    elif (
         include_non_loan_sheets
         and not force_full_workbook
         and not INCLUDE_NON_LOAN_SHEETS

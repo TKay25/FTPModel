@@ -4146,7 +4146,7 @@
                     summaryHtml += `
                         <div style="margin-top: 14px; padding: 12px; border-radius: 10px; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412;">
                             <i class="fas fa-info-circle"></i>
-                            Workings sheets were excluded for this run to reduce memory usage. Re-run with <strong>Include workings sheets</strong> enabled for a full workbook.
+                            Workings sheets were excluded from the generated Excel to keep the server stable. Use <strong>Download Original Uploaded Workbook</strong> and <strong>Download Workings Workbook (From JSON)</strong> below.
                         </div>
                     `;
                 }
@@ -4200,7 +4200,7 @@
                 userFriendlyError = 'This processing session is no longer available on the server. Please click Try Again to start a fresh run.';
             } else if (userFriendlyError.toLowerCase().includes('failed to get processing status')) {
                 clearActiveFtpJob();
-                userFriendlyError = 'Lost connection to processing status. The server may have restarted due to memory pressure. Please retry, and if this persists uncheck Include workings sheets for a lighter export.';
+                userFriendlyError = 'Lost connection to processing status. The hosted worker likely restarted under memory pressure. Retry once; if this happens again, use the results-only export and the separate original/workings downloads.';
             } else if (
                 userFriendlyError.toLowerCase().includes('unexpected end of json input') ||
                 userFriendlyError.toLowerCase().includes('malformed json') ||
