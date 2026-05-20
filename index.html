@@ -378,6 +378,13 @@
             border-bottom: none;
         }
 
+        .ops-meta {
+            margin-top: -4px;
+            min-height: 16px;
+            font-size: 11px;
+            color: var(--text-soft);
+        }
+
         .ops-muted {
             font-size: 12px;
             color: var(--text-soft);
@@ -1330,13 +1337,23 @@
                             <input type="text" id="compareLeftInput" placeholder="Compare left report key">
                             <input type="text" id="compareRightInput" placeholder="Compare right report key">
                         </div>
+                        <div class="ops-row">
+                            <button type="button" id="useSelectedCompareLeftBtn"><i class="fas fa-arrow-left"></i> Selected -> Left</button>
+                            <button type="button" id="useLatestCompareRightBtn"><i class="fas fa-arrow-right"></i> Latest -> Right</button>
+                        </div>
+                        <div class="ops-row">
+                            <button type="button" id="presetSelectedLatestBtn"><i class="fas fa-layer-group"></i> Selected vs Latest</button>
+                            <button type="button" id="presetSelectedPreviousBtn"><i class="fas fa-clock-rotate-left"></i> Selected vs Previous</button>
+                        </div>
                         <button type="button" id="compareReportsBtn"><i class="fas fa-code-compare"></i> Compare versions</button>
                         <div class="ops-status" id="compareStatus">Ready to compare report versions.</div>
+                        <div class="ops-meta" id="compareMeta">Last refreshed: not yet.</div>
                         <div class="ops-list" id="compareResultsList">No comparison loaded.</div>
 
                         <textarea id="reportNoteInput" placeholder="Add a note to the selected report version..."></textarea>
                         <button type="button" id="saveReportNoteBtn"><i class="fas fa-sticky-note"></i> Save note</button>
                         <div class="ops-status" id="notesStatus">Select an archive version to view or save notes.</div>
+                        <div class="ops-meta" id="notesMeta">Last refreshed: not yet.</div>
                         <div class="ops-list" id="reportNotesList">No notes loaded.</div>
 
                         <div class="ops-row">
@@ -1344,8 +1361,10 @@
                             <button type="button" id="refreshNotificationsBtn"><i class="fas fa-bell"></i> Notifications</button>
                         </div>
                         <div class="ops-status" id="auditStatus">Audit log not loaded yet.</div>
+                        <div class="ops-meta" id="auditMeta">Last refreshed: not yet.</div>
                         <div class="ops-list" id="auditLogList">No audit entries loaded.</div>
                         <div class="ops-status" id="notificationsStatus">Notifications not loaded yet.</div>
+                        <div class="ops-meta" id="notificationsMeta">Last refreshed: not yet.</div>
                         <div class="ops-list" id="notificationsList">No notifications loaded.</div>
 
                         <input type="text" id="schedulerFolderInput" placeholder="Scheduler folder path">
@@ -1354,10 +1373,12 @@
                             <button type="button" id="runSchedulerBtn"><i class="fas fa-play"></i> Run watcher</button>
                         </div>
                         <div class="ops-status" id="schedulerStatus">No scheduler action has run yet.</div>
+                        <div class="ops-meta" id="schedulerMeta">Last refreshed: not yet.</div>
                         <div class="ops-list" id="schedulerJobsList">No scheduler jobs loaded.</div>
 
                         <button type="button" id="loadSettingsBtn"><i class="fas fa-sliders-h"></i> Load settings</button>
                         <div class="ops-status" id="settingsStatus">Settings not loaded yet.</div>
+                        <div class="ops-meta" id="settingsMeta">Last refreshed: not yet.</div>
                         <div class="ops-list" id="settingsList">No settings loaded.</div>
                         <div class="ops-muted">Role headers are optional unless role enforcement is enabled on the server.</div>
                     </div>
@@ -1638,27 +1659,37 @@
     const archiveStatus = document.getElementById('archiveStatus');
     const compareLeftInput = document.getElementById('compareLeftInput');
     const compareRightInput = document.getElementById('compareRightInput');
+    const useSelectedCompareLeftBtn = document.getElementById('useSelectedCompareLeftBtn');
+    const useLatestCompareRightBtn = document.getElementById('useLatestCompareRightBtn');
+    const presetSelectedLatestBtn = document.getElementById('presetSelectedLatestBtn');
+    const presetSelectedPreviousBtn = document.getElementById('presetSelectedPreviousBtn');
     const compareReportsBtn = document.getElementById('compareReportsBtn');
     const compareResultsList = document.getElementById('compareResultsList');
     const compareStatus = document.getElementById('compareStatus');
+    const compareMeta = document.getElementById('compareMeta');
     const reportNoteInput = document.getElementById('reportNoteInput');
     const saveReportNoteBtn = document.getElementById('saveReportNoteBtn');
     const reportNotesList = document.getElementById('reportNotesList');
     const notesStatus = document.getElementById('notesStatus');
+    const notesMeta = document.getElementById('notesMeta');
     const refreshAuditBtn = document.getElementById('refreshAuditBtn');
     const refreshNotificationsBtn = document.getElementById('refreshNotificationsBtn');
     const auditLogList = document.getElementById('auditLogList');
     const notificationsList = document.getElementById('notificationsList');
     const auditStatus = document.getElementById('auditStatus');
     const notificationsStatus = document.getElementById('notificationsStatus');
+    const auditMeta = document.getElementById('auditMeta');
+    const notificationsMeta = document.getElementById('notificationsMeta');
     const schedulerFolderInput = document.getElementById('schedulerFolderInput');
     const saveSchedulerJobBtn = document.getElementById('saveSchedulerJobBtn');
     const runSchedulerBtn = document.getElementById('runSchedulerBtn');
     const schedulerJobsList = document.getElementById('schedulerJobsList');
     const schedulerStatus = document.getElementById('schedulerStatus');
+    const schedulerMeta = document.getElementById('schedulerMeta');
     const loadSettingsBtn = document.getElementById('loadSettingsBtn');
     const settingsList = document.getElementById('settingsList');
     const settingsStatus = document.getElementById('settingsStatus');
+    const settingsMeta = document.getElementById('settingsMeta');
     
     const calculateBtn = document.getElementById('calculateFtpBtn');
     const computeRangeBtn = document.getElementById('computeFtpRangeBtn');
@@ -1918,6 +1949,7 @@
             option.textContent = 'No saved versions found';
             archiveVersionSelect.appendChild(option);
             setArchiveControlsEnabled(false);
+            syncCompareShortcutButtons();
             return;
         }
 
@@ -1932,6 +1964,8 @@
         });
 
         setArchiveControlsEnabled(true);
+        autoFillCompareInputs();
+        syncCompareShortcutButtons();
         setArchiveStatus(`Found ${currentArchiveReports.length} saved version(s).`, 'success');
     }
 
@@ -2044,7 +2078,10 @@
         if (archiveYearInput) archiveYearInput.value = '';
         if (archiveVersionSelect) archiveVersionSelect.innerHTML = '<option value="">Version</option>';
         currentArchiveReports = [];
+        compareLeftInput.value = '';
+        compareRightInput.value = '';
         setArchiveControlsEnabled(false);
+        syncCompareShortcutButtons();
         setArchiveStatus('Load a month and year to browse saved versions.');
     }
 
@@ -2059,6 +2096,73 @@
         }
 
         container.innerHTML = items.map((item) => `<div class="ops-item">${formatter(item)}</div>`).join('');
+    }
+
+    function formatRefreshTimestamp(date = new Date()) {
+        return date.toLocaleString([], {
+            year: 'numeric',
+            month: 'short',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    function setOpsMeta(container, label = 'Last refreshed') {
+        if (!container) {
+            return;
+        }
+        container.textContent = `${label}: ${formatRefreshTimestamp()}`;
+    }
+
+    function getLatestLoadedArchiveReport() {
+        return currentArchiveReports[0] || null;
+    }
+
+    function getPreviousLoadedArchiveReport(selectedReport = getSelectedArchiveReport()) {
+        if (!selectedReport || !currentArchiveReports.length) {
+            return null;
+        }
+        const selectedIndex = currentArchiveReports.findIndex((report) => report.report_key === selectedReport.report_key);
+        if (selectedIndex < 0) {
+            return null;
+        }
+        return currentArchiveReports[selectedIndex + 1] || null;
+    }
+
+    function autoFillCompareInputs() {
+        const selectedReport = getSelectedArchiveReport();
+        const latestReport = getLatestLoadedArchiveReport();
+        if (!selectedReport || !latestReport) {
+            return;
+        }
+
+        compareRightInput.value = latestReport.report_key;
+        if (selectedReport.report_key !== latestReport.report_key) {
+            compareLeftInput.value = selectedReport.report_key;
+            return;
+        }
+
+        const previousReport = getPreviousLoadedArchiveReport(selectedReport);
+        compareLeftInput.value = previousReport ? previousReport.report_key : selectedReport.report_key;
+    }
+
+    function syncCompareShortcutButtons() {
+        const selectedReport = getSelectedArchiveReport();
+        const latestReport = getLatestLoadedArchiveReport();
+        const previousReport = getPreviousLoadedArchiveReport(selectedReport);
+        if (useSelectedCompareLeftBtn) {
+            useSelectedCompareLeftBtn.disabled = !selectedReport;
+        }
+        if (useLatestCompareRightBtn) {
+            useLatestCompareRightBtn.disabled = !latestReport;
+        }
+        if (presetSelectedLatestBtn) {
+            presetSelectedLatestBtn.disabled = !selectedReport || !latestReport;
+        }
+        if (presetSelectedPreviousBtn) {
+            presetSelectedPreviousBtn.disabled = !selectedReport || !previousReport;
+        }
     }
 
     function setOpsStatus(container, message, tone = 'neutral') {
@@ -2094,6 +2198,7 @@
     }
 
     async function initializeOperationsHub() {
+        syncCompareShortcutButtons();
         setOpsStatus(auditStatus, 'Loading audit log...', 'loading');
         setOpsStatus(notificationsStatus, 'Loading notifications...', 'loading');
         setOpsStatus(schedulerStatus, 'Loading scheduler jobs...', 'loading');
@@ -2124,6 +2229,9 @@
             currentReportMetadata = null;
             renderOpsList(reportNotesList, [], 'No notes loaded.', () => '');
             setOpsStatus(notesStatus, 'Select an archive version to view or save notes.');
+            if (notesMeta) {
+                notesMeta.textContent = 'Last refreshed: not yet.';
+            }
             return null;
         }
 
@@ -2142,6 +2250,7 @@
             (note) => `<strong>${note.created_by || 'unknown'}</strong><br>${note.note_text}`
         );
         setOpsStatus(notesStatus, `Loaded notes for ${reportKey}.`, 'success');
+        setOpsMeta(notesMeta);
         return payload;
     }
 
@@ -2159,6 +2268,7 @@
             (event) => `<strong>${event.event_type}</strong> · ${event.report_key || 'n/a'}<br>${event.actor || 'unknown'} · ${new Date(event.created_at * 1000).toLocaleString()}`
         );
         setOpsStatus(auditStatus, `Loaded ${payload.events ? payload.events.length : 0} audit entries.`, 'success');
+        setOpsMeta(auditMeta);
     }
 
     async function loadNotifications() {
@@ -2175,6 +2285,7 @@
             (notification) => `<strong>${notification.level || 'info'}</strong><br>${notification.message || 'Notification'}<br>${new Date(notification.created_at * 1000).toLocaleString()}`
         );
         setOpsStatus(notificationsStatus, `Loaded ${payload.notifications ? payload.notifications.length : 0} notifications.`, 'success');
+        setOpsMeta(notificationsMeta);
     }
 
     async function loadSettings() {
@@ -2191,6 +2302,7 @@
             (settings) => `Retention: ${settings.max_versions_per_month} versions / ${settings.max_months} months<br>Role enforcement: ${settings.role_enforced ? 'Enabled' : 'Disabled'}<br>Scheduler: ${settings.scheduler_enabled ? 'Enabled' : 'Manual only'}`
         );
         setOpsStatus(settingsStatus, 'Settings loaded.', 'success');
+        setOpsMeta(settingsMeta);
     }
 
     async function loadSchedulerJobs() {
@@ -2207,6 +2319,7 @@
             (job) => `<strong>${job.folder_path}</strong><br>Status: ${job.last_status || 'idle'}${job.last_message ? ` · ${job.last_message}` : ''}`
         );
         setOpsStatus(schedulerStatus, `Loaded ${payload.jobs ? payload.jobs.length : 0} scheduler jobs.`, 'success');
+        setOpsMeta(schedulerMeta);
     }
 
     async function runUploadPreflight(file) {
@@ -2641,6 +2754,50 @@
         }
     });
 
+    useSelectedCompareLeftBtn.addEventListener('click', () => {
+        const selectedReport = getSelectedArchiveReport();
+        if (!selectedReport) {
+            setOpsStatus(compareStatus, 'Load or select an archive version first.', 'error');
+            return;
+        }
+        compareLeftInput.value = selectedReport.report_key;
+        setOpsStatus(compareStatus, `Selected ${selectedReport.report_key} for the left comparison side.`, 'success');
+    });
+
+    useLatestCompareRightBtn.addEventListener('click', () => {
+        const latestReport = getLatestLoadedArchiveReport();
+        if (!latestReport) {
+            setOpsStatus(compareStatus, 'Load archive versions first.', 'error');
+            return;
+        }
+        compareRightInput.value = latestReport.report_key;
+        setOpsStatus(compareStatus, `Selected ${latestReport.report_key} for the right comparison side.`, 'success');
+    });
+
+    presetSelectedLatestBtn.addEventListener('click', () => {
+        const selectedReport = getSelectedArchiveReport();
+        const latestReport = getLatestLoadedArchiveReport();
+        if (!selectedReport || !latestReport) {
+            setOpsStatus(compareStatus, 'Load archive versions first.', 'error');
+            return;
+        }
+        compareLeftInput.value = selectedReport.report_key;
+        compareRightInput.value = latestReport.report_key;
+        setOpsStatus(compareStatus, `Preset ready: ${selectedReport.report_key} vs ${latestReport.report_key}.`, 'success');
+    });
+
+    presetSelectedPreviousBtn.addEventListener('click', () => {
+        const selectedReport = getSelectedArchiveReport();
+        const previousReport = getPreviousLoadedArchiveReport(selectedReport);
+        if (!selectedReport || !previousReport) {
+            setOpsStatus(compareStatus, 'A previous version is not available for the selected report.', 'error');
+            return;
+        }
+        compareLeftInput.value = previousReport.report_key;
+        compareRightInput.value = selectedReport.report_key;
+        setOpsStatus(compareStatus, `Preset ready: ${previousReport.report_key} vs ${selectedReport.report_key}.`, 'success');
+    });
+
     compareReportsBtn.addEventListener('click', async () => {
         const reportKeyA = compareLeftInput.value.trim();
         const reportKeyB = compareRightInput.value.trim() || lastComputedRange.reportKey || '';
@@ -2664,6 +2821,7 @@
                 (item) => `<strong>${item.currency} · ${item.sheet}</strong><br>Exposure Δ: ${formatNumber(item.exposure_delta)} · FTP Δ: ${formatNumber(item.ftp_delta)} · Rows Δ: ${item.row_count_delta}`
             );
             setOpsStatus(compareStatus, `Comparison complete for ${reportKeyA} and ${reportKeyB}.`, 'success');
+            setOpsMeta(compareMeta);
         } catch (error) {
             setOpsStatus(compareStatus, error.message || 'Failed to compare reports.', 'error');
             compareResultsList.innerHTML = error.message || 'Failed to compare reports.';
@@ -2700,6 +2858,7 @@
                 (item) => `<strong>${item.created_by || 'unknown'}</strong><br>${item.note_text}`
             );
             setOpsStatus(notesStatus, `Note saved to ${selectedReport.report_key}.`, 'success');
+            setOpsMeta(notesMeta);
         } catch (error) {
             setOpsStatus(notesStatus, error.message || 'Failed to save note.', 'error');
             reportNotesList.innerHTML = error.message || 'Failed to save note.';
@@ -2799,6 +2958,8 @@
 
     archiveVersionSelect.addEventListener('change', async () => {
         const selectedReport = getSelectedArchiveReport();
+        autoFillCompareInputs();
+        syncCompareShortcutButtons();
         if (selectedReport) {
             await loadArchiveReport(selectedReport.report_key);
         }
