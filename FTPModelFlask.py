@@ -1342,6 +1342,40 @@ def _validate_upload_file(file_path, filename):
     return validation
 
 
+def _merge_processed_loans_into_original_workbook(original_upload_path, processed_loans_path, merged_output_path):
+    """Build a full workbook by overlaying processed loan sheets onto a copy of the original upload."""
+    shutil.copyfile(original_upload_path, merged_output_path)
+
+    merged_wb = None
+    loan_wb = None
+    try:
+        merged_wb = openpyxl.load_workbook(merged_output_path)
+        loan_wb = openpyxl.load_workbook(processed_loans_path, read_only=True, data_only=False)
+        original_order = list(merged_wb.sheetnames)
+
+        for sheet_name in loan_wb.sheetnames:
+            source_sheet = loan_wb[sheet_name]
+
+            if sheet_name in original_order:
+                sheet_index = original_order.index(sheet_name)
+            else:
+                sheet_index = len(merged_wb.sheetnames)
+
+            if sheet_name in merged_wb.sheetnames:
+                merged_wb.remove(merged_wb[sheet_name])
+
+            destination_sheet = merged_wb.create_sheet(title=sheet_name, index=sheet_index)
+            for row in source_sheet.iter_rows(values_only=True):
+                destination_sheet.append(row)
+
+        merged_wb.save(merged_output_path)
+    finally:
+        if loan_wb is not None:
+            loan_wb.close()
+        if merged_wb is not None:
+            merged_wb.close()
+
+
 def _run_scheduler_cycle():
     if not ENABLE_SCHEDULER:
         return 0
@@ -1454,6 +1488,12 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
         output_stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         excel_filename = f"FTP_Results_{month_name}_{year}_{output_stamp}.xlsx"
         excel_output_path = os.path.join(PROCESSED_OUTPUTS_DIR, excel_filename)
+        loan_results_output_path = excel_output_path
+        if include_non_loan_sheets:
+            loan_results_output_path = os.path.join(
+                PROCESSED_OUTPUTS_DIR,
+                f"FTP_Results_LoansOnly_{month_name}_{year}_{output_stamp}.xlsx"
+            )
         original_extension = os.path.splitext(filename)[1] or '.xlsx'
         original_upload_filename = f"FTP_Original_{month_name}_{year}_{output_stamp}{original_extension}"
         original_upload_path = os.path.join(PROCESSED_OUTPUTS_DIR, original_upload_filename)
@@ -1498,6 +1538,17 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                     sheets_data[sheet] = {'columns': [], 'data': [], 'shape': [0, 0],
                                           'note': 'Skipped (memory optimisation)'}
                     log_stage(f'Sheet {sheet} (skipped)', sheet_start)
+                    continue
+
+                if sheet not in LOAN_SHEETS and include_non_loan_sheets:
+                    # Keep non-loan workings in-place from original workbook and avoid pandas parse overhead.
+                    sheets_data[sheet] = {
+                        'columns': [],
+                        'data': [],
+                        'shape': [0, 0],
+                        'note': 'Included from original workbook via low-memory merge'
+                    }
+                    log_stage(f'Sheet {sheet} (kept from original)', sheet_start)
                     continue
 
                 try:
@@ -1613,11 +1664,22 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                 print(f"Completed: {sheet}")
 
         try:
-            with pd.ExcelWriter(excel_output_path, engine=writer_engine, **writer_kwargs) as writer:
+            with pd.ExcelWriter(loan_results_output_path, engine=writer_engine, **writer_kwargs) as writer:
                 process_sheets(writer)
         except (ImportError, ModuleNotFoundError, ValueError):
-            with pd.ExcelWriter(excel_output_path, engine='openpyxl') as writer:
+            with pd.ExcelWriter(loan_results_output_path, engine='openpyxl') as writer:
                 process_sheets(writer)
+
+        if include_non_loan_sheets:
+            progress(90, 'Merging processed loans with original workbook')
+            try:
+                _merge_processed_loans_into_original_workbook(upload_path, loan_results_output_path, excel_output_path)
+            finally:
+                if loan_results_output_path != excel_output_path and os.path.exists(loan_results_output_path):
+                    try:
+                        os.remove(loan_results_output_path)
+                    except OSError as exc:
+                        print(f"[WARN] Failed to remove temporary loan-only workbook {loan_results_output_path}: {exc}")
 
         log_stage('Write processed workbook', excel_write_start)
         progress(92, 'Saving results')
