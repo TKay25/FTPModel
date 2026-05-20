@@ -1398,6 +1398,9 @@
                 <button class="preview-download-btn" id="downloadOriginalBtn" disabled style="margin-top: 10px; border-color: #0f766e; color: #0f766e;">
                     <i class="fas fa-file-upload"></i> Download Original Uploaded Workbook
                 </button>
+                <button class="preview-download-btn" id="downloadWorkingsBtn" disabled style="margin-top: 10px; border-color: #7c3aed; color: #7c3aed;">
+                    <i class="fas fa-file-alt"></i> Download Workings Workbook (From JSON)
+                </button>
             </div>
         </div>
 
@@ -1852,6 +1855,7 @@
     const downloadResultsBtn = document.getElementById('downloadResultsBtn');
     const downloadExcelBtn = document.getElementById('downloadExcelBtn');
     const downloadOriginalBtn = document.getElementById('downloadOriginalBtn');
+    const downloadWorkingsBtn = document.getElementById('downloadWorkingsBtn');
     const downloadRangeX = document.getElementById('downloadRangeX');
     const downloadRangeY = document.getElementById('downloadRangeY');
     const previewBadge = document.getElementById('previewBadge');
@@ -2047,6 +2051,13 @@
         downloadOriginalBtn.disabled = !Boolean(isAvailable);
     }
 
+    function setWorkingsDownloadState(isAvailable) {
+        if (!downloadWorkingsBtn) {
+            return;
+        }
+        downloadWorkingsBtn.disabled = !Boolean(isAvailable);
+    }
+
     function syncForceFullWorkbookOption() {
         if (!forceFullWorkbookCheckbox || !includeWorkingsCheckbox) {
             return;
@@ -2223,6 +2234,7 @@
             downloadResultsBtn.disabled = false;
             downloadExcelBtn.disabled = false;
             setOriginalWorkbookDownloadState(Boolean(selectedReport?.original_upload_available));
+            setWorkingsDownloadState(Boolean(selectedReport?.workings_available));
             updatePreviewBadgeMode(Boolean(selectedReport?.excel_contains_workings), Number(selectedReport?.skipped_sheet_count || 0));
             if (archiveVersionSelect && archiveVersionSelect.value !== reportKey) {
                 archiveVersionSelect.value = reportKey;
@@ -3585,6 +3597,7 @@
                                 skipped_sheet_count: Number(recoveredReport.skipped_sheet_count || 0),
                                 export_warning: recoveredReport.export_warning || null,
                                 original_upload_available: Boolean(recoveredReport.original_upload_available),
+                                workings_available: Boolean(recoveredReport.workings_available),
                                 recovered_from_archive: true
                             });
                             return;
@@ -3670,6 +3683,7 @@
             downloadResultsBtn.disabled = false;
             downloadExcelBtn.disabled = false;
             setOriginalWorkbookDownloadState(Boolean(result.original_upload_available));
+            setWorkingsDownloadState(Boolean(result.workings_available));
             updatePreviewBadgeMode(Boolean(result.excel_contains_workings), Number(result.skipped_sheet_count || 0));
 
             updatePreviewWithData(`
@@ -3826,6 +3840,7 @@
                 downloadResultsBtn.disabled = false;
                 downloadExcelBtn.disabled = false;
                 setOriginalWorkbookDownloadState(Boolean(result.original_upload_available));
+                setWorkingsDownloadState(Boolean(result.workings_available));
                 updatePreviewBadgeMode(Boolean(result.excel_contains_workings), Number(result.skipped_sheet_count || 0));
                 
                 let summaryHtml = `
@@ -4246,6 +4261,43 @@
                 <div style="text-align: center; padding: 20px;">
                     <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
                     <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Original Workbook Download Failed</h3>
+                    <p style="color: #632424;">${error.message}</p>
+                </div>
+            `);
+        }
+    });
+
+    downloadWorkingsBtn.addEventListener('click', async () => {
+        if (!lastComputedRange.firstDay || (!lastComputedRange.summary && !lastComputedRange.reportKey)) {
+            alert('Please compute FTP range first');
+            return;
+        }
+
+        updatePreviewWithData(`
+            <div style="text-align: center; padding: 20px;">
+                <i class="fas fa-spinner fa-pulse" style="font-size: 48px; color: #7c3aed; margin-bottom: 20px;"></i>
+                <h3 style="color: #7c3aed; margin-bottom: 10px;">Building Workings Workbook...</h3>
+                <p style="color: #5b6472;">Reconstructing workings workbook from saved JSON data</p>
+            </div>
+        `);
+
+        try {
+            await downloadFile('/download-workings-excel', 'xlsx');
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 10px;">
+                    <i class="fas fa-file-alt" style="font-size: 48px; color: #7c3aed; margin-bottom: 15px;"></i>
+                    <h3 style="color: #7c3aed; margin-bottom: 10px;">✓ Workings Workbook Downloaded</h3>
+                    <p style="color: #2f1a1a;">Workings workbook was reconstructed from JSON and downloaded.</p>
+                </div>
+            `);
+        } catch (error) {
+            console.error('Error downloading workings workbook:', error);
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
+                    <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Workings Download Failed</h3>
                     <p style="color: #632424;">${error.message}</p>
                 </div>
             `);

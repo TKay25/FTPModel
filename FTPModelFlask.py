@@ -29,6 +29,7 @@ DATA_ROOT_DIR = os.getenv('FTP_DATA_DIR', APP_BASE_DIR)
 CURVE_CONFIG_PATH = os.path.join(DATA_ROOT_DIR, 'curve_config.json')
 PROCESSED_REPORTS_DB_PATH = os.path.join(DATA_ROOT_DIR, 'processed_reports.db')
 PROCESSED_OUTPUTS_DIR = os.path.join(DATA_ROOT_DIR, 'processed_outputs')
+WORKINGS_JSON_DIR = os.path.join(DATA_ROOT_DIR, 'workings_json')
 BRANCH_MAP_DB_PATH = os.path.join(DATA_ROOT_DIR, 'branch_sbu_map.db')
 UPLOAD_JOBS_DB_PATH = os.path.join(DATA_ROOT_DIR, 'upload_jobs.db')
 TEMP_UPLOADS_DIR = os.path.join(DATA_ROOT_DIR, 'temp_uploads')
@@ -46,6 +47,7 @@ SCHEDULER_POLL_SECONDS = int(os.getenv('SCHEDULER_POLL_SECONDS', '30'))
 ENABLE_NOTIFICATIONS = os.getenv('ENABLE_NOTIFICATIONS', '1').lower() in {'1', 'true', 'yes', 'on'}
 os.makedirs(DATA_ROOT_DIR, exist_ok=True)
 os.makedirs(PROCESSED_OUTPUTS_DIR, exist_ok=True)
+os.makedirs(WORKINGS_JSON_DIR, exist_ok=True)
 os.makedirs(TEMP_UPLOADS_DIR, exist_ok=True)
 print(f"[INFO] FTP storage root: {DATA_ROOT_DIR}")
 
@@ -365,6 +367,7 @@ latest_data = {
     'excel_filename': None,
     'original_upload_path': None,
     'original_upload_filename': None,
+    'workings_manifest_path': None,
     'excel_contains_workings': False,
     'skipped_sheet_count': 0,
     'export_warning': None,
@@ -382,16 +385,25 @@ def _json_default(value):
 def _sanitize_json_value(value):
     if isinstance(value, np.generic):
         return _sanitize_json_value(value.item())
+    if isinstance(value, dict):
+        return {key: _sanitize_json_value(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_json_value(item) for item in value]
     if isinstance(value, float):
         if np.isnan(value) or np.isinf(value):
             return None
         return value
     if isinstance(value, (datetime, timedelta)):
         return str(value)
-    if isinstance(value, dict):
-        return {key: _sanitize_json_value(val) for key, val in value.items()}
-    if isinstance(value, list):
-        return [_sanitize_json_value(item) for item in value]
+    if isinstance(value, pd.Timestamp):
+        if pd.isna(value):
+            return None
+        return value.isoformat()
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
     return value
 
 
@@ -399,6 +411,53 @@ def _strict_json_response(payload, status_code=200):
     sanitized_payload = _sanitize_json_value(payload)
     response_body = json.dumps(sanitized_payload, ensure_ascii=True, default=_json_default, allow_nan=False)
     return app.response_class(response=response_body, status=status_code, mimetype='application/json')
+
+
+def _safe_sheet_token(sheet_name):
+    return re.sub(r'[^A-Za-z0-9]+', '_', str(sheet_name)).strip('_').lower() or 'sheet'
+
+
+def _build_workings_manifest_path(report_key):
+    return os.path.join(WORKINGS_JSON_DIR, f'FTP_Workings_{report_key}.json')
+
+
+def _build_workings_sheet_data_path(report_key, sheet_name):
+    token = _safe_sheet_token(sheet_name)
+    return os.path.join(WORKINGS_JSON_DIR, f'FTP_Workings_{report_key}_{token}.ndjson')
+
+
+def _write_dataframe_ndjson(df, output_path):
+    columns = list(df.columns)
+    with open(output_path, 'w', encoding='utf-8') as output_file:
+        for row_values in df.itertuples(index=False, name=None):
+            row_payload = {
+                column: _sanitize_json_value(value)
+                for column, value in zip(columns, row_values)
+            }
+            output_file.write(json.dumps(row_payload, ensure_ascii=True, allow_nan=False, default=_json_default))
+            output_file.write('\n')
+
+
+def _delete_workings_artifacts(report_key):
+    if not report_key:
+        return
+
+    manifest_path = _build_workings_manifest_path(report_key)
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path, 'r', encoding='utf-8') as manifest_file:
+                manifest_payload = json.load(manifest_file)
+            for sheet_info in (manifest_payload.get('sheets') or {}).values():
+                data_path = sheet_info.get('data_path')
+                if data_path and os.path.exists(data_path):
+                    os.remove(data_path)
+        except Exception as exc:
+            print(f"[WARN] Failed to remove workings data files for {report_key}: {exc}")
+        finally:
+            try:
+                os.remove(manifest_path)
+            except OSError:
+                pass
 
 
 def _ensure_processed_reports_db():
@@ -629,6 +688,7 @@ def _cleanup_report_retention(month_number=None, year=None):
             _audit_event('retention_delete', report_key=report_key, details={'reason': 'retention_policy'})
             _delete_report_workbook(output_paths.get('excel_output_path'))
             _delete_original_upload(output_paths.get('original_upload_path'))
+            _delete_workings_artifacts(report_key)
 
         connection.commit()
         return len(unique_rows)
@@ -832,6 +892,7 @@ def load_latest_data_snapshot(month=None, year=None, report_key=None):
             'excel_filename': snapshot['excel_filename'],
             'original_upload_path': snapshot['original_upload_path'],
             'original_upload_filename': snapshot['original_upload_filename'],
+            'workings_manifest_path': _build_workings_manifest_path(period.get('report_key') or snapshot['report_key']),
             'excel_contains_workings': bool(snapshot['excel_contains_workings']),
             'skipped_sheet_count': int(snapshot['skipped_sheet_count'] or 0),
             'export_warning': snapshot['export_warning'],
@@ -859,6 +920,7 @@ def delete_processed_report(report_key):
 
     _delete_report_workbook(excel_output_path)
     _delete_original_upload(original_upload_path)
+    _delete_workings_artifacts(report_key)
     _audit_event('report_deleted', report_key=report_key, details={'deleted_via': 'api'})
     _register_notification(f'Report {report_key} was deleted.', level='warning', report_key=report_key)
 
@@ -1145,6 +1207,72 @@ def download_original_workbook():
         )
     except Exception as e:
         return jsonify({'error': f'Failed to download original workbook: {str(e)}'}), 500
+
+
+@app.route('/download-workings-excel', methods=['GET'])
+def download_workings_excel():
+    try:
+        global latest_data
+        report_key = request.args.get('report_key')
+        month = request.args.get('month')
+        year = request.args.get('year', type=int)
+        if report_key:
+            if not load_latest_data_snapshot(report_key=report_key):
+                return jsonify({'error': 'No processed data found for that report version.'}), 404
+        elif month and year:
+            if not load_latest_data_snapshot(month=month, year=year):
+                return jsonify({'error': 'No processed data found for that month and year.'}), 404
+        elif not ensure_latest_data_available():
+            return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
+
+        resolved_report_key = latest_data.get('period', {}).get('report_key')
+        manifest_path = _build_workings_manifest_path(resolved_report_key)
+        if not manifest_path or not os.path.exists(manifest_path):
+            return jsonify({'error': 'Workings JSON is not available for this report. Recompute this period to generate workings JSON.'}), 404
+
+        with open(manifest_path, 'r', encoding='utf-8') as manifest_file:
+            manifest_payload = json.load(manifest_file)
+
+        sheet_entries = manifest_payload.get('sheets') or {}
+        if not sheet_entries:
+            return jsonify({'error': 'Workings JSON exists but has no sheet entries.'}), 404
+
+        workbook = openpyxl.Workbook(write_only=True)
+        written_sheet_count = 0
+        for sheet_name, sheet_info in sheet_entries.items():
+            columns = list(sheet_info.get('columns') or [])
+            data_path = sheet_info.get('data_path')
+            if not columns or not data_path or not os.path.exists(data_path):
+                continue
+
+            worksheet = workbook.create_sheet(title=str(sheet_name)[:31])
+            written_sheet_count += 1
+            worksheet.append(columns)
+            with open(data_path, 'r', encoding='utf-8') as rows_file:
+                for line in rows_file:
+                    if not line.strip():
+                        continue
+                    row_payload = json.loads(line)
+                    worksheet.append([row_payload.get(column) for column in columns])
+
+        if written_sheet_count == 0:
+            return jsonify({'error': 'Workings JSON files were not found for this report version.'}), 404
+
+        output_buffer = io.BytesIO()
+        workbook.save(output_buffer)
+        output_buffer.seek(0)
+
+        period_month = latest_data.get('period', {}).get('month', 'Month')
+        period_year = latest_data.get('period', {}).get('year', 'Year')
+        download_name = f'FTP_Workings_{period_month}_{period_year}.xlsx'
+        return send_file(
+            output_buffer,
+            as_attachment=True,
+            download_name=download_name,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        return jsonify({'error': f'Failed to download workings Excel: {str(e)}'}), 500
 
 def compute_ftp_components(deposit, loan, tenure):
     try:
@@ -1474,6 +1602,14 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
 
         report_key_suffix = None if overwrite_existing else _next_report_version_suffix(year, month_num)
         report_key = _make_report_key(year, month_num, report_key_suffix)
+        workings_manifest_path = _build_workings_manifest_path(report_key)
+        workings_manifest = {
+            'report_key': report_key,
+            'month': month_name,
+            'year': year,
+            'generated_at': time.time(),
+            'sheets': {}
+        }
 
         first_day = datetime(year, month_num, 1)
         last_day = (datetime(year + 1, 1, 1) if month_num == 12 else datetime(year, month_num + 1, 1)) - timedelta(days=1)
@@ -1642,6 +1778,14 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                         'shape': df_processed.shape
                     }
 
+                    sheet_data_path = _build_workings_sheet_data_path(report_key, sheet)
+                    _write_dataframe_ndjson(df_processed, sheet_data_path)
+                    workings_manifest['sheets'][sheet] = {
+                        'columns': df_processed.columns.tolist(),
+                        'data_path': sheet_data_path,
+                        'row_count': int(df_processed.shape[0])
+                    }
+
                     df_processed.to_excel(writer, sheet_name=sheet[:31], index=False)
                     del df_processed
 
@@ -1684,6 +1828,9 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
         log_stage('Write processed workbook', excel_write_start)
         progress(92, 'Saving results')
 
+        with open(workings_manifest_path, 'w', encoding='utf-8') as workings_manifest_file:
+            json.dump(workings_manifest, workings_manifest_file, ensure_ascii=True, default=_json_default, allow_nan=False)
+
         snapshot_start_time = perf_counter()
         latest_data['filename'] = filename
         latest_data['sheets'] = sheets_data
@@ -1701,6 +1848,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
         latest_data['excel_filename'] = excel_filename
         latest_data['original_upload_path'] = original_upload_path
         latest_data['original_upload_filename'] = original_upload_filename
+        latest_data['workings_manifest_path'] = workings_manifest_path
         latest_data['excel_contains_workings'] = include_non_loan_sheets
         latest_data['skipped_sheet_count'] = skipped_sheet_count
         latest_data['export_warning'] = export_warning
@@ -1723,6 +1871,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                         'export_warning': export_warning,
                         'original_upload_available': bool(original_upload_path),
                         'original_upload_filename': original_upload_filename,
+                        'workings_available': bool(workings_manifest.get('sheets')),
                         'report_key': report_key
                     })
 
@@ -2479,6 +2628,7 @@ def processed_reports():
                     'export_warning': row['export_warning'],
                     'original_upload_available': bool(row['original_upload_path']) and os.path.exists(row['original_upload_path']),
                     'original_upload_filename': row['original_upload_filename'],
+                    'workings_available': os.path.exists(_build_workings_manifest_path(row['report_key'])),
                     'notes_count': len(_load_report_notes(row['report_key']))
                 }
                 for row in rows
@@ -2508,6 +2658,7 @@ def processed_report_metadata(report_key):
             'excel_filename': row['excel_filename'],
             'original_upload_filename': row['original_upload_filename'],
             'original_upload_available': bool(row['original_upload_path']) and os.path.exists(row['original_upload_path']),
+            'workings_available': os.path.exists(_build_workings_manifest_path(row['report_key'])),
             'excel_contains_workings': bool(row['excel_contains_workings']),
             'skipped_sheet_count': row['skipped_sheet_count'],
             'export_warning': row['export_warning'],
