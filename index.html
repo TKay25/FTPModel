@@ -1881,6 +1881,16 @@
     let currentBranchMapData = [];
     let currentArchiveReports = [];
     let currentReportMetadata = null;
+    let activeOpsTab = 'compare';
+
+    try {
+        const savedOpsTab = localStorage.getItem('opsHubActiveTab');
+        if (savedOpsTab) {
+            activeOpsTab = savedOpsTab;
+        }
+    } catch (error) {
+        console.warn('Could not restore operations tab preference', error);
+    }
 
     // Helper function to format large numbers
     function formatNumber(num) {
@@ -2394,17 +2404,28 @@
     }
 
     function setOpsTab(tabName) {
+        const hasTab = opsTabButtons.some((button) => button.dataset.opsTab === tabName);
+        const resolvedTab = hasTab ? tabName : 'compare';
+        activeOpsTab = resolvedTab;
+
         opsTabButtons.forEach((button) => {
-            const isActive = button.dataset.opsTab === tabName;
+            const isActive = button.dataset.opsTab === resolvedTab;
             button.classList.toggle('is-active', isActive);
         });
         opsTabPanels.forEach((panel) => {
-            const isActive = panel.dataset.opsPanel === tabName;
+            const isActive = panel.dataset.opsPanel === resolvedTab;
             panel.classList.toggle('is-active', isActive);
         });
+
+        try {
+            localStorage.setItem('opsHubActiveTab', activeOpsTab);
+        } catch (error) {
+            console.warn('Could not persist operations tab preference', error);
+        }
     }
 
     async function initializeOperationsHub() {
+        setOpsTab(activeOpsTab);
         syncCompareShortcutButtons();
         setOpsStatus(auditStatus, 'Loading audit log...', 'loading');
         setOpsStatus(notificationsStatus, 'Loading notifications...', 'loading');
@@ -2873,7 +2894,7 @@
     });
 
     openOperationsHubBtn.addEventListener('click', () => {
-        setOpsTab('compare');
+        setOpsTab(activeOpsTab);
         operationsHubModal.style.display = 'flex';
     });
 
@@ -3891,6 +3912,21 @@
                 }
                 
                 updatePreviewWithData(summaryHtml);
+
+                const resultMonth = result?.period?.month;
+                const resultYear = result?.period?.year;
+                if (resultMonth && resultYear) {
+                    archiveMonthSelect.value = resultMonth;
+                    archiveYearInput.value = String(resultYear);
+                }
+                setArchiveStatus(
+                    result?.report_key
+                        ? `Run saved as ${result.report_key}. Click Load to browse versions.`
+                        : 'Run saved. Click Load to browse versions.',
+                    'success'
+                );
+                archiveBrowserModal.style.display = 'flex';
+
                 updateProcessingOverlay(100, 'Completed');
                 setTimeout(hideProcessingOverlay, 180);
                 
