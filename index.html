@@ -1703,7 +1703,7 @@
             </div>
 
             <label class="export-option" for="includeWorkingsCheckbox">
-                <input type="checkbox" id="includeWorkingsCheckbox" checked>
+                <input type="checkbox" id="includeWorkingsCheckbox">
                 <span>
                     <strong>Include workings sheets in Excel download</strong><br>
                     <span style="font-size: 12px; color: #64748b;">Keeps full workbook content. If hosting memory is too low, you can uncheck this for a lighter results-only export.</span>
@@ -3364,7 +3364,7 @@
         uploadModal.style.display = 'flex';
         modalFileInput.value = '';
         selectedFile = null;
-        includeWorkingsCheckbox.checked = true;
+        includeWorkingsCheckbox.checked = false;
         updateFileUploadUI();
     });
 
@@ -3447,9 +3447,12 @@
     let activeFtpJob = null;
 
     function saveActiveFtpJob(job) {
-        activeFtpJob = job;
+        activeFtpJob = {
+            startedAt: Date.now(),
+            ...job
+        };
         try {
-            localStorage.setItem(ACTIVE_FTP_JOB_KEY, JSON.stringify(job));
+            localStorage.setItem(ACTIVE_FTP_JOB_KEY, JSON.stringify(activeFtpJob));
         } catch (err) {
             console.warn('Could not persist active FTP job', err);
         }
@@ -3480,6 +3483,38 @@
         }
     }
 
+    async function recoverReportAfterServerRestart(savedJob) {
+        if (!savedJob) {
+            return null;
+        }
+
+        const fallbackPeriod = savedJob.fileName ? extractMonthYearFromFilename(savedJob.fileName) : null;
+        const month = savedJob.month || (fallbackPeriod && fallbackPeriod.month);
+        const year = Number(savedJob.year || (fallbackPeriod && fallbackPeriod.year) || 0);
+        if (!month || !year) {
+            return null;
+        }
+
+        const response = await fetch(`/processed-reports?month=${encodeURIComponent(month)}&year=${encodeURIComponent(year)}`);
+        const payload = await parseJsonSafely(response);
+        if (!response.ok || !payload || !Array.isArray(payload.reports) || !payload.reports.length) {
+            return null;
+        }
+
+        const startedAt = Number(savedJob.startedAt || 0);
+        if (!startedAt) {
+            return null;
+        }
+
+        const minimumAcceptedMs = startedAt - (2 * 60 * 1000);
+        const recovered = payload.reports.find((report) => {
+            const updatedAtMs = Number(report.updated_at || 0) * 1000;
+            return updatedAtMs >= minimumAcceptedMs;
+        });
+
+        return recovered || null;
+    }
+
     async function waitForFtpJobCompletion(jobId, onProgressUpdate) {
         return new Promise((resolve, reject) => {
             let transientPollErrors = 0;
@@ -3492,6 +3527,25 @@
                         statusResp.status === 404 ||
                         (statusJson && statusJson.error && String(statusJson.error).toLowerCase().includes('unknown job'))
                     ) {
+                        const recoveredReport = await recoverReportAfterServerRestart(activeFtpJob || { jobId });
+                        if (recoveredReport) {
+                            clearActiveFtpJob();
+                            resolve({
+                                status: 'success',
+                                summary: null,
+                                period: {
+                                    month: recoveredReport.month,
+                                    year: recoveredReport.year,
+                                    report_key: recoveredReport.report_key
+                                },
+                                report_key: recoveredReport.report_key,
+                                excel_contains_workings: Boolean(recoveredReport.excel_contains_workings),
+                                skipped_sheet_count: Number(recoveredReport.skipped_sheet_count || 0),
+                                export_warning: recoveredReport.export_warning || null,
+                                recovered_from_archive: true
+                            });
+                            return;
+                        }
                         clearActiveFtpJob();
                         reject(new Error('Processing session expired on server. Please start computation again.'));
                         return;
@@ -3695,7 +3749,9 @@
                 jobId,
                 firstDay,
                 lastDay,
-                fileName: file.name
+                fileName: file.name,
+                month: extractedPeriod ? extractedPeriod.month : null,
+                year: extractedPeriod ? extractedPeriod.year : null
             });
 
             // Poll for completion
@@ -3912,6 +3968,10 @@
                 }
                 
                 updatePreviewWithData(summaryHtml);
+
+                if (result.recovered_from_archive && result.report_key) {
+                    await loadArchiveReport(result.report_key).catch(() => {});
+                }
 
                 const resultMonth = result?.period?.month;
                 const resultYear = result?.period?.year;
