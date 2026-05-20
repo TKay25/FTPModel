@@ -616,6 +616,17 @@
             max-width: 96vw;
         }
 
+        .modal-card.ops-hub-modal {
+            width: 1040px;
+            max-width: 96vw;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .ops-panel.in-modal {
+            margin-top: 18px;
+        }
+
         .curve-editor {
             margin-top: 22px;
             background: #fafbfc;
@@ -1316,6 +1327,9 @@
                     <button class="btn-download" id="openBranchMapBtn">
                         <i class="fas fa-sitemap"></i> Edit Branch Map
                     </button>
+                    <button class="btn-download" id="openOperationsHubBtn">
+                        <i class="fas fa-tools"></i> Open Operations Hub
+                    </button>
                 </div>
 
                 <div class="archive-browser">
@@ -1353,61 +1367,6 @@
                         <button type="button" id="deleteArchiveBtn" disabled><i class="fas fa-trash-alt"></i> Delete version</button>
                     </div>
                     <div class="archive-status" id="archiveStatus">Load a month and year to browse saved versions.</div>
-                </div>
-
-                <div class="ops-panel">
-                    <h4><i class="fas fa-tools"></i> Operations Hub</h4>
-                    <div class="ops-stack">
-                        <div class="ops-row">
-                            <input type="text" id="compareLeftInput" placeholder="Compare left report key">
-                            <input type="text" id="compareRightInput" placeholder="Compare right report key">
-                        </div>
-                        <div class="ops-row">
-                            <button type="button" id="useSelectedCompareLeftBtn"><i class="fas fa-arrow-left"></i> Selected -> Left</button>
-                            <button type="button" id="useLatestCompareRightBtn"><i class="fas fa-arrow-right"></i> Latest -> Right</button>
-                        </div>
-                        <div class="ops-row">
-                            <button type="button" id="presetSelectedLatestBtn"><i class="fas fa-layer-group"></i> Selected vs Latest</button>
-                            <button type="button" id="presetSelectedPreviousBtn"><i class="fas fa-clock-rotate-left"></i> Selected vs Previous</button>
-                        </div>
-                        <button type="button" id="compareReportsBtn"><i class="fas fa-code-compare"></i> Compare versions</button>
-                        <div class="ops-status" id="compareStatus">Ready to compare report versions.</div>
-                        <div class="ops-meta" id="compareMeta">Last refreshed: not yet.</div>
-                        <div class="ops-summary" id="compareSummary">No comparison summary yet.</div>
-                        <div class="ops-list" id="compareResultsList">No comparison loaded.</div>
-
-                        <textarea id="reportNoteInput" placeholder="Add a note to the selected report version..."></textarea>
-                        <button type="button" id="saveReportNoteBtn"><i class="fas fa-sticky-note"></i> Save note</button>
-                        <div class="ops-status" id="notesStatus">Select an archive version to view or save notes.</div>
-                        <div class="ops-meta" id="notesMeta">Last refreshed: not yet.</div>
-                        <div class="ops-list" id="reportNotesList">No notes loaded.</div>
-
-                        <div class="ops-row">
-                            <button type="button" id="refreshAuditBtn"><i class="fas fa-clipboard-list"></i> Audit log</button>
-                            <button type="button" id="refreshNotificationsBtn"><i class="fas fa-bell"></i> Notifications</button>
-                        </div>
-                        <div class="ops-status" id="auditStatus">Audit log not loaded yet.</div>
-                        <div class="ops-meta" id="auditMeta">Last refreshed: not yet.</div>
-                        <div class="ops-list" id="auditLogList">No audit entries loaded.</div>
-                        <div class="ops-status" id="notificationsStatus">Notifications not loaded yet.</div>
-                        <div class="ops-meta" id="notificationsMeta">Last refreshed: not yet.</div>
-                        <div class="ops-list" id="notificationsList">No notifications loaded.</div>
-
-                        <input type="text" id="schedulerFolderInput" placeholder="Scheduler folder path">
-                        <div class="ops-row">
-                            <button type="button" id="saveSchedulerJobBtn"><i class="fas fa-clock"></i> Save watcher</button>
-                            <button type="button" id="runSchedulerBtn"><i class="fas fa-play"></i> Run watcher</button>
-                        </div>
-                        <div class="ops-status" id="schedulerStatus">No scheduler action has run yet.</div>
-                        <div class="ops-meta" id="schedulerMeta">Last refreshed: not yet.</div>
-                        <div class="ops-list" id="schedulerJobsList">No scheduler jobs loaded.</div>
-
-                        <button type="button" id="loadSettingsBtn"><i class="fas fa-sliders-h"></i> Load settings</button>
-                        <div class="ops-status" id="settingsStatus">Settings not loaded yet.</div>
-                        <div class="ops-meta" id="settingsMeta">Last refreshed: not yet.</div>
-                        <div class="ops-list" id="settingsList">No settings loaded.</div>
-                        <div class="ops-muted">Role headers are optional unless role enforcement is enabled on the server.</div>
-                    </div>
                 </div>
 
                 <div style="margin-top: 32px; color: #b58b8b; font-size: 13px; border-left: 3px solid #d99; padding-left: 16px;">
@@ -1591,7 +1550,69 @@
         </div>
     </div>
 
-    <!-- MODAL 4: Upload XLSX - Month/year extracted from filename -->
+    <!-- MODAL 4: Operations hub -->
+    <div class="modal" id="operationsHubModal">
+        <div class="modal-card ops-hub-modal">
+            <h2><i class="fas fa-tools"></i> OPERATIONS HUB</h2>
+            <div class="ops-panel in-modal">
+                <h4><i class="fas fa-sliders-h"></i> Archive Operations, Controls, And Monitoring</h4>
+                <div class="ops-stack">
+                    <div class="ops-row">
+                        <input type="text" id="compareLeftInput" placeholder="Compare left report key">
+                        <input type="text" id="compareRightInput" placeholder="Compare right report key">
+                    </div>
+                    <div class="ops-row">
+                        <button type="button" id="useSelectedCompareLeftBtn"><i class="fas fa-arrow-left"></i> Selected -> Left</button>
+                        <button type="button" id="useLatestCompareRightBtn"><i class="fas fa-arrow-right"></i> Latest -> Right</button>
+                    </div>
+                    <div class="ops-row">
+                        <button type="button" id="presetSelectedLatestBtn"><i class="fas fa-layer-group"></i> Selected vs Latest</button>
+                        <button type="button" id="presetSelectedPreviousBtn"><i class="fas fa-clock-rotate-left"></i> Selected vs Previous</button>
+                    </div>
+                    <button type="button" id="compareReportsBtn"><i class="fas fa-code-compare"></i> Compare versions</button>
+                    <div class="ops-status" id="compareStatus">Ready to compare report versions.</div>
+                    <div class="ops-meta" id="compareMeta">Last refreshed: not yet.</div>
+                    <div class="ops-summary" id="compareSummary">No comparison summary yet.</div>
+                    <div class="ops-list" id="compareResultsList">No comparison loaded.</div>
+
+                    <textarea id="reportNoteInput" placeholder="Add a note to the selected report version..."></textarea>
+                    <button type="button" id="saveReportNoteBtn"><i class="fas fa-sticky-note"></i> Save note</button>
+                    <div class="ops-status" id="notesStatus">Select an archive version to view or save notes.</div>
+                    <div class="ops-meta" id="notesMeta">Last refreshed: not yet.</div>
+                    <div class="ops-list" id="reportNotesList">No notes loaded.</div>
+
+                    <div class="ops-row">
+                        <button type="button" id="refreshAuditBtn"><i class="fas fa-clipboard-list"></i> Audit log</button>
+                        <button type="button" id="refreshNotificationsBtn"><i class="fas fa-bell"></i> Notifications</button>
+                    </div>
+                    <div class="ops-status" id="auditStatus">Audit log not loaded yet.</div>
+                    <div class="ops-meta" id="auditMeta">Last refreshed: not yet.</div>
+                    <div class="ops-list" id="auditLogList">No audit entries loaded.</div>
+                    <div class="ops-status" id="notificationsStatus">Notifications not loaded yet.</div>
+                    <div class="ops-meta" id="notificationsMeta">Last refreshed: not yet.</div>
+                    <div class="ops-list" id="notificationsList">No notifications loaded.</div>
+
+                    <input type="text" id="schedulerFolderInput" placeholder="Scheduler folder path">
+                    <div class="ops-row">
+                        <button type="button" id="saveSchedulerJobBtn"><i class="fas fa-clock"></i> Save watcher</button>
+                        <button type="button" id="runSchedulerBtn"><i class="fas fa-play"></i> Run watcher</button>
+                    </div>
+                    <div class="ops-status" id="schedulerStatus">No scheduler action has run yet.</div>
+                    <div class="ops-meta" id="schedulerMeta">Last refreshed: not yet.</div>
+                    <div class="ops-list" id="schedulerJobsList">No scheduler jobs loaded.</div>
+
+                    <button type="button" id="loadSettingsBtn"><i class="fas fa-sliders-h"></i> Load settings</button>
+                    <div class="ops-status" id="settingsStatus">Settings not loaded yet.</div>
+                    <div class="ops-meta" id="settingsMeta">Last refreshed: not yet.</div>
+                    <div class="ops-list" id="settingsList">No settings loaded.</div>
+                    <div class="ops-muted">Role headers are optional unless role enforcement is enabled on the server.</div>
+                </div>
+            </div>
+            <button class="close-modal" id="closeOperationsHubModalBtn">Close</button>
+        </div>
+    </div>
+
+    <!-- MODAL 5: Upload XLSX - Month/year extracted from filename -->
     <div class="modal" id="uploadModal">
         <div class="modal-card upload-modal">
             <h2><i class="fas fa-file-excel"></i> UPLOAD FTP INPUT WORKBOOK</h2>
@@ -1663,14 +1684,17 @@
     const curveModal = document.getElementById('curveModal');
     const uploadModal = document.getElementById('uploadModal');
     const branchMapModal = document.getElementById('branchMapModal');
+    const operationsHubModal = document.getElementById('operationsHubModal');
     
     const openModalBtn = document.getElementById('openFtpModalBtn');
     const openUploadModalBtn = document.getElementById('openUploadModalBtn');
+    const openOperationsHubBtn = document.getElementById('openOperationsHubBtn');
     
     const closeModalBtn = document.getElementById('closeModalBtn');
     const closeCurveBtn = document.getElementById('closeCurveModalBtn');
     const closeUploadModalBtn = document.getElementById('closeUploadModalBtn');
     const closeBranchMapModalBtn = document.getElementById('closeBranchMapModalBtn');
+    const closeOperationsHubModalBtn = document.getElementById('closeOperationsHubModalBtn');
     
     const viewCurveBtn = document.getElementById('viewCurveBtn');
     const openBranchMapBtn = document.getElementById('openBranchMapBtn');
@@ -2741,6 +2765,20 @@
     branchMapModal.addEventListener('click', (e) => {
         if (e.target === branchMapModal) {
             branchMapModal.style.display = 'none';
+        }
+    });
+
+    openOperationsHubBtn.addEventListener('click', () => {
+        operationsHubModal.style.display = 'flex';
+    });
+
+    closeOperationsHubModalBtn.addEventListener('click', () => {
+        operationsHubModal.style.display = 'none';
+    });
+
+    operationsHubModal.addEventListener('click', (e) => {
+        if (e.target === operationsHubModal) {
+            operationsHubModal.style.display = 'none';
         }
     });
 
