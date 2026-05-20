@@ -385,6 +385,31 @@
             color: var(--text-soft);
         }
 
+        .ops-summary {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .ops-summary-card {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: #ffffff;
+            padding: 10px;
+        }
+
+        .ops-summary-label {
+            font-size: 11px;
+            color: var(--text-soft);
+            margin-bottom: 4px;
+        }
+
+        .ops-summary-value {
+            font-size: 15px;
+            font-weight: 700;
+            color: #111827;
+        }
+
         .ops-muted {
             font-size: 12px;
             color: var(--text-soft);
@@ -1348,6 +1373,7 @@
                         <button type="button" id="compareReportsBtn"><i class="fas fa-code-compare"></i> Compare versions</button>
                         <div class="ops-status" id="compareStatus">Ready to compare report versions.</div>
                         <div class="ops-meta" id="compareMeta">Last refreshed: not yet.</div>
+                        <div class="ops-summary" id="compareSummary">No comparison summary yet.</div>
                         <div class="ops-list" id="compareResultsList">No comparison loaded.</div>
 
                         <textarea id="reportNoteInput" placeholder="Add a note to the selected report version..."></textarea>
@@ -1667,6 +1693,7 @@
     const compareResultsList = document.getElementById('compareResultsList');
     const compareStatus = document.getElementById('compareStatus');
     const compareMeta = document.getElementById('compareMeta');
+    const compareSummary = document.getElementById('compareSummary');
     const reportNoteInput = document.getElementById('reportNoteInput');
     const saveReportNoteBtn = document.getElementById('saveReportNoteBtn');
     const reportNotesList = document.getElementById('reportNotesList');
@@ -1915,13 +1942,40 @@
         return 'Base version';
     }
 
+    function getArchiveBadges(report, index, selectedReportKey = archiveVersionSelect?.value || '') {
+        const badges = [];
+        if (index === 0) {
+            badges.push('latest');
+        } else if (index === 1) {
+            badges.push('previous');
+        }
+        if (report && report.report_key && report.report_key === selectedReportKey) {
+            badges.push('selected');
+        }
+        return badges;
+    }
+
     function getArchiveDisplayLabel(report) {
         if (!report) {
             return 'Unknown report';
         }
 
         const suffix = report.report_key.split('-').length > 2 ? ` ${getVersionLabel(report)}` : '';
-        return `${report.month} ${report.year}${suffix}`;
+        const reportIndex = currentArchiveReports.findIndex((item) => item.report_key === report.report_key);
+        const badges = getArchiveBadges(report, reportIndex).map((value) => `[${value}]`).join(' ');
+        return `${report.month} ${report.year}${suffix}${badges ? ` ${badges}` : ''}`;
+    }
+
+    function refreshArchiveVersionLabels() {
+        if (!archiveVersionSelect || !currentArchiveReports.length) {
+            return;
+        }
+        Array.from(archiveVersionSelect.options).forEach((option) => {
+            const report = currentArchiveReports.find((item) => item.report_key === option.value);
+            if (report) {
+                option.textContent = getArchiveDisplayLabel(report);
+            }
+        });
     }
 
     function setArchiveControlsEnabled(enabled) {
@@ -1964,6 +2018,7 @@
         });
 
         setArchiveControlsEnabled(true);
+        refreshArchiveVersionLabels();
         autoFillCompareInputs();
         syncCompareShortcutButtons();
         setArchiveStatus(`Found ${currentArchiveReports.length} saved version(s).`, 'success');
@@ -2080,6 +2135,9 @@
         currentArchiveReports = [];
         compareLeftInput.value = '';
         compareRightInput.value = '';
+        if (compareSummary) {
+            compareSummary.textContent = 'No comparison summary yet.';
+        }
         setArchiveControlsEnabled(false);
         syncCompareShortcutButtons();
         setArchiveStatus('Load a month and year to browse saved versions.');
@@ -2096,6 +2154,41 @@
         }
 
         container.innerHTML = items.map((item) => `<div class="ops-item">${formatter(item)}</div>`).join('');
+    }
+
+    function renderCompareSummary(items) {
+        if (!compareSummary) {
+            return;
+        }
+
+        if (!items || !items.length) {
+            compareSummary.textContent = 'No comparison summary yet.';
+            return;
+        }
+
+        const exposureDelta = items.reduce((sum, item) => sum + Math.abs(Number(item.exposure_delta || 0)), 0);
+        const ftpDelta = items.reduce((sum, item) => sum + Math.abs(Number(item.ftp_delta || 0)), 0);
+        const biggestShift = items.reduce((best, item) => {
+            const magnitude = Math.abs(Number(item.ftp_delta || 0));
+            return !best || magnitude > best.magnitude
+                ? { magnitude, label: `${item.currency} / ${item.sheet}` }
+                : best;
+        }, null);
+
+        compareSummary.innerHTML = `
+            <div class="ops-summary-card">
+                <div class="ops-summary-label">Total exposure delta</div>
+                <div class="ops-summary-value">${formatNumber(exposureDelta)}</div>
+            </div>
+            <div class="ops-summary-card">
+                <div class="ops-summary-label">Total FTP delta</div>
+                <div class="ops-summary-value">${formatNumber(ftpDelta)}</div>
+            </div>
+            <div class="ops-summary-card">
+                <div class="ops-summary-label">Largest FTP shift</div>
+                <div class="ops-summary-value">${biggestShift ? biggestShift.label : 'N/A'}</div>
+            </div>
+        `;
     }
 
     function formatRefreshTimestamp(date = new Date()) {
@@ -2820,10 +2913,12 @@
                 'No comparison data.',
                 (item) => `<strong>${item.currency} · ${item.sheet}</strong><br>Exposure Δ: ${formatNumber(item.exposure_delta)} · FTP Δ: ${formatNumber(item.ftp_delta)} · Rows Δ: ${item.row_count_delta}`
             );
+            renderCompareSummary(payload.comparison || []);
             setOpsStatus(compareStatus, `Comparison complete for ${reportKeyA} and ${reportKeyB}.`, 'success');
             setOpsMeta(compareMeta);
         } catch (error) {
             setOpsStatus(compareStatus, error.message || 'Failed to compare reports.', 'error');
+            renderCompareSummary([]);
             compareResultsList.innerHTML = error.message || 'Failed to compare reports.';
         } finally {
             setOpsButtonBusy(compareReportsBtn, false);
@@ -2960,6 +3055,7 @@
         const selectedReport = getSelectedArchiveReport();
         autoFillCompareInputs();
         syncCompareShortcutButtons();
+        refreshArchiveVersionLabels();
         if (selectedReport) {
             await loadArchiveReport(selectedReport.report_key);
         }
