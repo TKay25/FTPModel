@@ -352,6 +352,12 @@
             cursor: not-allowed;
         }
 
+        .ops-panel button.is-busy {
+            background: #eff6ff;
+            border-color: #bfdbfe;
+            color: #1d4ed8;
+        }
+
         .ops-list {
             max-height: 140px;
             overflow-y: auto;
@@ -375,6 +381,34 @@
         .ops-muted {
             font-size: 12px;
             color: var(--text-soft);
+        }
+
+        .ops-status {
+            min-height: 20px;
+            padding: 8px 10px;
+            border-radius: 10px;
+            font-size: 12px;
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+            color: #64748b;
+        }
+
+        .ops-status.is-loading {
+            background: #eff6ff;
+            border-color: #bfdbfe;
+            color: #1d4ed8;
+        }
+
+        .ops-status.is-success {
+            background: #f0fdf4;
+            border-color: #bbf7d0;
+            color: #166534;
+        }
+
+        .ops-status.is-error {
+            background: #fef2f2;
+            border-color: #fecaca;
+            color: #b91c1c;
         }
 
         .btn-download {
@@ -1297,17 +1331,21 @@
                             <input type="text" id="compareRightInput" placeholder="Compare right report key">
                         </div>
                         <button type="button" id="compareReportsBtn"><i class="fas fa-code-compare"></i> Compare versions</button>
+                        <div class="ops-status" id="compareStatus">Ready to compare report versions.</div>
                         <div class="ops-list" id="compareResultsList">No comparison loaded.</div>
 
                         <textarea id="reportNoteInput" placeholder="Add a note to the selected report version..."></textarea>
                         <button type="button" id="saveReportNoteBtn"><i class="fas fa-sticky-note"></i> Save note</button>
+                        <div class="ops-status" id="notesStatus">Select an archive version to view or save notes.</div>
                         <div class="ops-list" id="reportNotesList">No notes loaded.</div>
 
                         <div class="ops-row">
                             <button type="button" id="refreshAuditBtn"><i class="fas fa-clipboard-list"></i> Audit log</button>
                             <button type="button" id="refreshNotificationsBtn"><i class="fas fa-bell"></i> Notifications</button>
                         </div>
+                        <div class="ops-status" id="auditStatus">Audit log not loaded yet.</div>
                         <div class="ops-list" id="auditLogList">No audit entries loaded.</div>
+                        <div class="ops-status" id="notificationsStatus">Notifications not loaded yet.</div>
                         <div class="ops-list" id="notificationsList">No notifications loaded.</div>
 
                         <input type="text" id="schedulerFolderInput" placeholder="Scheduler folder path">
@@ -1315,9 +1353,11 @@
                             <button type="button" id="saveSchedulerJobBtn"><i class="fas fa-clock"></i> Save watcher</button>
                             <button type="button" id="runSchedulerBtn"><i class="fas fa-play"></i> Run watcher</button>
                         </div>
+                        <div class="ops-status" id="schedulerStatus">No scheduler action has run yet.</div>
                         <div class="ops-list" id="schedulerJobsList">No scheduler jobs loaded.</div>
 
                         <button type="button" id="loadSettingsBtn"><i class="fas fa-sliders-h"></i> Load settings</button>
+                        <div class="ops-status" id="settingsStatus">Settings not loaded yet.</div>
                         <div class="ops-list" id="settingsList">No settings loaded.</div>
                         <div class="ops-muted">Role headers are optional unless role enforcement is enabled on the server.</div>
                     </div>
@@ -1600,19 +1640,25 @@
     const compareRightInput = document.getElementById('compareRightInput');
     const compareReportsBtn = document.getElementById('compareReportsBtn');
     const compareResultsList = document.getElementById('compareResultsList');
+    const compareStatus = document.getElementById('compareStatus');
     const reportNoteInput = document.getElementById('reportNoteInput');
     const saveReportNoteBtn = document.getElementById('saveReportNoteBtn');
     const reportNotesList = document.getElementById('reportNotesList');
+    const notesStatus = document.getElementById('notesStatus');
     const refreshAuditBtn = document.getElementById('refreshAuditBtn');
     const refreshNotificationsBtn = document.getElementById('refreshNotificationsBtn');
     const auditLogList = document.getElementById('auditLogList');
     const notificationsList = document.getElementById('notificationsList');
+    const auditStatus = document.getElementById('auditStatus');
+    const notificationsStatus = document.getElementById('notificationsStatus');
     const schedulerFolderInput = document.getElementById('schedulerFolderInput');
     const saveSchedulerJobBtn = document.getElementById('saveSchedulerJobBtn');
     const runSchedulerBtn = document.getElementById('runSchedulerBtn');
     const schedulerJobsList = document.getElementById('schedulerJobsList');
+    const schedulerStatus = document.getElementById('schedulerStatus');
     const loadSettingsBtn = document.getElementById('loadSettingsBtn');
     const settingsList = document.getElementById('settingsList');
+    const settingsStatus = document.getElementById('settingsStatus');
     
     const calculateBtn = document.getElementById('calculateFtpBtn');
     const computeRangeBtn = document.getElementById('computeFtpRangeBtn');
@@ -2015,13 +2061,73 @@
         container.innerHTML = items.map((item) => `<div class="ops-item">${formatter(item)}</div>`).join('');
     }
 
+    function setOpsStatus(container, message, tone = 'neutral') {
+        if (!container) {
+            return;
+        }
+
+        container.textContent = message || '';
+        container.classList.remove('is-loading', 'is-success', 'is-error');
+        if (tone === 'loading') {
+            container.classList.add('is-loading');
+        } else if (tone === 'success') {
+            container.classList.add('is-success');
+        } else if (tone === 'error') {
+            container.classList.add('is-error');
+        }
+    }
+
+    function setOpsButtonBusy(button, isBusy, busyLabel) {
+        if (!button) {
+            return;
+        }
+
+        if (!button.dataset.originalHtml) {
+            button.dataset.originalHtml = button.innerHTML;
+        }
+
+        button.disabled = Boolean(isBusy);
+        button.classList.toggle('is-busy', Boolean(isBusy));
+        button.innerHTML = isBusy
+            ? `<i class="fas fa-spinner fa-spin"></i> ${busyLabel || 'Working...'}`
+            : button.dataset.originalHtml;
+    }
+
+    async function initializeOperationsHub() {
+        setOpsStatus(auditStatus, 'Loading audit log...', 'loading');
+        setOpsStatus(notificationsStatus, 'Loading notifications...', 'loading');
+        setOpsStatus(schedulerStatus, 'Loading scheduler jobs...', 'loading');
+        setOpsStatus(settingsStatus, 'Loading settings...', 'loading');
+
+        await Promise.allSettled([
+            loadAuditLog().catch((error) => {
+                setOpsStatus(auditStatus, error.message || 'Failed to load audit log.', 'error');
+                auditLogList.innerHTML = error.message || 'Failed to load audit log.';
+            }),
+            loadNotifications().catch((error) => {
+                setOpsStatus(notificationsStatus, error.message || 'Failed to load notifications.', 'error');
+                notificationsList.innerHTML = error.message || 'Failed to load notifications.';
+            }),
+            loadSchedulerJobs().catch((error) => {
+                setOpsStatus(schedulerStatus, error.message || 'Failed to load scheduler jobs.', 'error');
+                schedulerJobsList.innerHTML = error.message || 'Failed to load scheduler jobs.';
+            }),
+            loadSettings().catch((error) => {
+                setOpsStatus(settingsStatus, error.message || 'Failed to load settings.', 'error');
+                settingsList.innerHTML = error.message || 'Failed to load settings.';
+            })
+        ]);
+    }
+
     async function loadReportMetadata(reportKey) {
         if (!reportKey) {
             currentReportMetadata = null;
             renderOpsList(reportNotesList, [], 'No notes loaded.', () => '');
+            setOpsStatus(notesStatus, 'Select an archive version to view or save notes.');
             return null;
         }
 
+        setOpsStatus(notesStatus, `Loading notes for ${reportKey}...`, 'loading');
         const response = await fetch(`/processed-reports/${encodeURIComponent(reportKey)}/metadata`);
         const payload = await parseJsonSafely(response);
         if (!response.ok || !payload || payload.error) {
@@ -2035,10 +2141,12 @@
             'No notes loaded.',
             (note) => `<strong>${note.created_by || 'unknown'}</strong><br>${note.note_text}`
         );
+        setOpsStatus(notesStatus, `Loaded notes for ${reportKey}.`, 'success');
         return payload;
     }
 
     async function loadAuditLog() {
+        setOpsStatus(auditStatus, 'Loading audit log...', 'loading');
         const response = await fetch('/audit-log?limit=20');
         const payload = await parseJsonSafely(response);
         if (!response.ok || !payload || payload.error) {
@@ -2050,9 +2158,11 @@
             'No audit entries loaded.',
             (event) => `<strong>${event.event_type}</strong> · ${event.report_key || 'n/a'}<br>${event.actor || 'unknown'} · ${new Date(event.created_at * 1000).toLocaleString()}`
         );
+        setOpsStatus(auditStatus, `Loaded ${payload.events ? payload.events.length : 0} audit entries.`, 'success');
     }
 
     async function loadNotifications() {
+        setOpsStatus(notificationsStatus, 'Loading notifications...', 'loading');
         const response = await fetch('/notifications');
         const payload = await parseJsonSafely(response);
         if (!response.ok || !payload || payload.error) {
@@ -2064,9 +2174,11 @@
             'No notifications loaded.',
             (notification) => `<strong>${notification.level || 'info'}</strong><br>${notification.message || 'Notification'}<br>${new Date(notification.created_at * 1000).toLocaleString()}`
         );
+        setOpsStatus(notificationsStatus, `Loaded ${payload.notifications ? payload.notifications.length : 0} notifications.`, 'success');
     }
 
     async function loadSettings() {
+        setOpsStatus(settingsStatus, 'Loading settings...', 'loading');
         const response = await fetch('/settings/retention');
         const payload = await parseJsonSafely(response);
         if (!response.ok || !payload || payload.error) {
@@ -2078,9 +2190,11 @@
             'No settings loaded.',
             (settings) => `Retention: ${settings.max_versions_per_month} versions / ${settings.max_months} months<br>Role enforcement: ${settings.role_enforced ? 'Enabled' : 'Disabled'}<br>Scheduler: ${settings.scheduler_enabled ? 'Enabled' : 'Manual only'}`
         );
+        setOpsStatus(settingsStatus, 'Settings loaded.', 'success');
     }
 
     async function loadSchedulerJobs() {
+        setOpsStatus(schedulerStatus, 'Loading scheduler jobs...', 'loading');
         const response = await fetch('/scheduler-jobs');
         const payload = await parseJsonSafely(response);
         if (!response.ok || !payload || payload.error) {
@@ -2092,6 +2206,7 @@
             'No scheduler jobs loaded.',
             (job) => `<strong>${job.folder_path}</strong><br>Status: ${job.last_status || 'idle'}${job.last_message ? ` · ${job.last_message}` : ''}`
         );
+        setOpsStatus(schedulerStatus, `Loaded ${payload.jobs ? payload.jobs.length : 0} scheduler jobs.`, 'success');
     }
 
     async function runUploadPreflight(file) {
@@ -2530,10 +2645,13 @@
         const reportKeyA = compareLeftInput.value.trim();
         const reportKeyB = compareRightInput.value.trim() || lastComputedRange.reportKey || '';
         if (!reportKeyA || !reportKeyB) {
+            setOpsStatus(compareStatus, 'Provide two report keys to compare.', 'error');
             compareResultsList.innerHTML = 'Provide two report keys to compare.';
             return;
         }
         try {
+            setOpsButtonBusy(compareReportsBtn, true, 'Comparing...');
+            setOpsStatus(compareStatus, `Comparing ${reportKeyA} to ${reportKeyB}...`, 'loading');
             const response = await fetch(`/processed-reports/compare?report_key_a=${encodeURIComponent(reportKeyA)}&report_key_b=${encodeURIComponent(reportKeyB)}`);
             const payload = await parseJsonSafely(response);
             if (!response.ok || !payload || payload.error) {
@@ -2545,8 +2663,12 @@
                 'No comparison data.',
                 (item) => `<strong>${item.currency} · ${item.sheet}</strong><br>Exposure Δ: ${formatNumber(item.exposure_delta)} · FTP Δ: ${formatNumber(item.ftp_delta)} · Rows Δ: ${item.row_count_delta}`
             );
+            setOpsStatus(compareStatus, `Comparison complete for ${reportKeyA} and ${reportKeyB}.`, 'success');
         } catch (error) {
+            setOpsStatus(compareStatus, error.message || 'Failed to compare reports.', 'error');
             compareResultsList.innerHTML = error.message || 'Failed to compare reports.';
+        } finally {
+            setOpsButtonBusy(compareReportsBtn, false);
         }
     });
 
@@ -2554,10 +2676,13 @@
         const selectedReport = getSelectedArchiveReport();
         const note = reportNoteInput.value.trim();
         if (!selectedReport || !note) {
+            setOpsStatus(notesStatus, 'Select a report version and enter a note first.', 'error');
             reportNotesList.innerHTML = 'Select a report version and enter a note first.';
             return;
         }
         try {
+            setOpsButtonBusy(saveReportNoteBtn, true, 'Saving...');
+            setOpsStatus(notesStatus, `Saving note to ${selectedReport.report_key}...`, 'loading');
             const response = await fetch(`/processed-reports/${encodeURIComponent(selectedReport.report_key)}/notes`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2574,34 +2699,49 @@
                 'No notes loaded.',
                 (item) => `<strong>${item.created_by || 'unknown'}</strong><br>${item.note_text}`
             );
+            setOpsStatus(notesStatus, `Note saved to ${selectedReport.report_key}.`, 'success');
         } catch (error) {
+            setOpsStatus(notesStatus, error.message || 'Failed to save note.', 'error');
             reportNotesList.innerHTML = error.message || 'Failed to save note.';
+        } finally {
+            setOpsButtonBusy(saveReportNoteBtn, false);
         }
     });
 
     refreshAuditBtn.addEventListener('click', async () => {
         try {
+            setOpsButtonBusy(refreshAuditBtn, true, 'Loading...');
             await loadAuditLog();
         } catch (error) {
+            setOpsStatus(auditStatus, error.message || 'Failed to load audit log.', 'error');
             auditLogList.innerHTML = error.message || 'Failed to load audit log.';
+        } finally {
+            setOpsButtonBusy(refreshAuditBtn, false);
         }
     });
 
     refreshNotificationsBtn.addEventListener('click', async () => {
         try {
+            setOpsButtonBusy(refreshNotificationsBtn, true, 'Loading...');
             await loadNotifications();
         } catch (error) {
+            setOpsStatus(notificationsStatus, error.message || 'Failed to load notifications.', 'error');
             notificationsList.innerHTML = error.message || 'Failed to load notifications.';
+        } finally {
+            setOpsButtonBusy(refreshNotificationsBtn, false);
         }
     });
 
     saveSchedulerJobBtn.addEventListener('click', async () => {
         const folderPath = schedulerFolderInput.value.trim();
         if (!folderPath) {
+            setOpsStatus(schedulerStatus, 'Enter a folder path first.', 'error');
             schedulerJobsList.innerHTML = 'Enter a folder path first.';
             return;
         }
         try {
+            setOpsButtonBusy(saveSchedulerJobBtn, true, 'Saving...');
+            setOpsStatus(schedulerStatus, `Saving watcher for ${folderPath}...`, 'loading');
             const response = await fetch('/scheduler-jobs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2616,13 +2756,19 @@
                 throw new Error((payload && payload.error) || 'Failed to save scheduler job');
             }
             await loadSchedulerJobs();
+            setOpsStatus(schedulerStatus, `Watcher saved for ${folderPath}.`, 'success');
         } catch (error) {
+            setOpsStatus(schedulerStatus, error.message || 'Failed to save scheduler job.', 'error');
             schedulerJobsList.innerHTML = error.message || 'Failed to save scheduler job.';
+        } finally {
+            setOpsButtonBusy(saveSchedulerJobBtn, false);
         }
     });
 
     runSchedulerBtn.addEventListener('click', async () => {
         try {
+            setOpsButtonBusy(runSchedulerBtn, true, 'Running...');
+            setOpsStatus(schedulerStatus, 'Running scheduler cycle...', 'loading');
             const response = await fetch('/scheduler-jobs/run', { method: 'POST' });
             const payload = await parseJsonSafely(response);
             if (!response.ok || !payload || payload.error) {
@@ -2630,16 +2776,24 @@
             }
             await loadSchedulerJobs();
             await loadNotifications();
+            setOpsStatus(schedulerStatus, `Scheduler cycle finished. Processed ${payload.processed_files || 0} files.`, 'success');
         } catch (error) {
+            setOpsStatus(schedulerStatus, error.message || 'Failed to run scheduler.', 'error');
             schedulerJobsList.innerHTML = error.message || 'Failed to run scheduler.';
+        } finally {
+            setOpsButtonBusy(runSchedulerBtn, false);
         }
     });
 
     loadSettingsBtn.addEventListener('click', async () => {
         try {
+            setOpsButtonBusy(loadSettingsBtn, true, 'Loading...');
             await loadSettings();
         } catch (error) {
+            setOpsStatus(settingsStatus, error.message || 'Failed to load settings.', 'error');
             settingsList.innerHTML = error.message || 'Failed to load settings.';
+        } finally {
+            setOpsButtonBusy(loadSettingsBtn, false);
         }
     });
 
@@ -3709,6 +3863,8 @@
             }
         });
     }
+
+    initializeOperationsHub();
 })();
 </script>
 

@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, has_request_context
 import json
 import os
 import sqlite3
@@ -436,14 +436,18 @@ def _ensure_processed_reports_db():
 
 
 def _current_actor():
-    actor = (request.headers.get('X-FTP-Actor') if request else None) or request.args.get('actor') if request else None
+    if not has_request_context():
+        return 'system'
+    actor = request.headers.get('X-FTP-Actor') or request.args.get('actor')
     if not actor:
         actor = 'local-user'
     return str(actor).strip() or 'local-user'
 
 
 def _current_role():
-    role = (request.headers.get('X-FTP-Role') if request else None) or request.args.get('role') if request else None
+    if not has_request_context():
+        return 'system'
+    role = request.headers.get('X-FTP-Role') or request.args.get('role')
     if not role:
         role = FTP_DEFAULT_ROLE
     return str(role).strip().lower() or FTP_DEFAULT_ROLE
@@ -471,8 +475,8 @@ def _audit_event(event_type, report_key=None, details=None):
             (
                 event_type,
                 report_key,
-                _current_actor() if request else 'system',
-                _current_role() if request else 'system',
+                _current_actor(),
+                _current_role(),
                 json.dumps(details or {}, ensure_ascii=True, default=_json_default),
                 time.time(),
             )
@@ -814,6 +818,14 @@ def _resolve_month_year_args(month_value, year_value):
     if not month_number:
         return None, None
     return MONTH_NUMBER_TO_NAME[month_number], int(year_value)
+
+
+def format_number(value):
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return str(value) if value is not None else ''
+    return f'{numeric_value:,.2f}'
 
 def generate_pdf_report():
     """Generate PDF report from the preview data and summaries"""
@@ -1278,10 +1290,12 @@ def _run_scheduler_cycle():
                     continue
 
                 scheduler_job_id = f'scheduler-{uuid.uuid4()}'
+                temp_copy_path = f'{file_path}.{scheduler_job_id}.tmp'
+                shutil.copyfile(file_path, temp_copy_path)
                 _insert_upload_job(scheduler_job_id)
                 _run_ftp_job(
                     scheduler_job_id,
-                    file_path,
+                    temp_copy_path,
                     entry,
                     bool(job['include_workings']),
                     bool(job['overwrite_existing']),
