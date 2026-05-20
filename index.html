@@ -1395,6 +1395,9 @@
                 <button class="preview-download-btn" id="downloadExcelBtn" disabled style="margin-top: 10px; border-color: #1d4ed8; color: #1d4ed8;">
                     <i class="fas fa-file-excel"></i> Download Excel Results (.xlsx)
                 </button>
+                <button class="preview-download-btn" id="downloadOriginalBtn" disabled style="margin-top: 10px; border-color: #0f766e; color: #0f766e;">
+                    <i class="fas fa-file-upload"></i> Download Original Uploaded Workbook
+                </button>
             </div>
         </div>
 
@@ -1710,6 +1713,14 @@
                 </span>
             </label>
 
+            <label class="export-option" for="forceFullWorkbookCheckbox">
+                <input type="checkbox" id="forceFullWorkbookCheckbox">
+                <span>
+                    <strong>Force full workbook (skip auto-downgrade)</strong><br>
+                    <span style="font-size: 12px; color: #b45309;">Use only when needed. Large files may restart the server under memory pressure.</span>
+                </span>
+            </label>
+
             <!-- Fancy file upload area - shown when no file selected -->
             <div class="fancy-file-upload" id="fancyFileUpload">
                 <div class="fancy-file-content">
@@ -1840,6 +1851,7 @@
     const previewContent = document.getElementById('previewContent');
     const downloadResultsBtn = document.getElementById('downloadResultsBtn');
     const downloadExcelBtn = document.getElementById('downloadExcelBtn');
+    const downloadOriginalBtn = document.getElementById('downloadOriginalBtn');
     const downloadRangeX = document.getElementById('downloadRangeX');
     const downloadRangeY = document.getElementById('downloadRangeY');
     const previewBadge = document.getElementById('previewBadge');
@@ -1855,6 +1867,7 @@
     const fileNameSpan = document.getElementById('fileName');
     const fileMetaSpan = document.getElementById('fileMeta');
     const includeWorkingsCheckbox = document.getElementById('includeWorkingsCheckbox');
+    const forceFullWorkbookCheckbox = document.getElementById('forceFullWorkbookCheckbox');
     const removeFileBtn = document.getElementById('removeFileBtn');
     const saveCurveBtn = document.getElementById('saveCurveBtn');
     const resetCurveBtn = document.getElementById('resetCurveBtn');
@@ -2027,6 +2040,25 @@
         }
     }
 
+    function setOriginalWorkbookDownloadState(isAvailable) {
+        if (!downloadOriginalBtn) {
+            return;
+        }
+        downloadOriginalBtn.disabled = !Boolean(isAvailable);
+    }
+
+    function syncForceFullWorkbookOption() {
+        if (!forceFullWorkbookCheckbox || !includeWorkingsCheckbox) {
+            return;
+        }
+        if (!includeWorkingsCheckbox.checked) {
+            forceFullWorkbookCheckbox.checked = false;
+            forceFullWorkbookCheckbox.disabled = true;
+        } else {
+            forceFullWorkbookCheckbox.disabled = false;
+        }
+    }
+
     function setArchiveStatus(message, type = '') {
         if (!archiveStatus) {
             return;
@@ -2190,6 +2222,7 @@
             downloadRangeY.textContent = lastDay;
             downloadResultsBtn.disabled = false;
             downloadExcelBtn.disabled = false;
+            setOriginalWorkbookDownloadState(Boolean(selectedReport?.original_upload_available));
             updatePreviewBadgeMode(Boolean(selectedReport?.excel_contains_workings), Number(selectedReport?.skipped_sheet_count || 0));
             if (archiveVersionSelect && archiveVersionSelect.value !== reportKey) {
                 archiveVersionSelect.value = reportKey;
@@ -3365,8 +3398,17 @@
         modalFileInput.value = '';
         selectedFile = null;
         includeWorkingsCheckbox.checked = false;
+        if (forceFullWorkbookCheckbox) {
+            forceFullWorkbookCheckbox.checked = false;
+        }
+        syncForceFullWorkbookOption();
         updateFileUploadUI();
     });
+
+    if (includeWorkingsCheckbox) {
+        includeWorkingsCheckbox.addEventListener('change', syncForceFullWorkbookOption);
+        syncForceFullWorkbookOption();
+    }
 
     closeUploadModalBtn.addEventListener('click', () => {
         uploadModal.style.display = 'none';
@@ -3542,6 +3584,7 @@
                                 excel_contains_workings: Boolean(recoveredReport.excel_contains_workings),
                                 skipped_sheet_count: Number(recoveredReport.skipped_sheet_count || 0),
                                 export_warning: recoveredReport.export_warning || null,
+                                original_upload_available: Boolean(recoveredReport.original_upload_available),
                                 recovered_from_archive: true
                             });
                             return;
@@ -3626,6 +3669,7 @@
             downloadRangeY.textContent = savedJob.lastDay || 'N/A';
             downloadResultsBtn.disabled = false;
             downloadExcelBtn.disabled = false;
+            setOriginalWorkbookDownloadState(Boolean(result.original_upload_available));
             updatePreviewBadgeMode(Boolean(result.excel_contains_workings), Number(result.skipped_sheet_count || 0));
 
             updatePreviewWithData(`
@@ -3726,6 +3770,7 @@
             const formData = new FormData();
             formData.append('file', file);
             formData.append('include_workings', includeWorkingsCheckbox.checked ? '1' : '0');
+            formData.append('force_full_workbook', (includeWorkingsCheckbox.checked && forceFullWorkbookCheckbox && forceFullWorkbookCheckbox.checked) ? '1' : '0');
             formData.append('overwrite_existing', overwriteExisting ? '1' : '0');
             updateProcessingOverlay(15, 'Uploading workbook to server');
 
@@ -3780,6 +3825,7 @@
                 downloadRangeY.textContent = lastDay;
                 downloadResultsBtn.disabled = false;
                 downloadExcelBtn.disabled = false;
+                setOriginalWorkbookDownloadState(Boolean(result.original_upload_available));
                 updatePreviewBadgeMode(Boolean(result.excel_contains_workings), Number(result.skipped_sheet_count || 0));
                 
                 let summaryHtml = `
@@ -4163,6 +4209,43 @@
                 <div style="text-align: center; padding: 20px;">
                     <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
                     <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Excel Download Failed</h3>
+                    <p style="color: #632424;">${error.message}</p>
+                </div>
+            `);
+        }
+    });
+
+    downloadOriginalBtn.addEventListener('click', async () => {
+        if (!lastComputedRange.firstDay || (!lastComputedRange.summary && !lastComputedRange.reportKey)) {
+            alert('Please compute FTP range first');
+            return;
+        }
+
+        updatePreviewWithData(`
+            <div style="text-align: center; padding: 20px;">
+                <i class="fas fa-spinner fa-pulse" style="font-size: 48px; color: #0f766e; margin-bottom: 20px;"></i>
+                <h3 style="color: #0f766e; margin-bottom: 10px;">Preparing Original Workbook...</h3>
+                <p style="color: #5b6472;">Please wait while we fetch the original uploaded workbook</p>
+            </div>
+        `);
+
+        try {
+            await downloadFile('/download-original-workbook', 'xlsx');
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 10px;">
+                    <i class="fas fa-file-upload" style="font-size: 48px; color: #0f766e; margin-bottom: 15px;"></i>
+                    <h3 style="color: #0f766e; margin-bottom: 10px;">✓ Original Workbook Downloaded</h3>
+                    <p style="color: #2f1a1a;">Your originally uploaded workbook has been downloaded.</p>
+                </div>
+            `);
+        } catch (error) {
+            console.error('Error downloading original workbook:', error);
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
+                    <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Original Workbook Download Failed</h3>
                     <p style="color: #632424;">${error.message}</p>
                 </div>
             `);
