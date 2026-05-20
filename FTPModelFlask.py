@@ -457,6 +457,63 @@ def _build_workings_sheet_data_path(report_key, sheet_name):
     return os.path.join(WORKINGS_JSON_DIR, f'FTP_Workings_{report_key}_{token}.ndjson')
 
 
+def _normalize_sheet_columns(raw_columns):
+    seen = {}
+    normalized = []
+    for index, value in enumerate(raw_columns or []):
+        base_name = str(value).strip() if value is not None and str(value).strip() else f'Column_{index + 1}'
+        duplicate_count = seen.get(base_name, 0)
+        normalized_name = base_name if duplicate_count == 0 else f'{base_name}.{duplicate_count}'
+        seen[base_name] = duplicate_count + 1
+        normalized.append(normalized_name)
+    return normalized
+
+
+def _stream_workbook_sheet_to_ndjson(workbook_path, sheet_name, output_path):
+    extension = os.path.splitext(str(workbook_path))[1].lower()
+    if extension not in {'.xlsx', '.xlsm', '.xltx', '.xltm'}:
+        return None
+
+    workbook = None
+    try:
+        workbook = openpyxl.load_workbook(workbook_path, read_only=True, data_only=False)
+        if sheet_name not in workbook.sheetnames:
+            return None
+
+        worksheet = workbook[sheet_name]
+        rows = worksheet.iter_rows(values_only=True)
+        header_row = next(rows, None)
+        if header_row is None:
+            with open(output_path, 'w', encoding='utf-8'):
+                pass
+            return {'columns': [], 'row_count': 0}
+
+        columns = _normalize_sheet_columns(header_row)
+        row_count = 0
+        with open(output_path, 'w', encoding='utf-8') as output_file:
+            for row_values in rows:
+                row_payload = {
+                    column: _sanitize_json_value(row_values[index] if row_values and index < len(row_values) else None)
+                    for index, column in enumerate(columns)
+                }
+                output_file.write(json.dumps(row_payload, ensure_ascii=True, allow_nan=False, default=_json_default))
+                output_file.write('\n')
+                row_count += 1
+
+        return {'columns': columns, 'row_count': row_count}
+    except Exception as exc:
+        print(f"[WARN] Failed to stream {sheet_name} directly from workbook: {exc}")
+        if os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
+        return None
+    finally:
+        if workbook is not None:
+            workbook.close()
+
+
 def _write_dataframe_ndjson(df, output_path):
     columns = list(df.columns)
     with open(output_path, 'w', encoding='utf-8') as output_file:
@@ -1718,20 +1775,8 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                     log_stage(f'Sheet {sheet} (kept from original)', sheet_start)
                     continue
 
-                try:
-                    df = excel_file.parse(sheet_name=sheet)
-                except Exception as exc:
-                    print(f"Error parsing {sheet}: {exc}")
-                    continue
-
                 if sheet in LOAN_SHEETS:
-                    df_raw = df
-                    del df
-
-                    branch_col = next(
-                        (c for c in ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE'] if c in df_raw.columns),
-                        None
-                    )
+                    branch_column_candidates = ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE']
 
                     # FTP computation constants
                     first_day_ts = pd.Timestamp(first_day.date())
@@ -1746,20 +1791,30 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                    for i in range(len(bucket_labels))], dtype=np.float32)
                     currency = 'ZWG' if sheet == 'ZWG LOANS' else 'FX'
 
-                    total_rows = len(df_raw)
                     sheet_data_path = _build_workings_sheet_data_path(report_key, sheet)
                     raw_data_path = sheet_data_path.replace('.ndjson', '_raw.ndjson')
 
-                    # STEP 1: Write raw data to JSON (release DataFrame)
-                    print(f"[WRITE_RAW] {sheet}: Writing {total_rows} raw rows to {raw_data_path}")
-                    with open(raw_data_path, 'w', encoding='utf-8') as raw_file:
-                        for _, row in df_raw.iterrows():
-                            row_dict = {col: _sanitize_json_value(row.get(col)) for col in df_raw.columns}
-                            raw_file.write(json.dumps(row_dict, ensure_ascii=True, allow_nan=False, default=_json_default))
-                            raw_file.write('\n')
-                    del df_raw
-                    gc.collect()
-                    print(f"[WRITE_RAW] {sheet}: Raw data written, DataFrame freed")
+                    raw_stream_result = _stream_workbook_sheet_to_ndjson(upload_path, sheet, raw_data_path)
+                    if raw_stream_result is None:
+                        try:
+                            df_raw = excel_file.parse(sheet_name=sheet)
+                        except Exception as exc:
+                            print(f"Error parsing {sheet}: {exc}")
+                            continue
+
+                        total_rows = len(df_raw)
+                        print(f"[WRITE_RAW] {sheet}: Writing {total_rows} raw rows to {raw_data_path}")
+                        with open(raw_data_path, 'w', encoding='utf-8') as raw_file:
+                            for _, row in df_raw.iterrows():
+                                row_dict = {col: _sanitize_json_value(row.get(col)) for col in df_raw.columns}
+                                raw_file.write(json.dumps(row_dict, ensure_ascii=True, allow_nan=False, default=_json_default))
+                                raw_file.write('\n')
+                        del df_raw
+                        gc.collect()
+                        print(f"[WRITE_RAW] {sheet}: Raw data written, DataFrame freed")
+                    else:
+                        total_rows = int(raw_stream_result.get('row_count') or 0)
+                        print(f"[WRITE_RAW] {sheet}: Streamed {total_rows} raw rows directly to {raw_data_path}")
 
                     # STEP 2: Process chunks from raw JSON, write computed JSON
                     chunk_size = 50000
@@ -1767,7 +1822,8 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                     summary_ftp = 0.0
                     summary_by_sbu = {}
                     preview_rows = []
-                    all_processed = []
+                    processed_columns = None
+                    sheet_row_cursor = 0
 
                     print(f"[PROCESS] {sheet}: Processing {total_rows} rows in chunks of {chunk_size}")
                     chunk_buffer = []
@@ -1790,6 +1846,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                     print(f"[CHUNK] {sheet} rows {chunk_idx}-{chunk_end}/{total_rows}")
 
                                     # Add SBU mapping
+                                    branch_col = next((column for column in branch_column_candidates if column in chunk.columns), None)
                                     if branch_col:
                                         chunk[branch_col] = chunk[branch_col].astype(str).str.strip()
                                         chunk['SBU'] = chunk[branch_col].map(branch_sbu_lookup).fillna('Unknown')
@@ -1868,8 +1925,18 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                         output_file.write(json.dumps(row_dict, ensure_ascii=True, allow_nan=False, default=_json_default))
                                         output_file.write('\n')
 
-                                    # Collect for Excel
-                                    all_processed.append(chunk)
+                                    if processed_columns is None:
+                                        processed_columns = list(chunk.columns)
+
+                                    header = sheet_row_cursor == 0
+                                    chunk.to_excel(
+                                        writer,
+                                        sheet_name=sheet[:31],
+                                        index=False,
+                                        header=header,
+                                        startrow=sheet_row_cursor,
+                                    )
+                                    sheet_row_cursor += len(chunk) + (1 if header else 0)
 
                                     # Clean up computation arrays
                                     del exposure, mtm_days, bucket_idx, bv, ev, iv, pos, bd, md, chunk
@@ -1886,33 +1953,26 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                     except OSError:
                         pass
 
-                    # Concatenate all chunks for Excel writing and final summary
-                    df_processed = pd.concat(all_processed, ignore_index=True) if all_processed else pd.DataFrame()
-
                     # Build summaries
                     sbu_summary = [{'SBU': sbu, **vals} for sbu, vals in summary_by_sbu.items()]
                     global_summaries[currency][sheet] = {
                         'total_exposure': float(summary_exposure),
                         'total_ftp_charge': float(summary_ftp),
                         'by_sbu': sbu_summary,
-                        'row_count': len(df_processed)
-                    }
-
-                    sheets_data[sheet] = {
-                        'columns': df_processed.columns.tolist() if not df_processed.empty else [],
-                        'data': preview_rows,
-                        'shape': df_processed.shape if not df_processed.empty else (total_rows, 0)
-                    }
-
-                    workings_manifest['sheets'][sheet] = {
-                        'columns': df_processed.columns.tolist() if not df_processed.empty else [],
-                        'data_path': sheet_data_path,
                         'row_count': total_rows
                     }
 
-                    # Write to Excel
-                    df_processed.to_excel(writer, sheet_name=sheet[:31], index=False)
-                    del df_processed, all_processed
+                    sheets_data[sheet] = {
+                        'columns': processed_columns or [],
+                        'data': preview_rows,
+                        'shape': (total_rows, len(processed_columns or []))
+                    }
+
+                    workings_manifest['sheets'][sheet] = {
+                        'columns': processed_columns or [],
+                        'data_path': sheet_data_path,
+                        'row_count': total_rows
+                    }
                     gc.collect()
 
                     completed_loan += 1
