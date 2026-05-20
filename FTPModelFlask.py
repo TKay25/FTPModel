@@ -31,6 +31,7 @@ PROCESSED_REPORTS_DB_PATH = os.path.join(DATA_ROOT_DIR, 'processed_reports.db')
 PROCESSED_OUTPUTS_DIR = os.path.join(DATA_ROOT_DIR, 'processed_outputs')
 WORKINGS_JSON_DIR = os.path.join(DATA_ROOT_DIR, 'workings_json')
 BRANCH_MAP_DB_PATH = os.path.join(DATA_ROOT_DIR, 'branch_sbu_map.db')
+BRANCH_MAP_JSON_PATH = os.path.join(DATA_ROOT_DIR, 'branch_sbu_map.json')
 UPLOAD_JOBS_DB_PATH = os.path.join(DATA_ROOT_DIR, 'upload_jobs.db')
 TEMP_UPLOADS_DIR = os.path.join(DATA_ROOT_DIR, 'temp_uploads')
 LOAN_SHEETS = {'ZWG LOANS', 'FX LOANS'}
@@ -217,42 +218,73 @@ DEFAULT_BRANCH_SBU_MAP = {
 
 
 def init_branch_map_db():
-    with sqlite3.connect(BRANCH_MAP_DB_PATH) as connection:
-        connection.execute(
-            '''
-            CREATE TABLE IF NOT EXISTS branch_sbu_map (
-                branch_code TEXT PRIMARY KEY,
-                unit TEXT NOT NULL,
-                sbu TEXT NOT NULL
-            )
-            '''
-        )
-        existing_count = connection.execute('SELECT COUNT(*) FROM branch_sbu_map').fetchone()[0]
-        if existing_count < len(DEFAULT_BRANCH_SBU_MAP):
-            connection.execute('DELETE FROM branch_sbu_map')
-            connection.executemany(
-                'INSERT INTO branch_sbu_map (branch_code, unit, sbu) VALUES (?, ?, ?)',
-                [(code, data['unit'], data['sbu']) for code, data in DEFAULT_BRANCH_SBU_MAP.items()]
-            )
-        connection.commit()
+    if os.path.exists(BRANCH_MAP_JSON_PATH):
+        return
+
+    migrated_map = None
+    if os.path.exists(BRANCH_MAP_DB_PATH):
+        try:
+            with sqlite3.connect(BRANCH_MAP_DB_PATH) as connection:
+                rows = connection.execute(
+                    'SELECT branch_code, unit, sbu FROM branch_sbu_map'
+                ).fetchall()
+            if rows:
+                migrated_map = {
+                    str(code): {'unit': str(unit), 'sbu': str(sbu)}
+                    for code, unit, sbu in rows
+                }
+        except sqlite3.Error:
+            migrated_map = None
+
+    if not migrated_map:
+        migrated_map = DEFAULT_BRANCH_SBU_MAP
+
+    with open(BRANCH_MAP_JSON_PATH, 'w', encoding='utf-8') as map_file:
+        json.dump(migrated_map, map_file, indent=2, ensure_ascii=True)
 
 
 def load_branch_sbu_map():
     init_branch_map_db()
-    with sqlite3.connect(BRANCH_MAP_DB_PATH) as connection:
-        rows = connection.execute(
-            'SELECT branch_code, unit, sbu FROM branch_sbu_map ORDER BY CAST(branch_code AS INTEGER), branch_code'
-        ).fetchall()
-    return {str(code): {'unit': unit, 'sbu': sbu} for code, unit, sbu in rows}
+    try:
+        with open(BRANCH_MAP_JSON_PATH, 'r', encoding='utf-8') as map_file:
+            stored_map = json.load(map_file)
+        if not isinstance(stored_map, dict):
+            raise ValueError('Invalid branch map format')
+
+        normalized_map = {}
+        for code, entry in stored_map.items():
+            if not isinstance(entry, dict):
+                continue
+            unit = str(entry.get('unit', '')).strip()
+            sbu = str(entry.get('sbu', '')).strip()
+            code_text = str(code).strip()
+            if not code_text or not unit or not sbu:
+                continue
+            normalized_map[code_text] = {'unit': unit, 'sbu': sbu}
+
+        if not normalized_map:
+            raise ValueError('Branch map is empty')
+        return normalized_map
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        with open(BRANCH_MAP_JSON_PATH, 'w', encoding='utf-8') as map_file:
+            json.dump(DEFAULT_BRANCH_SBU_MAP, map_file, indent=2, ensure_ascii=True)
+        return DEFAULT_BRANCH_SBU_MAP.copy()
 
 
 def load_branch_sbu_rows():
-    init_branch_map_db()
-    with sqlite3.connect(BRANCH_MAP_DB_PATH) as connection:
-        rows = connection.execute(
-            'SELECT branch_code, unit, sbu FROM branch_sbu_map ORDER BY CAST(branch_code AS INTEGER), branch_code'
-        ).fetchall()
-    return [{'code': str(code), 'unit': unit, 'sbu': sbu} for code, unit, sbu in rows]
+    branch_map = load_branch_sbu_map()
+
+    def _sort_key(code_text):
+        try:
+            return (0, int(code_text), code_text)
+        except ValueError:
+            return (1, code_text)
+
+    rows = []
+    for code in sorted(branch_map.keys(), key=_sort_key):
+        entry = branch_map[code]
+        rows.append({'code': str(code), 'unit': entry['unit'], 'sbu': entry['sbu']})
+    return rows
 
 
 def save_branch_sbu_rows(rows):
@@ -276,13 +308,12 @@ def save_branch_sbu_rows(rows):
     if not normalized_rows:
         raise ValueError('At least one valid branch mapping is required')
 
-    with sqlite3.connect(BRANCH_MAP_DB_PATH) as connection:
-        connection.execute('DELETE FROM branch_sbu_map')
-        connection.executemany(
-            'INSERT INTO branch_sbu_map (branch_code, unit, sbu) VALUES (?, ?, ?)',
-            normalized_rows
-        )
-        connection.commit()
+    payload = {
+        code: {'unit': unit, 'sbu': sbu}
+        for code, unit, sbu in normalized_rows
+    }
+    with open(BRANCH_MAP_JSON_PATH, 'w', encoding='utf-8') as map_file:
+        json.dump(payload, map_file, indent=2, ensure_ascii=True)
 
 
 def reset_branch_sbu_map_to_default():
