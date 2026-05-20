@@ -23,7 +23,7 @@ from reportlab.lib.enums import TA_CENTER
 app = Flask(__name__)
 
 CURVE_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'curve_config.json')
-PROCESSED_DATA_PATH = os.path.join(os.path.dirname(__file__), 'latest_processed_data.json')
+PROCESSED_REPORTS_DB_PATH = os.path.join(os.path.dirname(__file__), 'processed_reports.db')
 PROCESSED_OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), 'processed_outputs')
 BRANCH_MAP_DB_PATH = os.path.join(os.path.dirname(__file__), 'branch_sbu_map.db')
 LOAN_SHEETS = {'ZWG LOANS', 'FX LOANS'}
@@ -313,6 +313,22 @@ def save_curve_config(curve_config):
 
 curve_config = load_curve_config()
 
+MONTH_NAME_TO_NUMBER = {
+    'january': 1,
+    'february': 2,
+    'march': 3,
+    'april': 4,
+    'may': 5,
+    'june': 6,
+    'july': 7,
+    'august': 8,
+    'september': 9,
+    'october': 10,
+    'november': 11,
+    'december': 12,
+}
+MONTH_NUMBER_TO_NAME = {value: name.title() for name, value in MONTH_NAME_TO_NUMBER.items()}
+
 # Define the tenor points (in days)
 tenors = curve_config['tenors']
 
@@ -330,59 +346,272 @@ latest_data = {
     'summaries': {},
     'period': {},
     'excel_output_path': None,
-    'excel_filename': None
+    'excel_filename': None,
+    'excel_contains_workings': False,
+    'skipped_sheet_count': 0,
+    'export_warning': None,
 }
 
 
-def save_latest_data_snapshot():
-    def _json_default(value):
-        if isinstance(value, np.generic):
-            return value.item()
-        if isinstance(value, (datetime, timedelta)):
-            return str(value)
+def _json_default(value):
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, (datetime, timedelta)):
         return str(value)
-
-    with open(PROCESSED_DATA_PATH, 'w', encoding='utf-8') as snapshot_file:
-        json.dump(latest_data, snapshot_file, ensure_ascii=True, default=_json_default)
+    return str(value)
 
 
-def load_latest_data_snapshot():
+def _ensure_processed_reports_db():
+    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+        connection.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS processed_reports (
+                report_key TEXT PRIMARY KEY,
+                month_number INTEGER NOT NULL,
+                month_name TEXT NOT NULL,
+                year INTEGER NOT NULL,
+                filename TEXT,
+                period_json TEXT NOT NULL,
+                summaries_json TEXT NOT NULL,
+                sheets_json TEXT NOT NULL,
+                excel_output_path TEXT,
+                excel_filename TEXT,
+                excel_contains_workings INTEGER NOT NULL DEFAULT 0,
+                skipped_sheet_count INTEGER NOT NULL DEFAULT 0,
+                export_warning TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            '''
+        )
+        connection.commit()
+
+
+def save_latest_data_snapshot():
+    period = latest_data.get('period') or {}
+    month_number = period.get('month_number')
+    if not month_number:
+        month_value = str(period.get('month', '')).strip().lower()
+        month_number = MONTH_NAME_TO_NUMBER.get(month_value)
+
+    year_value = period.get('year')
+    if not month_number or year_value is None:
+        return
+
+    month_number = int(month_number)
+    year_value = int(year_value)
+    report_key = period.get('report_key') or f'{year_value:04d}-{month_number:02d}'
+    payload = {
+        'filename': latest_data.get('filename'),
+        'sheets': latest_data.get('sheets', {}),
+        'ftp_results': latest_data.get('ftp_results'),
+        'summaries': latest_data.get('summaries', {}),
+        'period': {
+            **period,
+            'month_number': month_number,
+            'report_key': report_key,
+        },
+        'excel_output_path': latest_data.get('excel_output_path'),
+        'excel_filename': latest_data.get('excel_filename'),
+        'excel_contains_workings': bool(latest_data.get('excel_contains_workings')),
+        'skipped_sheet_count': int(latest_data.get('skipped_sheet_count') or 0),
+        'export_warning': latest_data.get('export_warning'),
+    }
+
+    _ensure_processed_reports_db()
+    now_ts = time.time()
+    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+        connection.execute(
+            '''
+            INSERT INTO processed_reports (
+                report_key, month_number, month_name, year, filename,
+                period_json, summaries_json, sheets_json,
+                excel_output_path, excel_filename,
+                excel_contains_workings, skipped_sheet_count, export_warning,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(report_key) DO UPDATE SET
+                month_number = excluded.month_number,
+                month_name = excluded.month_name,
+                year = excluded.year,
+                filename = excluded.filename,
+                period_json = excluded.period_json,
+                summaries_json = excluded.summaries_json,
+                sheets_json = excluded.sheets_json,
+                excel_output_path = excluded.excel_output_path,
+                excel_filename = excluded.excel_filename,
+                excel_contains_workings = excluded.excel_contains_workings,
+                skipped_sheet_count = excluded.skipped_sheet_count,
+                export_warning = excluded.export_warning,
+                updated_at = excluded.updated_at
+            ''',
+            (
+                report_key,
+                month_number,
+                MONTH_NUMBER_TO_NAME[month_number],
+                year_value,
+                payload['filename'],
+                json.dumps(payload['period'], ensure_ascii=True, default=_json_default),
+                json.dumps(payload['summaries'], ensure_ascii=True, default=_json_default),
+                json.dumps(payload['sheets'], ensure_ascii=True, default=_json_default),
+                payload['excel_output_path'],
+                payload['excel_filename'],
+                int(payload['excel_contains_workings']),
+                int(payload['skipped_sheet_count']),
+                payload['export_warning'],
+                now_ts,
+                now_ts,
+            )
+        )
+        connection.commit()
+
+
+def _normalize_month_number(month_value):
+    if month_value is None:
+        return None
+    month_text = str(month_value).strip().lower()
+    if not month_text:
+        return None
+    if month_text.isdigit():
+        month_number = int(month_text)
+    else:
+        month_number = MONTH_NAME_TO_NUMBER.get(month_text)
+    if month_number is None or month_number < 1 or month_number > 12:
+        return None
+    return month_number
+
+
+def _make_report_key(year_value, month_number, version_suffix=None):
+    base_key = f'{int(year_value):04d}-{int(month_number):02d}'
+    if version_suffix is None:
+        return base_key
+    return f'{base_key}-{int(version_suffix)}'
+
+
+def _load_processed_report_row(month=None, year=None, report_key=None):
+    _ensure_processed_reports_db()
+    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+        connection.row_factory = sqlite3.Row
+        cursor = connection.cursor()
+
+        if report_key:
+            cursor.execute('SELECT * FROM processed_reports WHERE report_key = ?', (report_key,))
+            return cursor.fetchone()
+
+        if month is None and year is None:
+            cursor.execute('SELECT * FROM processed_reports ORDER BY updated_at DESC LIMIT 1')
+            return cursor.fetchone()
+
+        month_number = _normalize_month_number(month)
+        if not month_number or year is None:
+            return None
+
+        cursor.execute(
+            'SELECT * FROM processed_reports WHERE month_number = ? AND year = ? ORDER BY updated_at DESC LIMIT 1',
+            (int(month_number), int(year))
+        )
+        return cursor.fetchone()
+
+
+def _next_report_version_suffix(year_value, month_number):
+    base_key = _make_report_key(year_value, month_number)
+    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            'SELECT report_key FROM processed_reports WHERE report_key = ? OR report_key LIKE ? ORDER BY report_key',
+            (base_key, f'{base_key}-%')
+        )
+        existing_keys = [row[0] for row in cursor.fetchall()]
+
+    if base_key not in existing_keys:
+        return None
+
+    suffixes = []
+    for existing_key in existing_keys:
+        if existing_key == base_key:
+            suffixes.append(0)
+            continue
+        try:
+            suffixes.append(int(existing_key.rsplit('-', 1)[1]))
+        except (IndexError, ValueError):
+            continue
+
+    suffixes = sorted(set(suffixes))
+    next_suffix = 1
+    for suffix in suffixes:
+        if suffix == next_suffix:
+            next_suffix += 1
+    return next_suffix
+
+
+def load_latest_data_snapshot(month=None, year=None, report_key=None):
     global latest_data
 
-    if not os.path.exists(PROCESSED_DATA_PATH):
-        return False
-
     try:
-        with open(PROCESSED_DATA_PATH, 'r', encoding='utf-8') as snapshot_file:
-            snapshot = json.load(snapshot_file)
+        snapshot = _load_processed_report_row(month=month, year=year, report_key=report_key)
+        if not snapshot:
+            return False
 
+        period = json.loads(snapshot['period_json']) if snapshot['period_json'] else {}
         latest_data = {
-            'filename': snapshot.get('filename'),
-            'sheets': snapshot.get('sheets', {}),
-            'ftp_results': snapshot.get('ftp_results'),
-            'summaries': snapshot.get('summaries', {}),
-            'period': snapshot.get('period', {}),
-            'excel_output_path': snapshot.get('excel_output_path'),
-            'excel_filename': snapshot.get('excel_filename')
+            'filename': snapshot['filename'],
+            'sheets': json.loads(snapshot['sheets_json']) if snapshot['sheets_json'] else {},
+            'ftp_results': None,
+            'summaries': json.loads(snapshot['summaries_json']) if snapshot['summaries_json'] else {},
+            'period': period,
+            'excel_output_path': snapshot['excel_output_path'],
+            'excel_filename': snapshot['excel_filename'],
+            'excel_contains_workings': bool(snapshot['excel_contains_workings']),
+            'skipped_sheet_count': int(snapshot['skipped_sheet_count'] or 0),
+            'export_warning': snapshot['export_warning'],
         }
         return True
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+    except (OSError, ValueError, TypeError, json.JSONDecodeError, sqlite3.Error, KeyError):
         return False
 
 
-def ensure_latest_data_available():
+def delete_processed_report(report_key):
+    _ensure_processed_reports_db()
+    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+        connection.row_factory = sqlite3.Row
+        cursor = connection.cursor()
+        cursor.execute('SELECT excel_output_path FROM processed_reports WHERE report_key = ?', (report_key,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+
+        excel_output_path = row['excel_output_path']
+        cursor.execute('DELETE FROM processed_reports WHERE report_key = ?', (report_key,))
+        connection.commit()
+
+    if excel_output_path and os.path.exists(excel_output_path):
+        try:
+            os.remove(excel_output_path)
+        except OSError as exc:
+            print(f"[WARN] Failed to remove archived workbook {excel_output_path}: {exc}")
+
+    return True
+
+
+def ensure_latest_data_available(month=None, year=None):
     if latest_data.get('summaries') and latest_data.get('period'):
         return True
-    return load_latest_data_snapshot()
+    return load_latest_data_snapshot(month=month, year=year)
 
-def format_number(num):
-    if num is None:
-        return '0'
-    if abs(num) >= 1000000:
-        return f"{num/1000000:.2f}M"
-    if abs(num) >= 1000:
-        return f"{num/1000:.2f}K"
-    return f"{num:.2f}"
+
+def _resolve_month_year_args(month_value, year_value):
+    if year_value is None:
+        return None, None
+    month_value = str(month_value).strip().lower() if month_value is not None else ''
+    if not month_value:
+        return None, None
+    if month_value.isdigit():
+        month_number = int(month_value)
+    else:
+        month_number = MONTH_NAME_TO_NUMBER.get(month_value)
+    if not month_number:
+        return None, None
+    return MONTH_NUMBER_TO_NAME[month_number], int(year_value)
 
 def generate_pdf_report():
     """Generate PDF report from the preview data and summaries"""
@@ -555,7 +784,16 @@ def generate_pdf_report():
 def download_pdf():
     try:
         global latest_data
-        if not ensure_latest_data_available():
+        report_key = request.args.get('report_key')
+        month = request.args.get('month')
+        year = request.args.get('year', type=int)
+        if report_key:
+            if not load_latest_data_snapshot(report_key=report_key):
+                return jsonify({'error': 'No processed data found for that report version.'}), 404
+        elif month and year:
+            if not load_latest_data_snapshot(month=month, year=year):
+                return jsonify({'error': 'No processed data found for that month and year.'}), 404
+        elif not ensure_latest_data_available():
             return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
         pdf_buffer = generate_pdf_report()
         month = latest_data.get('period', {}).get('month', 'Report')
@@ -570,7 +808,16 @@ def download_pdf():
 def download_excel():
     try:
         global latest_data
-        if not ensure_latest_data_available():
+        report_key = request.args.get('report_key')
+        month = request.args.get('month')
+        year = request.args.get('year', type=int)
+        if report_key:
+            if not load_latest_data_snapshot(report_key=report_key):
+                return jsonify({'error': 'No processed data found for that report version.'}), 404
+        elif month and year:
+            if not load_latest_data_snapshot(month=month, year=year):
+                return jsonify({'error': 'No processed data found for that month and year.'}), 404
+        elif not ensure_latest_data_available():
             return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
 
         excel_path = latest_data.get('excel_output_path')
@@ -752,7 +999,7 @@ def _fetch_upload_job(job_id):
 _ensure_upload_jobs_db()
 
 
-def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets, export_warning=None):
+def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwrite_existing=False, export_warning=None):
     """Background thread: process workbook and write results."""
     global latest_data
 
@@ -783,12 +1030,15 @@ def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets, export_w
             _update_job(job_id, status='error', error=f'Invalid month: {month_name}')
             return
 
+        report_key_suffix = None if overwrite_existing else _next_report_version_suffix(year, month_num)
+        report_key = _make_report_key(year, month_num, report_key_suffix)
+
         first_day = datetime(year, month_num, 1)
         last_day = (datetime(year + 1, 1, 1) if month_num == 12 else datetime(year, month_num + 1, 1)) - timedelta(days=1)
 
         progress(10, 'Reading workbook')
         read_start = perf_counter()
-        excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
+        excel_file = pd.ExcelFile(upload_path)
         sheet_names = excel_file.sheet_names
         log_stage('Read workbook metadata', read_start)
         print(f"Found sheets: {sheet_names}")
@@ -962,7 +1212,10 @@ def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets, export_w
             'first_day': first_day.strftime('%d %B %Y'),
             'last_day': last_day.strftime('%d %B %Y'),
             'month': month_name,
-            'year': year
+            'month_number': month_num,
+            'year': year,
+            'report_key': report_key,
+            'version_suffix': report_key_suffix
         }
         latest_data['excel_output_path'] = excel_output_path
         latest_data['excel_filename'] = excel_filename
@@ -985,13 +1238,20 @@ def _run_ftp_job(job_id, file_bytes, filename, include_non_loan_sheets, export_w
                         'period': latest_data['period'],
                         'excel_contains_workings': include_non_loan_sheets,
                         'skipped_sheet_count': skipped_sheet_count,
-                        'export_warning': export_warning
+                        'export_warning': export_warning,
+                        'report_key': report_key
                     })
 
     except Exception as exc:
         import traceback
         traceback.print_exc()
         _update_job(job_id, status='error', error=str(exc))
+    finally:
+        try:
+            if upload_path and os.path.exists(upload_path):
+                os.remove(upload_path)
+        except OSError as exc:
+            print(f"[WARN] Failed to remove temp upload {upload_path}: {exc}")
 
 
 @app.route('/')
@@ -1011,19 +1271,25 @@ def upload_file():
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
 
-    # Read file bytes immediately while still in request context
-    file_bytes = file.read()
     filename = file.filename
 
     filename_match = re.search(r'FTP Input File (\w+) (\d{4})', filename)
     if not filename_match:
         return jsonify({'error': 'Filename must be: FTP Input File Month Year.xlsx'}), 400
 
+    temp_upload_path = os.path.join(TEMP_UPLOADS_DIR, f'{uuid.uuid4()}_{os.path.basename(filename)}')
+    try:
+        file.save(temp_upload_path)
+    except Exception as exc:
+        return jsonify({'error': f'Failed to store upload temporarily: {str(exc)}'}), 500
+
     include_workings_raw = str(request.form.get('include_workings', '1')).strip().lower()
     include_workings_requested = include_workings_raw in {'1', 'true', 'yes', 'on'}
     include_non_loan_sheets = INCLUDE_NON_LOAN_SHEETS or include_workings_requested
+    overwrite_existing_raw = str(request.form.get('overwrite_existing', '0')).strip().lower()
+    overwrite_existing = overwrite_existing_raw in {'1', 'true', 'yes', 'on'}
 
-    upload_size_mb = len(file_bytes) / (1024 * 1024)
+    upload_size_mb = os.path.getsize(temp_upload_path) / (1024 * 1024)
     export_warning = None
     if include_non_loan_sheets and not INCLUDE_NON_LOAN_SHEETS and upload_size_mb > INCLUDE_WORKINGS_MAX_UPLOAD_MB:
         include_non_loan_sheets = False
@@ -1050,7 +1316,7 @@ def upload_file():
 
     thread = threading.Thread(
         target=_run_ftp_job,
-        args=(job_id, file_bytes, filename, include_non_loan_sheets, export_warning),
+        args=(job_id, temp_upload_path, filename, include_non_loan_sheets, overwrite_existing, export_warning),
         daemon=True
     )
     thread.start()
@@ -1092,6 +1358,8 @@ def _upload_file_sync():
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
 
+    temp_upload_path = os.path.join(TEMP_UPLOADS_DIR, f'{uuid.uuid4()}_{os.path.basename(file.filename)}')
+
     try:
         upload_start_time = perf_counter()
 
@@ -1113,9 +1381,19 @@ def _upload_file_sync():
         if not month_num:
             return jsonify({'error': f'Invalid month: {month_name}'}), 400
 
+        report_key_suffix = None if overwrite_existing else _next_report_version_suffix(year, month_num)
+        report_key = _make_report_key(year, month_num, report_key_suffix)
+
+        try:
+            file.save(temp_upload_path)
+        except Exception as exc:
+            return jsonify({'error': f'Failed to store upload temporarily: {str(exc)}'}), 500
+
         include_workings_raw = str(request.form.get('include_workings', '1')).strip().lower()
         include_workings_requested = include_workings_raw in {'1', 'true', 'yes', 'on'}
         include_non_loan_sheets = INCLUDE_NON_LOAN_SHEETS or include_workings_requested
+        overwrite_existing_raw = str(request.form.get('overwrite_existing', '0')).strip().lower()
+        overwrite_existing = overwrite_existing_raw in {'1', 'true', 'yes', 'on'}
         
         first_day = datetime(year, month_num, 1)
         if month_num == 12:
@@ -1125,7 +1403,7 @@ def _upload_file_sync():
         
         # Get sheet names
         read_start_time = perf_counter()
-        excel_file = pd.ExcelFile(file)
+        excel_file = pd.ExcelFile(temp_upload_path)
         sheet_names = excel_file.sheet_names
         log_stage('Read workbook metadata', read_start_time)
         print(f"Found sheets: {sheet_names}")
@@ -1482,7 +1760,10 @@ def _upload_file_sync():
             'first_day': first_day.strftime('%d %B %Y'),
             'last_day': last_day.strftime('%d %B %Y'),
             'month': month_name,
-            'year': year
+            'month_number': month_num,
+            'year': year,
+            'report_key': report_key,
+            'version_suffix': report_key_suffix
         }
         latest_data['excel_output_path'] = excel_output_path
         latest_data['excel_filename'] = excel_filename
@@ -1501,7 +1782,8 @@ def _upload_file_sync():
             'summary': global_summaries,
             'period': latest_data['period'],
             'excel_contains_workings': include_non_loan_sheets,
-            'skipped_sheet_count': skipped_sheet_count
+            'skipped_sheet_count': skipped_sheet_count,
+            'report_key': report_key
         })
     
     except Exception as e:
@@ -1509,6 +1791,12 @@ def _upload_file_sync():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+    finally:
+        try:
+            if os.path.exists(temp_upload_path):
+                os.remove(temp_upload_path)
+        except OSError as exc:
+            print(f"[WARN] Failed to remove temp upload {temp_upload_path}: {exc}")
 
 @app.route('/calculate', methods=['POST'])
 def calculate():
@@ -1611,9 +1899,73 @@ def reset_branch_sbu_map():
 
 @app.route('/get-preview', methods=['GET'])
 def get_preview():
+    report_key = request.args.get('report_key')
+    month = request.args.get('month')
+    year = request.args.get('year', type=int)
+    if report_key:
+        if load_latest_data_snapshot(report_key=report_key):
+            return jsonify({'filename': latest_data['filename'], 'sheets': latest_data['sheets'], 'period': latest_data.get('period')})
+        return jsonify({'message': 'No data found for that report version'}), 404
+    if month and year:
+        if load_latest_data_snapshot(month=month, year=year):
+            return jsonify({'filename': latest_data['filename'], 'sheets': latest_data['sheets'], 'period': latest_data.get('period')})
+        return jsonify({'message': 'No data found for that month and year'}), 404
+
     if latest_data['sheets'] or load_latest_data_snapshot():
         return jsonify({'filename': latest_data['filename'], 'sheets': latest_data['sheets']})
     return jsonify({'message': 'No data uploaded yet'}), 404
+
+
+@app.route('/processed-reports', methods=['GET'])
+def processed_reports():
+    try:
+        _ensure_processed_reports_db()
+        month = request.args.get('month')
+        year = request.args.get('year', type=int)
+        with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
+            connection.row_factory = sqlite3.Row
+            if month and year:
+                month_number = _normalize_month_number(month)
+                rows = connection.execute(
+                    '''
+                    SELECT report_key, month_number, month_name, year, filename, excel_filename, updated_at, excel_contains_workings, skipped_sheet_count, export_warning
+                    FROM processed_reports
+                    WHERE month_number = ? AND year = ?
+                    ORDER BY updated_at DESC
+                    ''',
+                    (month_number, int(year))
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    '''
+                    SELECT report_key, month_number, month_name, year, filename, excel_filename, updated_at, excel_contains_workings, skipped_sheet_count, export_warning
+                    FROM processed_reports
+                    ORDER BY year DESC, month_number DESC, updated_at DESC
+                    '''
+                ).fetchall()
+
+        return jsonify({
+            'reports': [
+                {
+                    'report_key': row['report_key'],
+                    'month': row['month_name'],
+                    'month_number': row['month_number'],
+                    'year': row['year'],
+                    'filename': row['filename'],
+                    'excel_filename': row['excel_filename'],
+                    'updated_at': row['updated_at'],
+                    'excel_contains_workings': bool(row['excel_contains_workings']),
+                    'skipped_sheet_count': row['skipped_sheet_count'],
+                    'export_warning': row['export_warning']
+                }
+                for row in rows
+            ]
+        })
+    except Exception as exc:
+        return jsonify({'error': f'Failed to list processed reports: {str(exc)}'}), 500
+
+
+_ensure_processed_reports_db()
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

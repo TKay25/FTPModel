@@ -201,6 +201,86 @@
             margin-top: 18px;
         }
 
+        .archive-browser {
+            margin-top: 26px;
+            padding: 18px;
+            border-radius: 18px;
+            border: 1px solid var(--border);
+            background: linear-gradient(180deg, #fffdfd 0%, #fafbfc 100%);
+        }
+
+        .archive-browser h4 {
+            font-size: 14px;
+            font-weight: 700;
+            color: #632424;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        .archive-grid {
+            display: grid;
+            grid-template-columns: 1fr 0.9fr;
+            gap: 10px;
+        }
+
+        .archive-select,
+        .archive-input {
+            width: 100%;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 11px 12px;
+            font-size: 14px;
+            color: var(--text);
+            outline: none;
+        }
+
+        .archive-select:focus,
+        .archive-input:focus {
+            border-color: #94a3b8;
+            box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.14);
+        }
+
+        .archive-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .archive-actions button {
+            flex: 1;
+            padding: 11px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border-strong);
+            background: #ffffff;
+            color: var(--text);
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.15s ease;
+        }
+
+        .archive-actions button:hover:not(:disabled) {
+            background: #f8fafc;
+            transform: translateY(-1px);
+        }
+
+        .archive-actions button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .archive-status {
+            margin-top: 12px;
+            font-size: 12px;
+            color: var(--text-soft);
+            min-height: 18px;
+        }
+
         .btn-download {
             background: var(--surface-muted);
             border: 1px solid var(--border-strong);
@@ -1076,8 +1156,42 @@
                     </button>
                 </div>
 
+                <div class="archive-browser">
+                    <h4><i class="fas fa-archive"></i> Archive Browser</h4>
+                    <div class="archive-grid">
+                        <select id="archiveMonthSelect" class="archive-select">
+                            <option value="">Month</option>
+                            <option value="January">January</option>
+                            <option value="February">February</option>
+                            <option value="March">March</option>
+                            <option value="April">April</option>
+                            <option value="May">May</option>
+                            <option value="June">June</option>
+                            <option value="July">July</option>
+                            <option value="August">August</option>
+                            <option value="September">September</option>
+                            <option value="October">October</option>
+                            <option value="November">November</option>
+                            <option value="December">December</option>
+                        </select>
+                        <input type="number" id="archiveYearInput" class="archive-input" placeholder="Year" min="2000" max="2100">
+                    </div>
+                    <div class="archive-actions">
+                        <button type="button" id="loadArchiveBtn"><i class="fas fa-folder-open"></i> Load</button>
+                        <button type="button" id="clearArchiveBtn"><i class="fas fa-broom"></i> Clear</button>
+                    </div>
+                    <select id="archiveVersionSelect" class="archive-select" style="margin-top: 10px;" disabled>
+                        <option value="">Version</option>
+                    </select>
+                    <div class="archive-actions">
+                        <button type="button" id="openArchivePdfBtn" disabled><i class="fas fa-file-pdf"></i> PDF</button>
+                        <button type="button" id="openArchiveExcelBtn" disabled><i class="fas fa-file-excel"></i> Excel</button>
+                    </div>
+                    <div class="archive-status" id="archiveStatus">Load a month and year to browse saved versions.</div>
+                </div>
+
                 <div style="margin-top: 32px; color: #b58b8b; font-size: 13px; border-left: 3px solid #d99; padding-left: 16px;">
-                    <i class="fas fa-shield-alt"></i>  100% data privacy · No database · No third-party access
+                    <i class="fas fa-shield-alt"></i>  100% data privacy · Local SQLite archive · No third-party access
                 </div>
             </div>
 
@@ -1340,6 +1454,14 @@
     
     const viewCurveBtn = document.getElementById('viewCurveBtn');
     const openBranchMapBtn = document.getElementById('openBranchMapBtn');
+    const archiveMonthSelect = document.getElementById('archiveMonthSelect');
+    const archiveYearInput = document.getElementById('archiveYearInput');
+    const loadArchiveBtn = document.getElementById('loadArchiveBtn');
+    const clearArchiveBtn = document.getElementById('clearArchiveBtn');
+    const archiveVersionSelect = document.getElementById('archiveVersionSelect');
+    const openArchivePdfBtn = document.getElementById('openArchivePdfBtn');
+    const openArchiveExcelBtn = document.getElementById('openArchiveExcelBtn');
+    const archiveStatus = document.getElementById('archiveStatus');
     
     const calculateBtn = document.getElementById('calculateFtpBtn');
     const computeRangeBtn = document.getElementById('computeFtpRangeBtn');
@@ -1399,6 +1521,7 @@
     let lastComputedRange = { firstDay: null, lastDay: null, fileName: null, summary: null, period: null };
     let currentCurveData = null;
     let currentBranchMapData = [];
+    let currentArchiveReports = [];
 
     // Helper function to format large numbers
     function formatNumber(num) {
@@ -1533,6 +1656,183 @@
         } else {
             previewBadge.textContent = 'READY · RESULTS ONLY';
         }
+    }
+
+    function setArchiveStatus(message, type = '') {
+        if (!archiveStatus) {
+            return;
+        }
+        archiveStatus.textContent = message;
+        archiveStatus.style.color = type === 'error' ? '#b42318' : type === 'success' ? '#1f7a3c' : 'var(--text-soft)';
+    }
+
+    function getArchiveMonthYear() {
+        const month = archiveMonthSelect?.value || '';
+        const year = Number(archiveYearInput?.value || 0);
+        if (!month || !year) {
+            return null;
+        }
+        return { month, year };
+    }
+
+    function getVersionLabel(report) {
+        if (!report || !report.report_key) {
+            return 'Latest';
+        }
+        const parts = report.report_key.split('-');
+        if (parts.length >= 3) {
+            return `Version ${parts[2]}`;
+        }
+        return 'Base version';
+    }
+
+    function setArchiveControlsEnabled(enabled) {
+        if (archiveVersionSelect) {
+            archiveVersionSelect.disabled = !enabled;
+        }
+        if (openArchivePdfBtn) {
+            openArchivePdfBtn.disabled = !enabled;
+        }
+        if (openArchiveExcelBtn) {
+            openArchiveExcelBtn.disabled = !enabled;
+        }
+    }
+
+    function populateArchiveVersions(reports) {
+        currentArchiveReports = Array.isArray(reports) ? reports : [];
+        archiveVersionSelect.innerHTML = '';
+
+        if (!currentArchiveReports.length) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'No saved versions found';
+            archiveVersionSelect.appendChild(option);
+            setArchiveControlsEnabled(false);
+            return;
+        }
+
+        currentArchiveReports.forEach((report, index) => {
+            const option = document.createElement('option');
+            option.value = report.report_key;
+            const suffix = report.report_key.split('-').length > 2 ? ` (${getVersionLabel(report)})` : '';
+            option.textContent = `${report.month} ${report.year}${suffix}`;
+            if (index === 0) {
+                option.selected = true;
+            }
+            archiveVersionSelect.appendChild(option);
+        });
+
+        setArchiveControlsEnabled(true);
+        setArchiveStatus(`Found ${currentArchiveReports.length} saved version(s).`, 'success');
+    }
+
+    function getSelectedArchiveReport() {
+        const reportKey = archiveVersionSelect?.value;
+        return currentArchiveReports.find((report) => report.report_key === reportKey) || currentArchiveReports[0] || null;
+    }
+
+    function buildReportQueryString() {
+        if (lastComputedRange && lastComputedRange.reportKey) {
+            return `?report_key=${encodeURIComponent(lastComputedRange.reportKey)}`;
+        }
+
+        const period = lastComputedRange && lastComputedRange.period;
+        if (period && period.month && period.year) {
+            return `?month=${encodeURIComponent(period.month)}&year=${encodeURIComponent(period.year)}`;
+        }
+
+        return '';
+    }
+
+    async function loadArchiveReport(reportKey) {
+        if (!reportKey) {
+            setArchiveStatus('Select a saved version first.', 'error');
+            return;
+        }
+
+        setArchiveStatus('Loading archived report...');
+        try {
+            const response = await fetch(`/get-preview?report_key=${encodeURIComponent(reportKey)}`);
+            const payload = await parseJsonSafely(response);
+            if (!response.ok || !payload || payload.message || payload.error) {
+                throw new Error((payload && (payload.error || payload.message)) || 'Unable to load archived report');
+            }
+
+            const period = payload.period || {};
+            const month = period.month || '';
+            const year = period.year || '';
+            const firstDay = period.first_day || 'N/A';
+            const lastDay = period.last_day || 'N/A';
+            const selectedReport = getSelectedArchiveReport();
+            const reportKeyValue = selectedReport?.report_key || reportKey;
+
+            lastComputedRange = {
+                firstDay,
+                lastDay,
+                fileName: payload.filename || 'Archived workbook',
+                summary: {},
+                period,
+                reportKey: reportKeyValue
+            };
+
+            downloadRangeX.textContent = firstDay;
+            downloadRangeY.textContent = lastDay;
+            downloadResultsBtn.disabled = false;
+            downloadExcelBtn.disabled = false;
+            updatePreviewBadgeMode(Boolean(selectedReport?.excel_contains_workings), Number(selectedReport?.skipped_sheet_count || 0));
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-folder-open" style="font-size: 48px; color: #1d4ed8; margin-bottom: 15px;"></i>
+                    <h3 style="color: #1d4ed8; margin-bottom: 10px;">Archived Report Loaded</h3>
+                    <p style="color: #632424; margin-bottom: 8px;">${month} ${year}</p>
+                    <div style="background: #f8fafc; border-radius: 12px; padding: 14px; border-left: 5px solid #1d4ed8; text-align: left; display: inline-block; max-width: 520px;">
+                        <div><strong style="color: #1d4ed8;">Report key:</strong> ${reportKey}</div>
+                        <div style="margin-top: 4px; color: #5b6472; font-size: 13px;">Download buttons now target this archived run.</div>
+                    </div>
+                </div>
+            `);
+            setArchiveStatus(`Loaded ${reportKey}.`, 'success');
+        } catch (error) {
+            console.error('Failed to load archive report:', error);
+            setArchiveStatus(error.message || 'Failed to load archived report.', 'error');
+        }
+    }
+
+    async function refreshArchiveVersions(month, year) {
+        if (!month || !year) {
+            setArchiveStatus('Select a month and year.', 'error');
+            return false;
+        }
+
+        setArchiveStatus(`Checking saved versions for ${month} ${year}...`);
+        try {
+            const response = await fetch(`/processed-reports?month=${encodeURIComponent(month)}&year=${encodeURIComponent(year)}`);
+            const payload = await parseJsonSafely(response);
+            if (!response.ok || !payload) {
+                throw new Error((payload && payload.error) || 'Failed to load archived reports');
+            }
+
+            populateArchiveVersions(payload.reports || []);
+            if (payload.reports && payload.reports.length > 0) {
+                await loadArchiveReport(payload.reports[0].report_key);
+            }
+            return true;
+        } catch (error) {
+            console.error('Archive lookup failed:', error);
+            currentArchiveReports = [];
+            populateArchiveVersions([]);
+            setArchiveStatus(error.message || 'Unable to load archive versions.', 'error');
+            return false;
+        }
+    }
+
+    function clearArchiveBrowser() {
+        if (archiveMonthSelect) archiveMonthSelect.value = '';
+        if (archiveYearInput) archiveYearInput.value = '';
+        if (archiveVersionSelect) archiveVersionSelect.innerHTML = '<option value="">Version</option>';
+        currentArchiveReports = [];
+        setArchiveControlsEnabled(false);
+        setArchiveStatus('Load a month and year to browse saved versions.');
     }
 
     function showProcessingOverlay(titleText) {
@@ -1936,6 +2236,50 @@
 
     branchMapSearch.addEventListener('input', applyBranchMapFilter);
 
+    loadArchiveBtn.addEventListener('click', async () => {
+        const selection = getArchiveMonthYear();
+        if (!selection) {
+            setArchiveStatus('Select a month and year first.', 'error');
+            return;
+        }
+
+        await refreshArchiveVersions(selection.month, selection.year);
+    });
+
+    clearArchiveBtn.addEventListener('click', () => {
+        clearArchiveBrowser();
+        if (lastComputedRange && lastComputedRange.summary) {
+            setArchiveControlsEnabled(true);
+        }
+    });
+
+    archiveVersionSelect.addEventListener('change', async () => {
+        const selectedReport = getSelectedArchiveReport();
+        if (selectedReport) {
+            await loadArchiveReport(selectedReport.report_key);
+        }
+    });
+
+    openArchivePdfBtn.addEventListener('click', async () => {
+        const selectedReport = getSelectedArchiveReport();
+        if (!selectedReport) {
+            setArchiveStatus('Select a report version first.', 'error');
+            return;
+        }
+        lastComputedRange.reportKey = selectedReport.report_key;
+        await downloadFile('/download-pdf', 'pdf');
+    });
+
+    openArchiveExcelBtn.addEventListener('click', async () => {
+        const selectedReport = getSelectedArchiveReport();
+        if (!selectedReport) {
+            setArchiveStatus('Select a report version first.', 'error');
+            return;
+        }
+        lastComputedRange.reportKey = selectedReport.report_key;
+        await downloadFile('/download-excel', 'xlsx');
+    });
+
     resetCurveBtn.addEventListener('click', () => {
         if (!currentCurveData) {
             return;
@@ -2205,7 +2549,8 @@
                 lastDay: savedJob.lastDay || 'N/A',
                 fileName: savedJob.fileName || 'Uploaded workbook',
                 summary: result.summary,
-                period: result.period
+                period: result.period,
+                reportKey: result.report_key || result?.period?.report_key || null
             };
 
             downloadRangeX.textContent = savedJob.firstDay || 'N/A';
@@ -2265,11 +2610,31 @@
         updateProcessingOverlay(12, 'Validating workbook and date range');
         
         uploadModal.style.display = 'none';
+
+        const extractedPeriod = extractMonthYearFromFilename(file.name);
+        let overwriteExisting = false;
+        if (extractedPeriod) {
+            try {
+                const existingResp = await fetch(`/processed-reports?month=${encodeURIComponent(extractedPeriod.month)}&year=${encodeURIComponent(extractedPeriod.year)}`);
+                const existingJson = await parseJsonSafely(existingResp);
+                const existingReports = existingJson && Array.isArray(existingJson.reports) ? existingJson.reports : [];
+                if (existingReports.length > 0) {
+                    overwriteExisting = window.confirm(
+                        `A processed report already exists for ${extractedPeriod.month} ${extractedPeriod.year}.\n\n` +
+                        'OK = overwrite the base report.\n' +
+                        'Cancel = create a separate version with a suffix.'
+                    );
+                }
+            } catch (lookupError) {
+                console.warn('Could not check archive for duplicates', lookupError);
+            }
+        }
         
         try {
             const formData = new FormData();
             formData.append('file', file);
             formData.append('include_workings', includeWorkingsCheckbox.checked ? '1' : '0');
+            formData.append('overwrite_existing', overwriteExisting ? '1' : '0');
             updateProcessingOverlay(15, 'Uploading workbook to server');
 
             const uploadResp = await fetch('/upload', {
@@ -2306,7 +2671,8 @@
                     lastDay, 
                     fileName: file.name,
                     summary: result.summary,
-                    period: result.period
+                    period: result.period,
+                    reportKey: result.report_key || result?.period?.report_key || null
                 };
                 
                 downloadRangeX.textContent = firstDay;
@@ -2556,7 +2922,7 @@
     });
 
     async function downloadFile(endpoint, formatLabel) {
-        const response = await fetch(endpoint, { method: 'GET' });
+        const response = await fetch(`${endpoint}${buildReportQueryString()}`, { method: 'GET' });
 
         if (!response.ok) {
             let errorMessage = `Failed to download ${formatLabel}`;
@@ -2588,7 +2954,7 @@
 
     // Download PDF results button
     downloadResultsBtn.addEventListener('click', async () => {
-    if (!lastComputedRange.firstDay || !lastComputedRange.summary) {
+    if (!lastComputedRange.firstDay || (!lastComputedRange.summary && !lastComputedRange.reportKey)) {
         alert('Please compute FTP range first');
         return;
     }
@@ -2634,7 +3000,7 @@
 });
 
     downloadExcelBtn.addEventListener('click', async () => {
-        if (!lastComputedRange.firstDay || !lastComputedRange.summary) {
+        if (!lastComputedRange.firstDay || (!lastComputedRange.summary && !lastComputedRange.reportKey)) {
             alert('Please compute FTP range first');
             return;
         }
