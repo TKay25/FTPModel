@@ -1725,100 +1725,195 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                     continue
 
                 if sheet in LOAN_SHEETS:
-                    df_processed = df
+                    df_raw = df
                     del df
 
                     branch_col = next(
-                        (c for c in ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE'] if c in df_processed.columns),
+                        (c for c in ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE'] if c in df_raw.columns),
                         None
                     )
-                    if branch_col:
-                        df_processed[branch_col] = df_processed[branch_col].astype(str).str.strip()
-                        df_processed['SBU'] = df_processed[branch_col].map(branch_sbu_lookup).fillna('Unknown')
-                    else:
-                        df_processed['SBU'] = 'Unknown'
 
-                    if 'BOOKING_DATE' in df_processed.columns:
-                        df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'], errors='coerce').fillna(first_day)
-                    if 'MATURITY_DATE' in df_processed.columns:
-                        df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'], errors='coerce').fillna(first_day + timedelta(days=365))
-
-                    if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
-                        df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days.clip(lower=0)
-
+                    # FTP computation constants
                     first_day_ts = pd.Timestamp(first_day.date())
                     last_day_ts = pd.Timestamp(last_day.date())
-                    bd = df_processed['BOOKING_DATE']
-                    md = df_processed['MATURITY_DATE']
-
                     full_period = (last_day_ts - first_day_ts).days + 1
-                    df_processed['DimDays'] = np.where(
-                        (bd <= first_day_ts) & (md >= last_day_ts), full_period,
-                        np.where((bd >= first_day_ts) & (md >= last_day_ts), (last_day_ts - bd).dt.days + 1,
-                        np.where((bd >= first_day_ts) & (md <= last_day_ts), (md - bd).dt.days,
-                                 (md - first_day_ts).dt.days))
-                    ).astype(np.int32)
-
-                    df_processed['DTM'] = np.where(md > last_day_ts, (md - last_day_ts).dt.days, 0).astype(np.int32)
-                    df_processed['MTM'] = (df_processed['DTM'] / 30).round(1).astype(np.float32)
-
                     bucket_labels = ['<7days','7-14days','14-21days','21-30days','30-60days','60-90days',
                                      '90-180days','180-270days','270-360days','360-720days',
                                      '720-1080days','1080-1460days','1460-1800days','+1800days']
                     bin_edges = [0, 7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1460, 1800, float('inf')]
-
-                    exposure = pd.to_numeric(
-                        df_processed['Currency Exposure + Currency Accrued Reporting'], errors='coerce'
-                    ).fillna(0).astype(np.float32)
-                    mtm_days = (df_processed['MTM'] * 30).astype(np.float32)
-                    bucket_idx = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
-                    bucket_idx = bucket_idx.fillna(len(bucket_labels) - 1).astype(int)
-
-                    bv = np.zeros((len(df_processed), len(bucket_labels)), dtype=np.float32)
-                    ev = exposure.to_numpy(dtype=np.float32, copy=False)
-                    iv = bucket_idx.to_numpy(dtype=np.int16, copy=False)
-                    pos = np.nonzero(ev > 0)[0]
-                    bv[pos, iv[pos]] = ev[pos]
-                    df_processed[bucket_labels] = bv
-                    df_processed['Check'] = bv.sum(axis=1).astype(np.float32)
-
                     rates = zwg_rates if sheet == 'ZWG LOANS' else usd_rates
                     rv = np.array([(rates[i] if i < len(rates) else rates[-1]) / 100
                                    for i in range(len(bucket_labels))], dtype=np.float32)
-                    df_processed['FTP Charge'] = (bv @ rv).astype(np.float32)
-
                     currency = 'ZWG' if sheet == 'ZWG LOANS' else 'FX'
-                    sbu_summary = df_processed.groupby('SBU').agg({
-                        'Currency Exposure + Currency Accrued Reporting': 'sum',
-                        'FTP Charge': 'sum'
-                    }).reset_index()
 
+                    total_rows = len(df_raw)
+                    sheet_data_path = _build_workings_sheet_data_path(report_key, sheet)
+                    raw_data_path = sheet_data_path.replace('.ndjson', '_raw.ndjson')
+
+                    # STEP 1: Write raw data to JSON (release DataFrame)
+                    print(f"[WRITE_RAW] {sheet}: Writing {total_rows} raw rows to {raw_data_path}")
+                    with open(raw_data_path, 'w', encoding='utf-8') as raw_file:
+                        for _, row in df_raw.iterrows():
+                            row_dict = {col: _sanitize_json_value(row.get(col)) for col in df_raw.columns}
+                            raw_file.write(json.dumps(row_dict, ensure_ascii=True, allow_nan=False, default=_json_default))
+                            raw_file.write('\n')
+                    del df_raw
+                    gc.collect()
+                    print(f"[WRITE_RAW] {sheet}: Raw data written, DataFrame freed")
+
+                    # STEP 2: Process chunks from raw JSON, write computed JSON
+                    chunk_size = 50000
+                    summary_exposure = 0.0
+                    summary_ftp = 0.0
+                    summary_by_sbu = {}
+                    preview_rows = []
+                    all_processed = []
+
+                    print(f"[PROCESS] {sheet}: Processing {total_rows} rows in chunks of {chunk_size}")
+                    chunk_buffer = []
+                    chunk_count = 0
+                    output_file = open(sheet_data_path, 'w', encoding='utf-8')
+
+                    try:
+                        with open(raw_data_path, 'r', encoding='utf-8') as raw_file:
+                            for line_idx, line in enumerate(raw_file):
+                                if not line.strip():
+                                    continue
+                                raw_row = json.loads(line)
+                                chunk_buffer.append(raw_row)
+
+                                # Process chunk when full or at EOF
+                                if len(chunk_buffer) >= chunk_size or line_idx == total_rows - 1:
+                                    chunk = pd.DataFrame(chunk_buffer)
+                                    chunk_idx = line_idx - len(chunk_buffer) + 1
+                                    chunk_end = min(line_idx + 1, total_rows)
+                                    print(f"[CHUNK] {sheet} rows {chunk_idx}-{chunk_end}/{total_rows}")
+
+                                    # Add SBU mapping
+                                    if branch_col:
+                                        chunk[branch_col] = chunk[branch_col].astype(str).str.strip()
+                                        chunk['SBU'] = chunk[branch_col].map(branch_sbu_lookup).fillna('Unknown')
+                                    else:
+                                        chunk['SBU'] = 'Unknown'
+
+                                    # Parse and convert dates
+                                    if 'BOOKING_DATE' in chunk.columns:
+                                        chunk['BOOKING_DATE'] = pd.to_datetime(chunk['BOOKING_DATE'], errors='coerce').fillna(first_day)
+                                    else:
+                                        chunk['BOOKING_DATE'] = first_day
+                                    if 'MATURITY_DATE' in chunk.columns:
+                                        chunk['MATURITY_DATE'] = pd.to_datetime(chunk['MATURITY_DATE'], errors='coerce').fillna(first_day + timedelta(days=365))
+                                    else:
+                                        chunk['MATURITY_DATE'] = first_day + timedelta(days=365)
+
+                                    # Compute TENOR
+                                    chunk['TENOR'] = (chunk['MATURITY_DATE'] - chunk['BOOKING_DATE']).dt.days.clip(lower=0)
+
+                                    # Compute DimDays, DTM, MTM
+                                    bd = chunk['BOOKING_DATE']
+                                    md = chunk['MATURITY_DATE']
+                                    chunk['DimDays'] = np.where(
+                                        (bd <= first_day_ts) & (md >= last_day_ts), full_period,
+                                        np.where((bd >= first_day_ts) & (md >= last_day_ts), (last_day_ts - bd).dt.days + 1,
+                                        np.where((bd >= first_day_ts) & (md <= last_day_ts), (md - bd).dt.days,
+                                                 (md - first_day_ts).dt.days))
+                                    ).astype(np.int32)
+                                    chunk['DTM'] = np.where(md > last_day_ts, (md - last_day_ts).dt.days, 0).astype(np.int32)
+                                    chunk['MTM'] = (chunk['DTM'] / 30).round(1).astype(np.float32)
+
+                                    # Compute buckets and FTP charges
+                                    exposure = pd.to_numeric(
+                                        chunk['Currency Exposure + Currency Accrued Reporting'], errors='coerce'
+                                    ).fillna(0).astype(np.float32)
+                                    mtm_days = (chunk['MTM'] * 30).astype(np.float32)
+                                    bucket_idx = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
+                                    bucket_idx = bucket_idx.fillna(len(bucket_labels) - 1).astype(int)
+
+                                    bv = np.zeros((len(chunk), len(bucket_labels)), dtype=np.float32)
+                                    ev = exposure.to_numpy(dtype=np.float32, copy=False)
+                                    iv = bucket_idx.to_numpy(dtype=np.int16, copy=False)
+                                    pos = np.nonzero(ev > 0)[0]
+                                    bv[pos, iv[pos]] = ev[pos]
+                                    chunk[bucket_labels] = bv
+                                    chunk['Check'] = bv.sum(axis=1).astype(np.float32)
+                                    chunk['FTP Charge'] = (bv @ rv).astype(np.float32)
+
+                                    # Accumulate summaries
+                                    chunk_exposure = chunk['Currency Exposure + Currency Accrued Reporting'].sum()
+                                    chunk_ftp = chunk['FTP Charge'].sum()
+                                    summary_exposure += chunk_exposure
+                                    summary_ftp += chunk_ftp
+
+                                    chunk_sbu = chunk.groupby('SBU').agg({
+                                        'Currency Exposure + Currency Accrued Reporting': 'sum',
+                                        'FTP Charge': 'sum'
+                                    }).reset_index()
+                                    for _, row in chunk_sbu.iterrows():
+                                        sbu_name = row['SBU']
+                                        if sbu_name not in summary_by_sbu:
+                                            summary_by_sbu[sbu_name] = {'Currency Exposure + Currency Accrued Reporting': 0.0, 'FTP Charge': 0.0}
+                                        summary_by_sbu[sbu_name]['Currency Exposure + Currency Accrued Reporting'] += row['Currency Exposure + Currency Accrued Reporting']
+                                        summary_by_sbu[sbu_name]['FTP Charge'] += row['FTP Charge']
+
+                                    # Capture preview rows
+                                    if len(preview_rows) < 100:
+                                        preview_chunk = chunk.head(100 - len(preview_rows)).copy()
+                                        for col in preview_chunk.select_dtypes(include=['datetime64']).columns:
+                                            preview_chunk[col] = preview_chunk[col].astype(str).replace('NaT', None)
+                                        preview_rows.extend(preview_chunk.to_dict(orient='records'))
+
+                                    # Write computed rows to output JSON
+                                    for _, row in chunk.iterrows():
+                                        row_dict = {col: _sanitize_json_value(row.get(col)) for col in chunk.columns}
+                                        output_file.write(json.dumps(row_dict, ensure_ascii=True, allow_nan=False, default=_json_default))
+                                        output_file.write('\n')
+
+                                    # Collect for Excel
+                                    all_processed.append(chunk)
+
+                                    # Clean up computation arrays
+                                    del exposure, mtm_days, bucket_idx, bv, ev, iv, pos, bd, md, chunk
+                                    chunk_buffer = []
+                                    chunk_count += 1
+                                    gc.collect()
+
+                    finally:
+                        output_file.close()
+
+                    # STEP 3: Cleanup raw data file
+                    try:
+                        os.remove(raw_data_path)
+                    except OSError:
+                        pass
+
+                    # Concatenate all chunks for Excel writing and final summary
+                    df_processed = pd.concat(all_processed, ignore_index=True) if all_processed else pd.DataFrame()
+
+                    # Build summaries
+                    sbu_summary = [{'SBU': sbu, **vals} for sbu, vals in summary_by_sbu.items()]
                     global_summaries[currency][sheet] = {
-                        'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
-                        'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
-                        'by_sbu': sbu_summary.to_dict(orient='records'),
+                        'total_exposure': float(summary_exposure),
+                        'total_ftp_charge': float(summary_ftp),
+                        'by_sbu': sbu_summary,
                         'row_count': len(df_processed)
                     }
 
-                    preview = df_processed.head(100).copy()
-                    for col in preview.select_dtypes(include=['datetime64']).columns:
-                        preview[col] = preview[col].astype(str).replace('NaT', None)
                     sheets_data[sheet] = {
-                        'columns': df_processed.columns.tolist(),
-                        'data': preview.to_dict(orient='records'),
-                        'shape': df_processed.shape
+                        'columns': df_processed.columns.tolist() if not df_processed.empty else [],
+                        'data': preview_rows,
+                        'shape': df_processed.shape if not df_processed.empty else (total_rows, 0)
                     }
 
-                    sheet_data_path = _build_workings_sheet_data_path(report_key, sheet)
-                    _write_dataframe_ndjson(df_processed, sheet_data_path)
                     workings_manifest['sheets'][sheet] = {
-                        'columns': df_processed.columns.tolist(),
+                        'columns': df_processed.columns.tolist() if not df_processed.empty else [],
                         'data_path': sheet_data_path,
-                        'row_count': int(df_processed.shape[0])
+                        'row_count': total_rows
                     }
 
+                    # Write to Excel
                     df_processed.to_excel(writer, sheet_name=sheet[:31], index=False)
-                    del df_processed
+                    del df_processed, all_processed
+                    gc.collect()
 
                     completed_loan += 1
                     pct = 15 + int(75 * completed_loan / total_loan_sheets)
