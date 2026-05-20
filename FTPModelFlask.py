@@ -23,10 +23,15 @@ from reportlab.lib.enums import TA_CENTER
 
 app = Flask(__name__)
 
-CURVE_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'curve_config.json')
-PROCESSED_REPORTS_DB_PATH = os.path.join(os.path.dirname(__file__), 'processed_reports.db')
-PROCESSED_OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), 'processed_outputs')
-BRANCH_MAP_DB_PATH = os.path.join(os.path.dirname(__file__), 'branch_sbu_map.db')
+APP_BASE_DIR = os.path.dirname(__file__)
+DATA_ROOT_DIR = os.getenv('FTP_DATA_DIR', APP_BASE_DIR)
+
+CURVE_CONFIG_PATH = os.path.join(DATA_ROOT_DIR, 'curve_config.json')
+PROCESSED_REPORTS_DB_PATH = os.path.join(DATA_ROOT_DIR, 'processed_reports.db')
+PROCESSED_OUTPUTS_DIR = os.path.join(DATA_ROOT_DIR, 'processed_outputs')
+BRANCH_MAP_DB_PATH = os.path.join(DATA_ROOT_DIR, 'branch_sbu_map.db')
+UPLOAD_JOBS_DB_PATH = os.path.join(DATA_ROOT_DIR, 'upload_jobs.db')
+TEMP_UPLOADS_DIR = os.path.join(DATA_ROOT_DIR, 'temp_uploads')
 LOAN_SHEETS = {'ZWG LOANS', 'FX LOANS'}
 # Disable non-loan sheet export by default to keep memory use below small-instance limits.
 INCLUDE_NON_LOAN_SHEETS = os.getenv('INCLUDE_NON_LOAN_SHEETS', '0').lower() in {'1', 'true', 'yes'}
@@ -39,7 +44,10 @@ FTP_DEFAULT_ROLE = os.getenv('FTP_DEFAULT_ROLE', 'admin').strip().lower() or 'ad
 ENABLE_SCHEDULER = os.getenv('ENABLE_SCHEDULER', '0').lower() in {'1', 'true', 'yes', 'on'}
 SCHEDULER_POLL_SECONDS = int(os.getenv('SCHEDULER_POLL_SECONDS', '30'))
 ENABLE_NOTIFICATIONS = os.getenv('ENABLE_NOTIFICATIONS', '1').lower() in {'1', 'true', 'yes', 'on'}
+os.makedirs(DATA_ROOT_DIR, exist_ok=True)
 os.makedirs(PROCESSED_OUTPUTS_DIR, exist_ok=True)
+os.makedirs(TEMP_UPLOADS_DIR, exist_ok=True)
+print(f"[INFO] FTP storage root: {DATA_ROOT_DIR}")
 
 
 DEFAULT_BRANCH_SBU_MAP = {
@@ -1160,10 +1168,6 @@ def compute_ftp_components(deposit, loan, tenure):
 _jobs = {}  # job_id -> { status, progress, stage, result, error, created_at, updated_at, completed_at }
 _jobs_lock = threading.Lock()
 JOB_RETENTION_SECONDS = int(os.environ.get('JOB_RETENTION_SECONDS', '1800'))
-UPLOAD_JOBS_DB_PATH = os.path.join(os.path.dirname(__file__), 'upload_jobs.db')
-
-TEMP_UPLOADS_DIR = os.path.join(os.path.dirname(__file__), 'temp_uploads')
-os.makedirs(TEMP_UPLOADS_DIR, exist_ok=True)
 
 
 def _update_job(job_id, **kwargs):
