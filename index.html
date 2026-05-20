@@ -3926,6 +3926,13 @@
                     'success'
                 );
                 archiveBrowserModal.style.display = 'flex';
+                if (resultMonth && resultYear) {
+                    try {
+                        await refreshArchiveVersions(resultMonth, resultYear);
+                    } catch (archiveError) {
+                        console.warn('Could not auto-load archive versions after processing', archiveError);
+                    }
+                }
 
                 updateProcessingOverlay(100, 'Completed');
                 setTimeout(hideProcessingOverlay, 180);
