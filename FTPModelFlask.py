@@ -1111,19 +1111,32 @@ def generate_pdf_report():
     story.append(table)
     story.append(Spacer(1, 20))
     
-    # SBU Breakdown
+    # SBU Breakdown - Aggregate by SBU across all sheets per currency
     story.append(Paragraph("SBU Breakdown by Currency", header_style))
     for currency, sheets in latest_data['summaries'].items():
         story.append(Paragraph(f"<b>{currency}</b>", styles['Normal']))
-        sbu_data = [['SBU', 'Exposure', 'FTP Charge']]
+        sbu_aggregates = {}
+        
+        # Aggregate SBU data from all sheets
         for sheet_data in sheets.values():
             if sheet_data.get('by_sbu'):
                 for sbu in sheet_data['by_sbu']:
-                    sbu_data.append([
-                        sbu['SBU'],
-                        format_number(sbu['Currency Exposure + Currency Accrued Reporting']),
-                        format_number(sbu['FTP Charge'])
-                    ])
+                    sbu_name = sbu['SBU']
+                    if sbu_name not in sbu_aggregates:
+                        sbu_aggregates[sbu_name] = {'exposure': 0.0, 'ftp_charge': 0.0}
+                    sbu_aggregates[sbu_name]['exposure'] += sbu.get('Currency Exposure + Currency Accrued Reporting', 0)
+                    sbu_aggregates[sbu_name]['ftp_charge'] += sbu.get('FTP Charge', 0)
+        
+        # Build SBU summary table
+        sbu_data = [['SBU', 'Exposure', 'FTP Charge']]
+        for sbu_name in sorted(sbu_aggregates.keys()):
+            sbu_vals = sbu_aggregates[sbu_name]
+            sbu_data.append([
+                sbu_name,
+                format_number(sbu_vals['exposure']),
+                format_number(sbu_vals['ftp_charge'])
+            ])
+        
         if len(sbu_data) > 1:
             sbu_table = Table(sbu_data, colWidths=[2*inch, 2*inch, 2*inch])
             sbu_table.setStyle(TableStyle([
@@ -2629,6 +2642,73 @@ def _upload_file_sync():
                     print(f"Completed: {sheet}")
             log_stage('Write processed workbook', excel_write_start_time)
 
+            # Add SBU Summary Sheet to the Excel file
+            try:
+                from openpyxl.styles import Font, PatternFill, Alignment
+                workbook = openpyxl.load_workbook(excel_output_path)
+                
+                # Remove 'Summary' sheet if it exists
+                if 'Summary' in workbook.sheetnames:
+                    del workbook['Summary']
+                
+                # Create Summary sheet at the beginning
+                summary_sheet = workbook.create_sheet('Summary', 0)
+                
+                # Write headers
+                headers = ['Currency', 'SBU', 'Exposure', 'FTP Charge']
+                header_fill = PatternFill(start_color='7F1D1D', end_color='7F1D1D', fill_type='solid')
+                header_font = Font(color='FFFFFF', bold=True)
+                
+                for col_idx, header in enumerate(headers, 1):
+                    cell = summary_sheet.cell(row=1, column=col_idx)
+                    cell.value = header
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center')
+                
+                # Write data
+                row_idx = 2
+                for currency in sorted(global_summaries.keys()):
+                    sbu_aggregates = {}
+                    
+                    # Aggregate SBU data from all sheets
+                    for sheet_data in global_summaries[currency].values():
+                        if sheet_data.get('by_sbu'):
+                            for sbu in sheet_data['by_sbu']:
+                                sbu_name = sbu.get('SBU', 'Unknown')
+                                if sbu_name not in sbu_aggregates:
+                                    sbu_aggregates[sbu_name] = {'exposure': 0.0, 'ftp_charge': 0.0}
+                                sbu_aggregates[sbu_name]['exposure'] += sbu.get('Currency Exposure + Currency Accrued Reporting', 0)
+                                sbu_aggregates[sbu_name]['ftp_charge'] += sbu.get('FTP Charge', 0)
+                    
+                    # Write SBU rows
+                    for sbu_name in sorted(sbu_aggregates.keys()):
+                        sbu_vals = sbu_aggregates[sbu_name]
+                        summary_sheet.cell(row=row_idx, column=1).value = currency
+                        summary_sheet.cell(row=row_idx, column=2).value = sbu_name
+                        summary_sheet.cell(row=row_idx, column=3).value = float(sbu_vals['exposure'])
+                        summary_sheet.cell(row=row_idx, column=4).value = float(sbu_vals['ftp_charge'])
+                        
+                        # Format numbers
+                        summary_sheet.cell(row=row_idx, column=3).number_format = '#,##0.00'
+                        summary_sheet.cell(row=row_idx, column=4).number_format = '#,##0.00'
+                        
+                        row_idx += 1
+                
+                # Adjust column widths
+                summary_sheet.column_dimensions['A'].width = 12
+                summary_sheet.column_dimensions['B'].width = 20
+                summary_sheet.column_dimensions['C'].width = 18
+                summary_sheet.column_dimensions['D'].width = 18
+                
+                workbook.save(excel_output_path)
+                workbook.close()
+                print(f"✅ Added Summary sheet to {excel_filename}")
+            except Exception as summary_error:
+                print(f"[WARN] Failed to add Summary sheet: {summary_error}")
+                import traceback
+                traceback.print_exc()
+
             # Store data
         latest_data['filename'] = file.filename
         latest_data['sheets'] = sheets_data
@@ -2781,15 +2861,15 @@ def get_preview():
     year = request.args.get('year', type=int)
     if report_key:
         if load_latest_data_snapshot(report_key=report_key):
-            return _strict_json_response({'filename': latest_data['filename'], 'sheets': latest_data['sheets'], 'period': latest_data.get('period')})
+            return _strict_json_response({'filename': latest_data['filename'], 'sheets': latest_data['sheets'], 'summaries': latest_data.get('summaries', {}), 'period': latest_data.get('period')})
         return _strict_json_response({'message': 'No data found for that report version'}, status_code=404)
     if month and year:
         if load_latest_data_snapshot(month=month, year=year):
-            return _strict_json_response({'filename': latest_data['filename'], 'sheets': latest_data['sheets'], 'period': latest_data.get('period')})
+            return _strict_json_response({'filename': latest_data['filename'], 'sheets': latest_data['sheets'], 'summaries': latest_data.get('summaries', {}), 'period': latest_data.get('period')})
         return _strict_json_response({'message': 'No data found for that month and year'}, status_code=404)
 
     if latest_data['sheets'] or load_latest_data_snapshot():
-        return _strict_json_response({'filename': latest_data['filename'], 'sheets': latest_data['sheets']})
+        return _strict_json_response({'filename': latest_data['filename'], 'sheets': latest_data['sheets'], 'summaries': latest_data.get('summaries', {})})
     return _strict_json_response({'message': 'No data uploaded yet'}, status_code=404)
 
 
