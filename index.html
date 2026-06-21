@@ -69,6 +69,16 @@
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
+        /* Global button reset — all buttons get consistent base */
+        button {
+            font-family: var(--font); cursor: pointer;
+            transition: all var(--transition);
+        }
+        button:disabled { cursor: not-allowed; opacity: 0.4; }
+        button:focus-visible {
+            outline: 2px solid var(--accent); outline-offset: 2px;
+        }
+
         body {
             font-family: var(--font);
             background: var(--page-bg);
@@ -223,14 +233,17 @@
         }
         .sidebar-nav { display: flex; flex-direction: column; gap: 6px; }
         .sidebar-nav button {
-            background: transparent; border: none; color: var(--text-soft);
+            background: transparent; border: 1px solid transparent; color: var(--text-soft);
             padding: 10px 14px; border-radius: var(--radius-sm);
             font-weight: 500; font-size: 13px; cursor: pointer;
             display: flex; align-items: center; gap: 10px;
             transition: all var(--transition); text-align: left; width: 100%;
         }
         .sidebar-nav button:hover {
-            background: var(--surface-soft); color: var(--text);
+            background: var(--surface-soft); border-color: var(--border); color: var(--text);
+        }
+        .sidebar-nav button:active {
+            background: var(--surface); border-color: var(--accent);
         }
         .sidebar-nav button i { width: 18px; text-align: center; font-size: 14px; color: var(--text-muted); }
         .sidebar-nav button:hover i { color: var(--accent); }
@@ -349,11 +362,67 @@
         .modal-card.upload-modal { width: 600px; }
         .modal-card.singular-ftp-modal { width: 750px; }
 
-        .secondary-btn {
-            background: var(--surface); border: 1px solid var(--border);
-            color: var(--text-soft); padding: 8px 14px;
-            border-radius: var(--radius-sm); font-weight: 500; font-size: 12px;
+        /* ===== Unified Button System ===== */
+        /* Base: inline ghost-style button used across ops panels, archive, tables */
+        .btn-sm {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 8px 14px; border-radius: var(--radius-sm);
+            border: 1px solid var(--border); background: var(--surface);
+            color: var(--text); font-weight: 600; font-size: 12px;
             cursor: pointer; transition: all var(--transition);
+            font-family: var(--font); line-height: 1.4;
+        }
+        .btn-sm:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+        .btn-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* Danger variant for delete/remove actions */
+        .btn-sm-danger {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 8px 14px; border-radius: var(--radius-sm);
+            border: 1px solid #fecaca; background: #fef2f2;
+            color: #b91c1c; font-weight: 600; font-size: 12px;
+            cursor: pointer; transition: all var(--transition);
+            font-family: var(--font); line-height: 1.4;
+        }
+        .btn-sm-danger:hover:not(:disabled) {
+            background: #fee2e2; border-color: #f87171; color: #991b1b;
+        }
+        .btn-sm-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+        body.dark .btn-sm-danger {
+            background: #2d0a0a; border-color: #7f1d1d; color: #fca5a5;
+        }
+        body.dark .btn-sm-danger:hover:not(:disabled) {
+            background: #3d0f0f; border-color: #b91c1c; color: #fecaca;
+        }
+
+        /* Success variant (e.g. Save buttons inside panels) */
+        .btn-sm-success {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 8px 14px; border-radius: var(--radius-sm);
+            border: 1px solid #bbf7d0; background: #f0fdf4;
+            color: #166534; font-weight: 600; font-size: 12px;
+            cursor: pointer; transition: all var(--transition);
+            font-family: var(--font); line-height: 1.4;
+        }
+        .btn-sm-success:hover:not(:disabled) {
+            background: #dcfce7; border-color: #4ade80; color: #15803d;
+        }
+        .btn-sm-success:disabled { opacity: 0.4; cursor: not-allowed; }
+        body.dark .btn-sm-success {
+            background: #052e16; border-color: #166534; color: #86efac;
+        }
+        body.dark .btn-sm-success:hover:not(:disabled) {
+            background: #0a3d1e; border-color: #22c55e; color: #a7f3d0;
+        }
+
+        /* Keep secondary-btn alias for backward-compat (JS-generated "Remove") */
+        .secondary-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 8px 14px; border-radius: var(--radius-sm);
+            border: 1px solid var(--border); background: var(--surface);
+            color: var(--text); font-weight: 600; font-size: 12px;
+            cursor: pointer; transition: all var(--transition);
+            font-family: var(--font); line-height: 1.4;
         }
         .secondary-btn:hover { border-color: var(--accent); color: var(--accent); }
 
@@ -375,13 +444,33 @@
         .archive-select:focus, .archive-input:focus { border-color: var(--accent); }
         .archive-actions { display: flex; gap: 8px; margin-top: 10px; }
         .archive-actions button {
-            flex: 1; padding: 10px 12px; border-radius: var(--radius-sm);
+            flex: 1; padding: 9px 14px; border-radius: var(--radius-sm);
             border: 1px solid var(--border); background: var(--surface);
             color: var(--text); font-weight: 600; font-size: 12px;
             cursor: pointer; transition: all var(--transition);
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            font-family: var(--font); line-height: 1.4;
         }
-        .archive-actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-        .archive-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .archive-actions button:hover:not(:disabled) {
+            border-color: var(--accent); color: var(--accent);
+            background: var(--surface-muted);
+        }
+        .archive-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+        /* Delete button in archive - danger styling */
+        #deleteArchiveBtn {
+            border-color: #fecaca; background: #fef2f2; color: #b91c1c;
+        }
+        #deleteArchiveBtn:hover:not(:disabled) {
+            background: #fee2e2; border-color: #f87171; color: #991b1b;
+        }
+        #deleteArchiveBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+        #deleteArchiveBtn i { color: #b91c1c; }
+        body.dark #deleteArchiveBtn {
+            background: #2d0a0a; border-color: #7f1d1d; color: #fca5a5;
+        }
+        body.dark #deleteArchiveBtn:hover:not(:disabled) {
+            background: #3d0f0f; border-color: #b91c1c; color: #fecaca;
+        }
         .archive-status { margin-top: 10px; font-size: 12px; color: var(--text-soft); min-height: 18px; }
 
         /* ===== Ops Hub ===== */
@@ -413,14 +502,44 @@
         .ops-panel textarea:focus, .ops-panel input:focus { border-color: var(--accent); }
         .ops-panel textarea { min-height: 64px; resize: vertical; }
         .ops-panel button {
-            padding: 10px 12px; border-radius: var(--radius-sm);
+            padding: 9px 14px; border-radius: var(--radius-sm);
             border: 1px solid var(--border); background: var(--surface);
             color: var(--text); font-weight: 600; font-size: 12px;
             cursor: pointer; transition: all var(--transition);
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            font-family: var(--font); line-height: 1.4;
         }
-        .ops-panel button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-        .ops-panel button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .ops-panel button:hover:not(:disabled) {
+            border-color: var(--accent); color: var(--accent);
+            background: var(--surface-muted);
+        }
+        .ops-panel button:disabled { opacity: 0.4; cursor: not-allowed; }
         .ops-panel button.is-busy { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+        /* Color-code ops action buttons */
+        #saveReportNoteBtn, #saveSchedulerJobBtn {
+            border-color: #bbf7d0; background: #f0fdf4; color: #166534;
+        }
+        #saveReportNoteBtn:hover:not(:disabled), #saveSchedulerJobBtn:hover:not(:disabled) {
+            background: #dcfce7; border-color: #4ade80; color: #15803d;
+        }
+        body.dark #saveReportNoteBtn, body.dark #saveSchedulerJobBtn {
+            background: #052e16; border-color: #166534; color: #86efac;
+        }
+        body.dark #saveReportNoteBtn:hover:not(:disabled), body.dark #saveSchedulerJobBtn:hover:not(:disabled) {
+            background: #0a3d1e; border-color: #22c55e; color: #a7f3d0;
+        }
+        #compareReportsBtn {
+            border-color: #c7d2fe; background: #eef2ff; color: #4338ca;
+        }
+        #compareReportsBtn:hover:not(:disabled) {
+            background: #e0e7ff; border-color: #818cf8; color: #3730a3;
+        }
+        body.dark #compareReportsBtn {
+            background: #1e1b4b; border-color: #3730a3; color: #a5b4fc;
+        }
+        body.dark #compareReportsBtn:hover:not(:disabled) {
+            background: #2e2a6b; border-color: #6366f1; color: #c7d2fe;
+        }
         .ops-list {
             max-height: 130px; overflow-y: auto;
             border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -2236,7 +2355,7 @@
                 <td><input type="text" value="${row.code}" data-field="code" data-index="${index}" placeholder="106"></td>
                 <td><input type="text" value="${row.unit}" data-field="unit" data-index="${index}" placeholder="Agribusiness"></td>
                 <td><input type="text" value="${row.sbu}" data-field="sbu" data-index="${index}" placeholder="Corporate Banking"></td>
-                <td><button type="button" class="secondary-btn" data-action="remove-branch-row" data-index="${index}">Remove</button></td>
+                <td><button type="button" class="btn-sm-danger" data-action="remove-branch-row" data-index="${index}"><i class="fas fa-trash-alt"></i> Remove</button></td>
             `;
             branchMapTableBody.appendChild(tr);
         });
