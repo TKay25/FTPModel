@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file, has_request_context
+from flask import Flask, request, jsonify, send_file, has_request_context, Response
 import json
 import os
 import sqlite3
@@ -1383,76 +1383,99 @@ def download_workings_excel():
 @app.route('/download-workings-json', methods=['GET'])
 def download_workings_json():
     """Stream workings JSON (NDJSON) as a single downloadable JSON file.
-    This is memory-safe because it reads each sheet's NDJSON file
-    line-by-line and writes directly to the response, avoiding Excel's
-    memory overhead entirely."""
+    This is memory-safe: reads each sheet's NDJSON line-by-line and writes
+    directly to the response via a streaming generator, avoiding Excel's
+    memory overhead entirely. Also resilient: works even if the SQLite
+    database doesn't have the report metadata, as long as the NDJSON
+    files exist on disk."""
     try:
         global latest_data
         report_key = request.args.get('report_key')
         month = request.args.get('month')
         year = request.args.get('year', type=int)
-        if report_key:
-            if not load_latest_data_snapshot(report_key=report_key):
-                return jsonify({'error': 'No processed data found for that report version.'}), 404
-        elif month and year:
-            if not load_latest_data_snapshot(month=month, year=year):
-                return jsonify({'error': 'No processed data found for that month and year.'}), 404
-        elif not ensure_latest_data_available():
-            return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
 
-        resolved_report_key = latest_data.get('period', {}).get('report_key')
+        resolved_report_key = None
+
+        # Try loading from DB snapshot first
+        if report_key:
+            if load_latest_data_snapshot(report_key=report_key):
+                resolved_report_key = latest_data.get('period', {}).get('report_key') or report_key
+        elif month and year:
+            if load_latest_data_snapshot(month=month, year=year):
+                resolved_report_key = latest_data.get('period', {}).get('report_key')
+        elif ensure_latest_data_available():
+            resolved_report_key = latest_data.get('period', {}).get('report_key')
+
+        # Fallback: if DB lookup failed but we have a report_key, try
+        # constructing the manifest path directly — the NDJSON files
+        # may still be on disk even if the DB record was cleaned up.
+        if not resolved_report_key and report_key:
+            resolved_report_key = report_key
+
+        if not resolved_report_key:
+            return jsonify({'error': 'No processed data found. Please upload and compute a report first.'}), 404
+
         manifest_path = _build_workings_manifest_path(resolved_report_key)
-        if not manifest_path or not os.path.exists(manifest_path):
-            return jsonify({'error': 'Workings JSON is not available for this report. Recompute this period to generate workings JSON.'}), 404
+        if not os.path.exists(manifest_path):
+            return jsonify({
+                'error': (
+                    'Workings JSON files are not available for this report. '
+                    'Workings are always generated during computation regardless '
+                    'of the "Include workings" checkbox setting.'
+                ),
+                'hint': (
+                    'On hosted deployments, files written to disk may be '
+                    'cleaned up when the server restarts. Re-upload your '
+                    'workbook and compute again to regenerate them.'
+                )
+            }), 404
 
         with open(manifest_path, 'r', encoding='utf-8') as manifest_file:
             manifest_payload = json.load(manifest_file)
 
         sheet_entries = manifest_payload.get('sheets') or {}
         if not sheet_entries:
-            return jsonify({'error': 'Workings JSON exists but has no sheet entries.'}), 404
+            return jsonify({'error': 'Workings manifest exists but has no sheet entries.'}), 404
 
-        period_month = latest_data.get('period', {}).get('month', 'Month')
-        period_year = latest_data.get('period', {}).get('year', 'Year')
+        period_month = manifest_payload.get('month', 'Month')
+        period_year = manifest_payload.get('year', 'Year')
         download_name = f'FTP_Workings_{period_month}_{period_year}.json'
 
-        # Build a single JSON payload: { sheet_name: [row, row, ...], ... }
-        # Stream each sheet's NDJSON progressively into a buffer.
-        output_buffer = io.StringIO()
-        output_buffer.write('{\n')
-        first_sheet = True
-        for sheet_name, sheet_info in sheet_entries.items():
-            data_path = sheet_info.get('data_path')
-            columns = list(sheet_info.get('columns') or [])
-            if not data_path or not os.path.exists(data_path):
-                continue
+        def generate_json():
+            """Generator that streams the JSON response piece-by-piece,
+            so very large datasets don't need to fit in memory."""
+            yield '{\n'
+            first_sheet = True
+            for sheet_name, sheet_info in sheet_entries.items():
+                data_path = sheet_info.get('data_path')
+                if not data_path or not os.path.exists(data_path):
+                    continue
 
-            if not first_sheet:
-                output_buffer.write(',\n')
-            first_sheet = False
-            output_buffer.write(f'  {json.dumps(sheet_name)}: [\n')
+                if not first_sheet:
+                    yield ',\n'
+                first_sheet = False
+                yield f'  {json.dumps(sheet_name)}: [\n'
 
-            first_row = True
-            with open(data_path, 'r', encoding='utf-8') as rows_file:
-                for line in rows_file:
-                    if not line.strip():
-                        continue
-                    if not first_row:
-                        output_buffer.write(',\n')
-                    first_row = False
-                    output_buffer.write('    ')
-                    output_buffer.write(line.strip())
+                first_row = True
+                with open(data_path, 'r', encoding='utf-8') as rows_file:
+                    for line in rows_file:
+                        stripped = line.strip()
+                        if not stripped:
+                            continue
+                        if not first_row:
+                            yield ',\n'
+                        first_row = False
+                        yield '    '
+                        yield stripped
 
-            output_buffer.write('\n  ]')
+                yield '\n  ]'
 
-        output_buffer.write('\n}\n')
-        output_buffer.seek(0)
+            yield '\n}\n'
 
-        return send_file(
-            io.BytesIO(output_buffer.getvalue().encode('utf-8')),
-            as_attachment=True,
-            download_name=download_name,
-            mimetype='application/json'
+        return Response(
+            generate_json(),
+            mimetype='application/json',
+            headers={'Content-Disposition': f'attachment; filename={download_name}'}
         )
     except Exception as e:
         return jsonify({'error': f'Failed to download workings JSON: {str(e)}'}), 500
