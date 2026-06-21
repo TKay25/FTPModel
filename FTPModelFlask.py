@@ -6,8 +6,10 @@ import gc
 import threading
 import uuid
 import shutil
+import zipfile
 import pandas as pd
 import io
+import tempfile
 import openpyxl
 import numpy as np
 from datetime import datetime, timedelta
@@ -1440,6 +1442,7 @@ def download_workings_json():
         period_month = manifest_payload.get('month', 'Month')
         period_year = manifest_payload.get('year', 'Year')
         download_name = f'FTP_Workings_{period_month}_{period_year}.json'
+        as_zip = str(request.args.get('zip', '0')).lower() in {'1', 'true', 'yes'}
 
         def generate_json():
             """Generator that streams the JSON response piece-by-piece,
@@ -1472,11 +1475,37 @@ def download_workings_json():
 
             yield '\n}\n'
 
-        return Response(
-            generate_json(),
-            mimetype='application/json',
-            headers={'Content-Disposition': f'attachment; filename={download_name}'}
-        )
+        if as_zip:
+            # Write JSON to a temp file, ZIP it, then send the ZIP.
+            # Uses disk instead of RAM so large files don't OOM.
+            temp_json = tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False, encoding='utf-8')
+            temp_json_path = temp_json.name
+            try:
+                for chunk in generate_json():
+                    temp_json.write(chunk)
+                temp_json.close()
+
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    zf.write(temp_json_path, arcname=download_name)
+                zip_buffer.seek(0)
+
+                zip_name = download_name.replace('.json', '.zip')
+                return send_file(
+                    zip_buffer,
+                    as_attachment=True,
+                    download_name=zip_name,
+                    mimetype='application/zip'
+                )
+            finally:
+                if os.path.exists(temp_json_path):
+                    os.unlink(temp_json_path)
+        else:
+            return Response(
+                generate_json(),
+                mimetype='application/json',
+                headers={'Content-Disposition': f'attachment; filename={download_name}'}
+            )
     except Exception as e:
         return jsonify({'error': f'Failed to download workings JSON: {str(e)}'}), 500
 

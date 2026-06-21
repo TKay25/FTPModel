@@ -865,6 +865,7 @@
                         <button id="downloadOriginalBtn" disabled><i class="fas fa-file-upload"></i> Original Workbook</button>
                         <button id="downloadWorkingsBtn" disabled><i class="fas fa-file-alt"></i> Workings Excel</button>
                         <button id="downloadWorkingsJsonBtn" disabled><i class="fas fa-file-code"></i> Workings JSON</button>
+                        <button id="downloadWorkingsZipBtn" disabled><i class="fas fa-file-archive"></i> Workings JSON (ZIP)</button>
                     </div>
                 </div>
                 <div class="sidebar-footer">
@@ -1431,6 +1432,7 @@
     const downloadOriginalBtn = document.getElementById('downloadOriginalBtn');
     const downloadWorkingsBtn = document.getElementById('downloadWorkingsBtn');
     const downloadWorkingsJsonBtn = document.getElementById('downloadWorkingsJsonBtn');
+    const downloadWorkingsZipBtn = document.getElementById('downloadWorkingsZipBtn');
     const downloadRangeX = document.getElementById('downloadRangeX');
     const downloadRangeY = document.getElementById('downloadRangeY');
     const previewBadge = document.getElementById('previewBadge');
@@ -1635,6 +1637,9 @@
         downloadWorkingsBtn.disabled = !available;
         if (downloadWorkingsJsonBtn) {
             downloadWorkingsJsonBtn.disabled = !available;
+        }
+        if (downloadWorkingsZipBtn) {
+            downloadWorkingsZipBtn.disabled = !available;
         }
     }
 
@@ -3981,6 +3986,44 @@
                 <div style="text-align: center; padding: 20px;">
                     <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
                     <h3 style="color: #dc3545; margin-bottom: 10px;">✗ JSON Download Failed</h3>
+                    <p style="color: #632424;">${error.message}</p>
+                </div>
+            `);
+        }
+    });
+
+    downloadWorkingsZipBtn.addEventListener('click', async () => {
+        if (!lastComputedRange.firstDay || (!lastComputedRange.summary && !lastComputedRange.reportKey)) {
+            showToast('Please compute FTP range first', 'warning');
+            return;
+        }
+
+        updatePreviewWithData(`
+            <div style="text-align: center; padding: 20px;">
+                <i class="fas fa-spinner fa-pulse" style="font-size: 48px; color: #7c3aed; margin-bottom: 20px;"></i>
+                <h3 style="color: #7c3aed; margin-bottom: 10px;">Building Compressed ZIP...</h3>
+                <p style="color: #5b6472;">Compressing workings JSON into a ZIP archive for faster download</p>
+            </div>
+        `);
+
+        try {
+            const query = buildReportQueryString();
+            const sep = query ? '&' : '?';
+            await downloadFile(`/download-workings-json${query}${sep}zip=1`, 'zip');
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 10px;">
+                    <i class="fas fa-file-archive" style="font-size: 48px; color: #7c3aed; margin-bottom: 15px;"></i>
+                    <h3 style="color: #7c3aed; margin-bottom: 10px;">✓ Workings ZIP Downloaded</h3>
+                    <p style="color: #2f1a1a;">Compressed ZIP archive containing the workings JSON. Much smaller than raw JSON!</p>
+                </div>
+            `);
+        } catch (error) {
+            console.error('Error downloading workings ZIP:', error);
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
+                    <h3 style="color: #dc3545; margin-bottom: 10px;">✗ ZIP Download Failed</h3>
                     <p style="color: #632424;">${error.message}</p>
                 </div>
             `);
