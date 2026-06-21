@@ -75,10 +75,10 @@
             min-height: 100vh;
             color: var(--text);
             transition: background var(--transition), color var(--transition);
-            zoom: 0.6;
+            zoom: 0.66;
             overflow-x: hidden;
         }
-        @supports not (zoom: 1) { html { font-size: 60%; } }
+        @supports not (zoom: 1) { html { font-size: 66%; } }
 
         body.app-busy .app-container { filter: blur(3px); pointer-events: none; user-select: none; }
 
@@ -299,19 +299,49 @@
 
         .modal-card {
             background: var(--surface); width: 520px; max-width: 96%;
-            border-radius: var(--radius-xl); padding: 28px 32px;
+            border-radius: var(--radius-xl);
             border: 1px solid var(--border);
             box-shadow: 0 25px 60px rgba(0,0,0,0.12);
             animation: modalSlideIn 0.25s ease;
-            max-height: 90vh; overflow-y: auto;
+            max-height: 90vh;
+            display: flex; flex-direction: column;
         }
         @keyframes modalSlideIn { from { transform: translateY(20px) scale(0.97); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
 
-        .modal-card h2 {
-            font-size: 20px; font-weight: 700;
-            display: flex; gap: 10px; align-items: center;
-            margin-bottom: 20px; color: var(--text);
+        .modal-header {
+            flex-shrink: 0;
+            padding: 24px 28px 16px 28px;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
         }
+        .modal-header h2 {
+            font-size: 18px; font-weight: 700;
+            display: flex; gap: 10px; align-items: center;
+            margin: 0; color: var(--text);
+        }
+        .modal-header-close {
+            width: 32px; height: 32px; border-radius: 50%;
+            border: none; background: transparent;
+            color: var(--text-muted); cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px; transition: all var(--transition);
+        }
+        .modal-header-close:hover { background: var(--surface-soft); color: var(--text); }
+
+        .modal-body {
+            flex: 1; overflow-y: auto; padding: 20px 28px;
+        }
+        .modal-body::-webkit-scrollbar { width: 4px; }
+        .modal-body::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 10px; }
+
+        .modal-footer {
+            flex-shrink: 0;
+            padding: 16px 28px 24px 28px;
+            border-top: 1px solid var(--border);
+            display: flex; gap: 10px; justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+        .modal-footer .btn-ghost { margin-right: auto; }
         .modal-card.large-modal { width: 820px; }
         .modal-card.branch-map-modal { width: 1100px; max-width: 98vw; }
         .modal-card.ops-hub-modal { width: 1040px; max-width: 98vw; }
@@ -319,13 +349,13 @@
         .modal-card.upload-modal { width: 600px; }
         .modal-card.singular-ftp-modal { width: 750px; }
 
-        .close-modal {
-            margin-top: 20px; width: 100%; padding: 12px;
-            background: transparent; border: 1px solid var(--border);
-            color: var(--text-soft); border-radius: var(--radius-md);
-            font-weight: 600; cursor: pointer; transition: all var(--transition);
+        .secondary-btn {
+            background: var(--surface); border: 1px solid var(--border);
+            color: var(--text-soft); padding: 8px 14px;
+            border-radius: var(--radius-sm); font-weight: 500; font-size: 12px;
+            cursor: pointer; transition: all var(--transition);
         }
-        .close-modal:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+        .secondary-btn:hover { border-color: var(--accent); color: var(--accent); }
 
         /* ===== Archive Browser Styles ===== */
         .archive-browser { margin-top: 16px; }
@@ -713,6 +743,8 @@
             <!-- Hidden spans for JS date references -->
             <span id="downloadRangeX" style="display:none;"></span>
             <span id="downloadRangeY" style="display:none;"></span>
+            <span id="rangeX" style="display:none;"></span>
+            <span id="rangeY" style="display:none;"></span>
 
             <!-- preview pane with max height and scrollable content -->
             <div class="preview-pane">
@@ -768,341 +800,365 @@
     <!-- MODAL 1: Singular FTP tool with currency dropdown and right-side results -->
     <div class="modal" id="ftpModal">
         <div class="modal-card singular-ftp-modal">
-            <h2><i class="fas fa-funnel-dollar"></i> SINGULAR FTP</h2>
-            
-            <div class="ftp-two-column">
-                <!-- Left column: Input fields -->
-                <div class="ftp-left-column">
-                    <div class="input-group">
-                        <label><i class="fas fa-money-bill-wave"></i> Currency</label>
-                        <select id="currencySelect" class="currency-select">
-                            <option value="" disabled selected>-- Select Currency --</option>
-                            <option value="USD">USD - United States Dollar</option>
-                            <option value="ZWG">ZWG - Zimbabwe Gold</option>
-                        </select>
-                    </div>
-                    
-                    <div class="input-group">
-                        <label><i class="fas fa-coins"></i> Deposit amount (<span id="depositCurrency">$</span>)</label>
-                        <input type="number" id="depositAmount" placeholder="e.g. 500000" disabled>
-                    </div>
-
-                    <div class="input-group">
-                        <label><i class="fas fa-money-bill-wave"></i> Statutory Reserve?</label>
-                        <select id="statReserveSelect" class="currency-select">
-                            <option value="" disabled selected>-- Select Option --</option>
-                            <option value="yes">Yes</option>
-                            <option value="no">No</option>
-                        </select>
-                    </div>
-
-                    <div class="input-group">
-                        <label><i class="fas fa-hand-holding-usd"></i> Loan amount (<span id="loanCurrency">$</span>)</label>
-                        <input type="number" id="loanAmount" placeholder="e.g. 400000" disabled>
-                    </div>
-                    <div class="input-group">
-                        <label><i class="fas fa-calendar-alt"></i> Loan Tenure/ Days to Maturity</label>
-                        <input type="number" id="loanTenure" placeholder="e.g. 15" disabled>
-                    </div>
-
-                    <button class="calculate-btn" id="calculateFtpBtn" disabled>
-                        <i class="fas fa-sync-alt"></i> Calculate
-                    </button>
-                </div>
-                
-                <!-- Right column: Results box -->
-                <div class="ftp-right-column">
-                    <div class="result-box-vertical" id="resultBoxVertical">
-                        <div class="result-item-vertical">
-                            <div class="label">FTP Charge</div>
-                            <div><span class="value" id="ftpChargeValue">—</span><span class="unit">%</span></div>
+            <div class="modal-header">
+                <h2><i class="fas fa-funnel-dollar"></i> SINGULAR FTP</h2>
+                <button class="modal-header-close" id="closeModalBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="ftp-two-column">
+                    <div class="ftp-left-column">
+                        <div class="input-group">
+                            <label><i class="fas fa-money-bill-wave"></i> Currency</label>
+                            <select id="currencySelect" class="currency-select">
+                                <option value="" disabled selected>-- Select Currency --</option>
+                                <option value="USD">USD - United States Dollar</option>
+                                <option value="ZWG">ZWG - Zimbabwe Gold</option>
+                            </select>
                         </div>
-                        <div class="result-item-vertical">
-                            <div class="label">FTP Gain</div>
-                            <div><span class="value" id="ftpGainValue">—</span><span class="unit">%</span></div>
+                        <div class="input-group">
+                            <label><i class="fas fa-coins"></i> Deposit amount (<span id="depositCurrency">$</span>)</label>
+                            <input type="number" id="depositAmount" placeholder="e.g. 500000" disabled>
                         </div>
-                        <div class="result-item-vertical">
-                            <div class="label">Net FTP</div>
-                            <div><span class="value" id="netFtpValue">—</span><span class="unit">%</span></div>
+                        <div class="input-group">
+                            <label><i class="fas fa-money-bill-wave"></i> Statutory Reserve?</label>
+                            <select id="statReserveSelect" class="currency-select">
+                                <option value="" disabled selected>-- Select Option --</option>
+                                <option value="yes">Yes</option>
+                                <option value="no">No</option>
+                            </select>
                         </div>
+                        <div class="input-group">
+                            <label><i class="fas fa-hand-holding-usd"></i> Loan amount (<span id="loanCurrency">$</span>)</label>
+                            <input type="number" id="loanAmount" placeholder="e.g. 400000" disabled>
+                        </div>
+                        <div class="input-group">
+                            <label><i class="fas fa-calendar-alt"></i> Loan Tenure/ Days to Maturity</label>
+                            <input type="number" id="loanTenure" placeholder="e.g. 15" disabled>
+                        </div>
+                        <button class="calculate-btn" id="calculateFtpBtn" disabled>
+                            <i class="fas fa-sync-alt"></i> Calculate
+                        </button>
                     </div>
-                    <div class="result-footer-note-vertical">charge · gain · net</div>
+                    <div class="ftp-right-column">
+                        <div class="result-box-vertical" id="resultBoxVertical">
+                            <div class="result-item-vertical">
+                                <div class="label">FTP Charge</div>
+                                <div><span class="value" id="ftpChargeValue">—</span><span class="unit">%</span></div>
+                            </div>
+                            <div class="result-item-vertical">
+                                <div class="label">FTP Gain</div>
+                                <div><span class="value" id="ftpGainValue">—</span><span class="unit">%</span></div>
+                            </div>
+                            <div class="result-item-vertical">
+                                <div class="label">Net FTP</div>
+                                <div><span class="value" id="netFtpValue">—</span><span class="unit">%</span></div>
+                            </div>
+                        </div>
+                        <div class="result-footer-note-vertical">charge · gain · net</div>
+                    </div>
                 </div>
             </div>
-
-            <button class="close-modal" id="closeModalBtn">Close</button>
+            <div class="modal-footer">
+                <button class="btn-ghost" id="closeModalBtn2">Close</button>
+            </div>
         </div>
     </div>
 
     <!-- MODAL 2: View FTP Curve (line chart) -->
     <div class="modal" id="curveModal">
         <div class="modal-card large-modal">
-            <h2><i class="fas fa-chart-line"></i> FTP CURVE · TENOR VS RATE</h2>
-            <div class="chart-container">
-                <canvas id="ftpChart"></canvas>
+            <div class="modal-header">
+                <h2><i class="fas fa-chart-line"></i> FTP CURVE · TENOR VS RATE</h2>
+                <button class="modal-header-close" id="closeCurveModalBtn">&times;</button>
             </div>
-            <div class="curve-editor">
-                <div class="curve-editor-header">
-                    <h3>Edit yield curves</h3>
-                    <div class="curve-editor-actions">
-                        <button class="secondary-btn" id="resetCurveBtn" type="button">Reset</button>
-                        <button class="calculate-btn" id="saveCurveBtn" type="button" style="margin: 0; width: auto; padding: 12px 24px; font-size: 16px;">
-                            <i class="fas fa-save"></i> Save Curves
-                        </button>
+            <div class="modal-body">
+                <div class="chart-container">
+                    <canvas id="ftpChart"></canvas>
+                </div>
+                <div class="curve-editor">
+                    <div class="curve-editor-header">
+                        <h3>Edit yield curves</h3>
+                        <div class="curve-editor-actions">
+                            <button class="btn-ghost" id="resetCurveBtn" type="button">Reset</button>
+                            <button class="btn-primary" id="saveCurveBtn" type="button" style="padding: 10px 20px;">
+                                <i class="fas fa-save"></i> Save Curves
+                            </button>
+                        </div>
                     </div>
+                    <div class="curve-table-wrapper">
+                        <table class="curve-table">
+                            <thead>
+                                <tr>
+                                    <th>Tenor (days)</th>
+                                    <th>USD rate (%)</th>
+                                    <th>ZWG rate (%)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="curveTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="curve-status" id="curveStatus"></div>
                 </div>
-                <div class="curve-table-wrapper">
-                    <table class="curve-table">
-                        <thead>
-                            <tr>
-                                <th>Tenor (days)</th>
-                                <th>USD rate (%)</th>
-                                <th>ZWG rate (%)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="curveTableBody"></tbody>
-                    </table>
-                </div>
-                <div class="curve-status" id="curveStatus"></div>
             </div>
-            <button class="close-modal" id="closeCurveModalBtn">Close</button>
+            <div class="modal-footer">
+                <button class="btn-ghost" id="closeCurveModalBtn2">Close</button>
+            </div>
         </div>
     </div>
 
     <!-- MODAL 3: Edit branch mapping -->
     <div class="modal" id="branchMapModal">
         <div class="modal-card large-modal branch-map-modal">
-            <h2><i class="fas fa-sitemap"></i> BRANCH MAP · CODE TO SBU</h2>
-            <div class="curve-editor">
-                <div class="curve-editor-header">
-                    <h3>Edit branch mapping</h3>
-                    <div class="curve-editor-actions">
-                        <button class="secondary-btn" id="resetBranchMapBtn" type="button">Reset Default</button>
-                        <button class="secondary-btn" id="addBranchRowBtn" type="button">Add Row</button>
-                        <button class="calculate-btn" id="saveBranchMapBtn" type="button" style="margin: 0; width: auto; padding: 12px 24px; font-size: 16px;">
-                            <i class="fas fa-save"></i> Save Map
-                        </button>
-                    </div>
-                </div>
-                <input type="search" id="branchMapSearch" class="editor-search" placeholder="Search branch code, unit, or SBU...">
-                <div class="curve-status" id="branchMapCount">Showing 0 rows</div>
-                <div class="curve-table-wrapper branch-map-table-wrapper">
-                    <table class="curve-table">
-                        <thead>
-                            <tr>
-                                <th>Branch Code</th>
-                                <th>Unit</th>
-                                <th>SBU</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="branchMapTableBody"></tbody>
-                    </table>
-                </div>
-                <div class="curve-status" id="branchMapStatus"></div>
+            <div class="modal-header">
+                <h2><i class="fas fa-sitemap"></i> BRANCH MAP · CODE TO SBU</h2>
+                <button class="modal-header-close" id="closeBranchMapModalBtn">&times;</button>
             </div>
-            <button class="close-modal" id="closeBranchMapModalBtn">Close</button>
+            <div class="modal-body">
+                <div class="curve-editor">
+                    <div class="curve-editor-header">
+                        <h3>Edit branch mapping</h3>
+                        <div class="curve-editor-actions">
+                            <button class="btn-ghost" id="resetBranchMapBtn" type="button">Reset Default</button>
+                            <button class="btn-ghost" id="addBranchRowBtn" type="button">Add Row</button>
+                        </div>
+                    </div>
+                    <input type="search" id="branchMapSearch" class="editor-search" placeholder="Search branch code, unit, or SBU...">
+                    <div class="curve-status" id="branchMapCount">Showing 0 rows</div>
+                    <div class="curve-table-wrapper branch-map-table-wrapper">
+                        <table class="curve-table">
+                            <thead>
+                                <tr>
+                                    <th>Branch Code</th>
+                                    <th>Unit</th>
+                                    <th>SBU</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="branchMapTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="curve-status" id="branchMapStatus"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-ghost" id="closeBranchMapModalBtn2">Close</button>
+                <button class="btn-primary" id="saveBranchMapBtn" type="button"><i class="fas fa-save"></i> Save Map</button>
+            </div>
         </div>
     </div>
 
     <!-- MODAL 4: Archive browser -->
     <div class="modal" id="archiveBrowserModal">
         <div class="modal-card archive-modal">
-            <h2><i class="fas fa-archive"></i> ARCHIVE BROWSER</h2>
-            <div class="archive-browser in-modal">
-                <h4><i class="fas fa-database"></i> Saved FTP Versions</h4>
-                <div class="archive-grid">
-                    <select id="archiveMonthSelect" class="archive-select">
-                        <option value="">Month</option>
-                        <option value="January">January</option>
-                        <option value="February">February</option>
-                        <option value="March">March</option>
-                        <option value="April">April</option>
-                        <option value="May">May</option>
-                        <option value="June">June</option>
-                        <option value="July">July</option>
-                        <option value="August">August</option>
-                        <option value="September">September</option>
-                        <option value="October">October</option>
-                        <option value="November">November</option>
-                        <option value="December">December</option>
-                    </select>
-                    <input type="number" id="archiveYearInput" class="archive-input" placeholder="Year" min="2000" max="2100">
-                </div>
-                <div class="archive-actions">
-                    <button type="button" id="loadArchiveBtn"><i class="fas fa-folder-open"></i> Load</button>
-                    <button type="button" id="clearArchiveBtn"><i class="fas fa-broom"></i> Clear</button>
-                </div>
-                <select id="archiveVersionSelect" class="archive-select" style="margin-top: 10px;" disabled>
-                    <option value="">Version</option>
-                </select>
-                <div class="archive-actions">
-                    <button type="button" id="openArchivePdfBtn" disabled><i class="fas fa-file-pdf"></i> PDF</button>
-                    <button type="button" id="openArchiveExcelBtn" disabled><i class="fas fa-file-excel"></i> Excel</button>
-                </div>
-                <div class="archive-actions">
-                    <button type="button" id="deleteArchiveBtn" disabled><i class="fas fa-trash-alt"></i> Delete version</button>
-                </div>
-                <div class="archive-status" id="archiveStatus">Load a month and year to browse saved versions.</div>
+            <div class="modal-header">
+                <h2><i class="fas fa-archive"></i> ARCHIVE BROWSER</h2>
+                <button class="modal-header-close" id="closeArchiveBrowserModalBtn">&times;</button>
             </div>
-            <button class="close-modal" id="closeArchiveBrowserModalBtn">Close</button>
+            <div class="modal-body">
+                <div class="archive-browser in-modal">
+                    <h4><i class="fas fa-database"></i> Saved FTP Versions</h4>
+                    <div class="archive-grid">
+                        <select id="archiveMonthSelect" class="archive-select">
+                            <option value="">Month</option>
+                            <option value="January">January</option>
+                            <option value="February">February</option>
+                            <option value="March">March</option>
+                            <option value="April">April</option>
+                            <option value="May">May</option>
+                            <option value="June">June</option>
+                            <option value="July">July</option>
+                            <option value="August">August</option>
+                            <option value="September">September</option>
+                            <option value="October">October</option>
+                            <option value="November">November</option>
+                            <option value="December">December</option>
+                        </select>
+                        <input type="number" id="archiveYearInput" class="archive-input" placeholder="Year" min="2000" max="2100">
+                    </div>
+                    <div class="archive-actions">
+                        <button type="button" id="loadArchiveBtn"><i class="fas fa-folder-open"></i> Load</button>
+                        <button type="button" id="clearArchiveBtn"><i class="fas fa-broom"></i> Clear</button>
+                    </div>
+                    <select id="archiveVersionSelect" class="archive-select" style="margin-top: 10px;" disabled>
+                        <option value="">Version</option>
+                    </select>
+                    <div class="archive-actions">
+                        <button type="button" id="openArchivePdfBtn" disabled><i class="fas fa-file-pdf"></i> PDF</button>
+                        <button type="button" id="openArchiveExcelBtn" disabled><i class="fas fa-file-excel"></i> Excel</button>
+                    </div>
+                    <div class="archive-actions">
+                        <button type="button" id="deleteArchiveBtn" disabled><i class="fas fa-trash-alt"></i> Delete version</button>
+                    </div>
+                    <div class="archive-status" id="archiveStatus">Load a month and year to browse saved versions.</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-ghost" id="closeArchiveBrowserModalBtn2">Close</button>
+            </div>
         </div>
     </div>
 
     <!-- MODAL 5: Operations hub -->
     <div class="modal" id="operationsHubModal">
         <div class="modal-card ops-hub-modal">
-            <h2><i class="fas fa-tools"></i> OPERATIONS HUB</h2>
-            <div class="ops-panel in-modal">
-                <h4><i class="fas fa-sliders-h"></i> Archive Operations, Controls, And Monitoring</h4>
-                <div class="ops-tabs" id="operationsHubTabs">
-                    <button type="button" class="ops-tab is-active" data-ops-tab="compare">Compare & Notes</button>
-                    <button type="button" class="ops-tab" data-ops-tab="monitoring">Audit & Notifications</button>
-                    <button type="button" class="ops-tab" data-ops-tab="scheduler">Scheduler</button>
-                    <button type="button" class="ops-tab" data-ops-tab="settings">Settings</button>
-                </div>
+            <div class="modal-header">
+                <h2><i class="fas fa-tools"></i> OPERATIONS HUB</h2>
+                <button class="modal-header-close" id="closeOperationsHubModalBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="ops-panel in-modal">
+                    <h4><i class="fas fa-sliders-h"></i> Archive Operations, Controls, And Monitoring</h4>
+                    <div class="ops-tabs" id="operationsHubTabs">
+                        <button type="button" class="ops-tab is-active" data-ops-tab="compare">Compare & Notes</button>
+                        <button type="button" class="ops-tab" data-ops-tab="monitoring">Audit & Notifications</button>
+                        <button type="button" class="ops-tab" data-ops-tab="scheduler">Scheduler</button>
+                        <button type="button" class="ops-tab" data-ops-tab="settings">Settings</button>
+                    </div>
 
-                <div class="ops-tab-panel is-active" data-ops-panel="compare">
-                    <div class="ops-stack">
-                    <div class="ops-row">
-                        <input type="text" id="compareLeftInput" placeholder="Compare left report key">
-                        <input type="text" id="compareRightInput" placeholder="Compare right report key">
-                    </div>
-                    <div class="ops-row">
-                        <button type="button" id="useSelectedCompareLeftBtn"><i class="fas fa-arrow-left"></i> Selected -> Left</button>
-                        <button type="button" id="useLatestCompareRightBtn"><i class="fas fa-arrow-right"></i> Latest -> Right</button>
-                    </div>
-                    <div class="ops-row">
-                        <button type="button" id="presetSelectedLatestBtn"><i class="fas fa-layer-group"></i> Selected vs Latest</button>
-                        <button type="button" id="presetSelectedPreviousBtn"><i class="fas fa-clock-rotate-left"></i> Selected vs Previous</button>
-                    </div>
-                    <button type="button" id="compareReportsBtn"><i class="fas fa-code-compare"></i> Compare versions</button>
-                    <div class="ops-status" id="compareStatus">Ready to compare report versions.</div>
-                    <div class="ops-meta" id="compareMeta">Last refreshed: not yet.</div>
-                    <div class="ops-summary" id="compareSummary">No comparison summary yet.</div>
-                    <div class="ops-list" id="compareResultsList">No comparison loaded.</div>
+                    <div class="ops-tab-panel is-active" data-ops-panel="compare">
+                        <div class="ops-stack">
+                            <div class="ops-row">
+                                <input type="text" id="compareLeftInput" placeholder="Compare left report key">
+                                <input type="text" id="compareRightInput" placeholder="Compare right report key">
+                            </div>
+                            <div class="ops-row">
+                                <button type="button" id="useSelectedCompareLeftBtn"><i class="fas fa-arrow-left"></i> Selected -> Left</button>
+                                <button type="button" id="useLatestCompareRightBtn"><i class="fas fa-arrow-right"></i> Latest -> Right</button>
+                            </div>
+                            <div class="ops-row">
+                                <button type="button" id="presetSelectedLatestBtn"><i class="fas fa-layer-group"></i> Selected vs Latest</button>
+                                <button type="button" id="presetSelectedPreviousBtn"><i class="fas fa-clock-rotate-left"></i> Selected vs Previous</button>
+                            </div>
+                            <button type="button" id="compareReportsBtn"><i class="fas fa-code-compare"></i> Compare versions</button>
+                            <div class="ops-status" id="compareStatus">Ready to compare report versions.</div>
+                            <div class="ops-meta" id="compareMeta">Last refreshed: not yet.</div>
+                            <div class="ops-summary" id="compareSummary">No comparison summary yet.</div>
+                            <div class="ops-list" id="compareResultsList">No comparison loaded.</div>
 
-                    <textarea id="reportNoteInput" placeholder="Add a note to the selected report version..."></textarea>
-                    <button type="button" id="saveReportNoteBtn"><i class="fas fa-sticky-note"></i> Save note</button>
-                    <div class="ops-status" id="notesStatus">Select an archive version to view or save notes.</div>
-                    <div class="ops-meta" id="notesMeta">Last refreshed: not yet.</div>
-                    <div class="ops-list" id="reportNotesList">No notes loaded.</div>
+                            <textarea id="reportNoteInput" placeholder="Add a note to the selected report version..."></textarea>
+                            <button type="button" id="saveReportNoteBtn"><i class="fas fa-sticky-note"></i> Save note</button>
+                            <div class="ops-status" id="notesStatus">Select an archive version to view or save notes.</div>
+                            <div class="ops-meta" id="notesMeta">Last refreshed: not yet.</div>
+                            <div class="ops-list" id="reportNotesList">No notes loaded.</div>
+                        </div>
                     </div>
-                </div>
 
-                <div class="ops-tab-panel" data-ops-panel="monitoring">
-                    <div class="ops-stack">
-                    <div class="ops-row">
-                        <button type="button" id="refreshAuditBtn"><i class="fas fa-clipboard-list"></i> Audit log</button>
-                        <button type="button" id="refreshNotificationsBtn"><i class="fas fa-bell"></i> Notifications</button>
+                    <div class="ops-tab-panel" data-ops-panel="monitoring">
+                        <div class="ops-stack">
+                            <div class="ops-row">
+                                <button type="button" id="refreshAuditBtn"><i class="fas fa-clipboard-list"></i> Audit log</button>
+                                <button type="button" id="refreshNotificationsBtn"><i class="fas fa-bell"></i> Notifications</button>
+                            </div>
+                            <div class="ops-status" id="auditStatus">Audit log not loaded yet.</div>
+                            <div class="ops-meta" id="auditMeta">Last refreshed: not yet.</div>
+                            <div class="ops-list" id="auditLogList">No audit entries loaded.</div>
+                            <div class="ops-status" id="notificationsStatus">Notifications not loaded yet.</div>
+                            <div class="ops-meta" id="notificationsMeta">Last refreshed: not yet.</div>
+                            <div class="ops-list" id="notificationsList">No notifications loaded.</div>
+                        </div>
                     </div>
-                    <div class="ops-status" id="auditStatus">Audit log not loaded yet.</div>
-                    <div class="ops-meta" id="auditMeta">Last refreshed: not yet.</div>
-                    <div class="ops-list" id="auditLogList">No audit entries loaded.</div>
-                    <div class="ops-status" id="notificationsStatus">Notifications not loaded yet.</div>
-                    <div class="ops-meta" id="notificationsMeta">Last refreshed: not yet.</div>
-                    <div class="ops-list" id="notificationsList">No notifications loaded.</div>
-                    </div>
-                </div>
 
-                <div class="ops-tab-panel" data-ops-panel="scheduler">
-                    <div class="ops-stack">
-                    <input type="text" id="schedulerFolderInput" placeholder="Scheduler folder path">
-                    <div class="ops-row">
-                        <button type="button" id="saveSchedulerJobBtn"><i class="fas fa-clock"></i> Save watcher</button>
-                        <button type="button" id="runSchedulerBtn"><i class="fas fa-play"></i> Run watcher</button>
+                    <div class="ops-tab-panel" data-ops-panel="scheduler">
+                        <div class="ops-stack">
+                            <input type="text" id="schedulerFolderInput" placeholder="Scheduler folder path">
+                            <div class="ops-row">
+                                <button type="button" id="saveSchedulerJobBtn"><i class="fas fa-clock"></i> Save watcher</button>
+                                <button type="button" id="runSchedulerBtn"><i class="fas fa-play"></i> Run watcher</button>
+                            </div>
+                            <div class="ops-status" id="schedulerStatus">No scheduler action has run yet.</div>
+                            <div class="ops-meta" id="schedulerMeta">Last refreshed: not yet.</div>
+                            <div class="ops-list" id="schedulerJobsList">No scheduler jobs loaded.</div>
+                        </div>
                     </div>
-                    <div class="ops-status" id="schedulerStatus">No scheduler action has run yet.</div>
-                    <div class="ops-meta" id="schedulerMeta">Last refreshed: not yet.</div>
-                    <div class="ops-list" id="schedulerJobsList">No scheduler jobs loaded.</div>
-                    </div>
-                </div>
 
-                <div class="ops-tab-panel" data-ops-panel="settings">
-                    <div class="ops-stack">
-                    <button type="button" id="loadSettingsBtn"><i class="fas fa-sliders-h"></i> Load settings</button>
-                    <div class="ops-status" id="settingsStatus">Settings not loaded yet.</div>
-                    <div class="ops-meta" id="settingsMeta">Last refreshed: not yet.</div>
-                    <div class="ops-list" id="settingsList">No settings loaded.</div>
-                    <div class="ops-muted">Role headers are optional unless role enforcement is enabled on the server.</div>
+                    <div class="ops-tab-panel" data-ops-panel="settings">
+                        <div class="ops-stack">
+                            <button type="button" id="loadSettingsBtn"><i class="fas fa-sliders-h"></i> Load settings</button>
+                            <div class="ops-status" id="settingsStatus">Settings not loaded yet.</div>
+                            <div class="ops-meta" id="settingsMeta">Last refreshed: not yet.</div>
+                            <div class="ops-list" id="settingsList">No settings loaded.</div>
+                            <div class="ops-muted">Role headers are optional unless role enforcement is enabled on the server.</div>
+                        </div>
                     </div>
-                </div>
                 </div>
             </div>
-            <button class="close-modal" id="closeOperationsHubModalBtn">Close</button>
+            <div class="modal-footer">
+                <button class="btn-ghost" id="closeOperationsHubModalBtn2">Close</button>
+            </div>
         </div>
     </div>
 
     <!-- MODAL 6: Upload XLSX - Month/year extracted from filename -->
     <div class="modal" id="uploadModal">
         <div class="modal-card upload-modal">
-            <h2><i class="fas fa-file-excel"></i> UPLOAD FTP INPUT WORKBOOK</h2>
-            
-            <div class="filename-hint">
-                <i class="fas fa-info-circle"></i> 
-                File must be named: <strong>FTP Input File Month Year.xlsx</strong><br>
-                <span style="font-size: 12px; color: #a16f6f;">Example: FTP Input File January 2026.xlsx</span>
+            <div class="modal-header">
+                <h2><i class="fas fa-file-excel"></i> UPLOAD FTP INPUT WORKBOOK</h2>
+                <button class="modal-header-close" id="closeUploadModalBtn">&times;</button>
             </div>
-
-            <div class="worksheet-hint">
-                <i class="fas fa-table"></i>
-                <strong>Required worksheets for upload:</strong> ZWG LOANS, FX LOANS<br>
-                <span style="font-size: 12px; color: #a16f6f;">Any extra worksheets are optional and will only be previewed.</span>
-            </div>
-
-            <label class="export-option" for="includeWorkingsCheckbox">
-                <input type="checkbox" id="includeWorkingsCheckbox">
-                <span>
-                    <strong>Include workings sheets in Excel download</strong><br>
-                    <span style="font-size: 12px; color: #64748b;">Keeps full workbook content. If hosting memory is too low, you can uncheck this for a lighter results-only export.</span>
-                </span>
-            </label>
-
-            <label class="export-option" for="forceFullWorkbookCheckbox">
-                <input type="checkbox" id="forceFullWorkbookCheckbox">
-                <span>
-                    <strong>Force full workbook (skip auto-downgrade)</strong><br>
-                    <span style="font-size: 12px; color: #b45309;">Use only when needed. Large files may restart the server under memory pressure.</span>
-                </span>
-            </label>
-
-            <!-- Fancy file upload area - shown when no file selected -->
-            <div class="fancy-file-upload" id="fancyFileUpload">
-                <div class="fancy-file-content">
-                    <i class="fas fa-cloud-upload-alt"></i>
-                    <div class="fancy-file-text">
-                        <span class="fancy-file-title">Choose an Excel file</span>
-                        <span class="fancy-file-subtitle">Click to browse or drag & drop</span>
-                    </div>
-                    <span class="fancy-file-badge">XLSX</span>
+            <div class="modal-body">
+                <div class="filename-hint">
+                    <i class="fas fa-info-circle"></i> 
+                    File must be named: <strong>FTP Input File Month Year.xlsx</strong><br>
+                    <span style="font-size: 12px; color: var(--text-muted);">Example: FTP Input File January 2026.xlsx</span>
                 </div>
-                <input type="file" id="modalFileInput" accept=".xlsx, .xls" hidden>
-            </div>
 
-            <!-- Selected file info (shown when file chosen) -->
-            <div class="file-info" id="fileInfo">
-                <div class="file-info-content">
-                    <i class="fas fa-check-circle"></i>
-                    <div class="file-info-details">
-                        <div class="file-name" id="fileName"></div>
-                        <div class="file-meta" id="fileMeta"></div>
+                <div class="worksheet-hint">
+                    <i class="fas fa-table"></i>
+                    <strong>Required worksheets:</strong> ZWG LOANS, FX LOANS<br>
+                    <span style="font-size: 12px; color: var(--text-muted);">Extra worksheets are optional and previewed only.</span>
+                </div>
+
+                <label class="export-option" for="includeWorkingsCheckbox">
+                    <input type="checkbox" id="includeWorkingsCheckbox">
+                    <span>
+                        <strong>Include workings in Excel</strong><br>
+                        <span style="font-size: 12px; color: var(--text-muted);">Uncheck for lighter results-only export.</span>
+                    </span>
+                </label>
+
+                <label class="export-option" for="forceFullWorkbookCheckbox">
+                    <input type="checkbox" id="forceFullWorkbookCheckbox">
+                    <span>
+                        <strong>Force full workbook (skip auto-downgrade)</strong><br>
+                        <span style="font-size: 12px; color: var(--text-muted);">Large files may restart the server under memory pressure.</span>
+                    </span>
+                </label>
+
+                <div class="fancy-file-upload" id="fancyFileUpload">
+                    <div class="fancy-file-content">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <div class="fancy-file-text">
+                            <span class="fancy-file-title">Choose an Excel file</span>
+                            <span class="fancy-file-subtitle">Click to browse or drag & drop</span>
+                        </div>
+                        <span class="fancy-file-badge">XLSX</span>
                     </div>
-                    <div class="file-remove" id="removeFileBtn">
-                        <i class="fas fa-times-circle"></i>
+                    <input type="file" id="modalFileInput" accept=".xlsx, .xls" hidden>
+                </div>
+
+                <div class="file-info" id="fileInfo">
+                    <div class="file-info-content">
+                        <i class="fas fa-check-circle"></i>
+                        <div class="file-info-details">
+                            <div class="file-name" id="fileName"></div>
+                            <div class="file-meta" id="fileMeta"></div>
+                        </div>
+                        <div class="file-remove" id="removeFileBtn">
+                            <i class="fas fa-times-circle"></i>
+                        </div>
                     </div>
                 </div>
+
+                <div class="date-range-display" id="dateRangeDisplay" style="display:none;">
+                    <span id="firstDay">—</span> to <span id="lastDay">—</span>
+                </div>
             </div>
-
-            <!-- Date range display (auto-populated from filename) -->
-            <div class="date-range-display" id="dateRangeDisplay" style="display:none;">
-                <span id="firstDay">—</span> to <span id="lastDay">—</span>
+            <div class="modal-footer">
+                <button class="btn-ghost" id="closeUploadModalBtn2">Close</button>
+                <button class="btn-primary" id="computeFtpRangeBtn" disabled>
+                    <i class="fas fa-calculator"></i> Compute FTP
+                </button>
             </div>
-
-            <button class="calculate-btn" id="computeFtpRangeBtn" disabled>
-                <i class="fas fa-calculator"></i> Compute FTP for <span id="rangeX">—</span> to <span id="rangeY">—</span>
-            </button>
-
-            <button class="close-modal" id="closeUploadModalBtn">Close</button>
         </div>
     </div>
 
@@ -1160,11 +1216,17 @@
     const openOperationsHubBtn = document.getElementById('openOperationsHubBtn');
     
     const closeModalBtn = document.getElementById('closeModalBtn');
+    const closeModalBtn2 = document.getElementById('closeModalBtn2');
     const closeCurveBtn = document.getElementById('closeCurveModalBtn');
+    const closeCurveBtn2 = document.getElementById('closeCurveModalBtn2');
     const closeUploadModalBtn = document.getElementById('closeUploadModalBtn');
+    const closeUploadModalBtn2 = document.getElementById('closeUploadModalBtn2');
     const closeBranchMapModalBtn = document.getElementById('closeBranchMapModalBtn');
+    const closeBranchMapModalBtn2 = document.getElementById('closeBranchMapModalBtn2');
     const closeArchiveBrowserModalBtn = document.getElementById('closeArchiveBrowserModalBtn');
+    const closeArchiveBrowserModalBtn2 = document.getElementById('closeArchiveBrowserModalBtn2');
     const closeOperationsHubModalBtn = document.getElementById('closeOperationsHubModalBtn');
+    const closeOperationsHubModalBtn2 = document.getElementById('closeOperationsHubModalBtn2');
     
     const viewCurveBtn = document.getElementById('viewCurveBtn');
     const openBranchMapBtn = document.getElementById('openBranchMapBtn');
@@ -2301,9 +2363,9 @@
         validateFtpInputs();
     });
 
-    closeModalBtn.addEventListener('click', () => {
-        modal.style.display = 'none';
-    });
+    function closeFtpModal() { modal.style.display = 'none'; }
+    closeModalBtn.addEventListener('click', closeFtpModal);
+    if (closeModalBtn2) closeModalBtn2.addEventListener('click', closeFtpModal);
 
     modal.addEventListener('click', (e) => {
         if (e.target === modal) {
@@ -2316,9 +2378,9 @@
     tenureInput.addEventListener('input', validateFtpInputs);
 
     // Modal 2 controls (Curve Chart)
-    closeCurveBtn.addEventListener('click', () => {
-        curveModal.style.display = 'none';
-    });
+    function closeCurveModal() { curveModal.style.display = 'none'; }
+    closeCurveBtn.addEventListener('click', closeCurveModal);
+    if (closeCurveBtn2) closeCurveBtn2.addEventListener('click', closeCurveModal);
 
     curveModal.addEventListener('click', (e) => {
         if (e.target === curveModal) {
@@ -2352,8 +2414,9 @@
         archiveBrowserModal.style.display = 'flex';
     });
 
-    closeArchiveBrowserModalBtn.addEventListener('click', () => {
-        archiveBrowserModal.style.display = 'none';
+    function closeArchiveModal() { archiveBrowserModal.style.display = 'none'; }
+    closeArchiveBrowserModalBtn.addEventListener('click', closeArchiveModal);
+    if (closeArchiveBrowserModalBtn2) closeArchiveBrowserModalBtn2.addEventListener('click', closeArchiveModal);
     });
 
     archiveBrowserModal.addEventListener('click', (e) => {
@@ -2362,9 +2425,9 @@
         }
     });
 
-    closeBranchMapModalBtn.addEventListener('click', () => {
-        branchMapModal.style.display = 'none';
-    });
+    function closeBranchMapModal() { branchMapModal.style.display = 'none'; }
+    closeBranchMapModalBtn.addEventListener('click', closeBranchMapModal);
+    if (closeBranchMapModalBtn2) closeBranchMapModalBtn2.addEventListener('click', closeBranchMapModal);
 
     branchMapModal.addEventListener('click', (e) => {
         if (e.target === branchMapModal) {
@@ -2377,9 +2440,9 @@
         operationsHubModal.style.display = 'flex';
     });
 
-    closeOperationsHubModalBtn.addEventListener('click', () => {
-        operationsHubModal.style.display = 'none';
-    });
+    function closeOpsHubModal() { operationsHubModal.style.display = 'none'; }
+    closeOperationsHubModalBtn.addEventListener('click', closeOpsHubModal);
+    if (closeOperationsHubModalBtn2) closeOperationsHubModalBtn2.addEventListener('click', closeOpsHubModal);
 
     operationsHubModal.addEventListener('click', (e) => {
         if (e.target === operationsHubModal) {
@@ -2872,9 +2935,9 @@
         syncForceFullWorkbookOption();
     }
 
-    closeUploadModalBtn.addEventListener('click', () => {
-        uploadModal.style.display = 'none';
-    });
+    function closeUploadModal() { uploadModal.style.display = 'none'; }
+    closeUploadModalBtn.addEventListener('click', closeUploadModal);
+    if (closeUploadModalBtn2) closeUploadModalBtn2.addEventListener('click', closeUploadModal);
 
     uploadModal.addEventListener('click', (e) => {
         if (e.target === uploadModal) {
