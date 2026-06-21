@@ -361,6 +361,19 @@
         .modal-card.archive-modal { width: 760px; }
         .modal-card.upload-modal { width: 600px; }
         .modal-card.singular-ftp-modal { width: 750px; }
+        .singular-ftp-modal .modal-body {
+            padding: 16px 24px; min-height: 320px;
+            display: flex; flex-direction: column;
+        }
+        .singular-ftp-modal .modal-body .ftp-two-column {
+            flex: 1; align-items: stretch;
+        }
+        .singular-ftp-modal .modal-body .ftp-left-column {
+            display: flex; flex-direction: column;
+        }
+        .singular-ftp-modal .modal-body .ftp-left-column .calculate-btn {
+            margin-top: auto; margin-bottom: 0;
+        }
 
         /* ===== Unified Button System ===== */
         /* Base: inline ghost-style button used across ops panels, archive, tables */
@@ -855,7 +868,7 @@
                     </div>
                 </div>
                 <div class="sidebar-footer">
-                    <i class="fas fa-shield-alt"></i> 100% data privacy · Local SQLite archive
+                    <i class="fas fa-shield-alt"></i> 100% data privacy
                 </div>
             </div>
 
