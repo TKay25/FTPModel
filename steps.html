@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, print-scale: 1">
+    <title>Stephen Margolis Resort · Complete Meta Setup Guide</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #eef2f8;
+            font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            padding: 36px 24px;
+            color: #1a2c3e;
+        }
+
+        .master-guide {
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto;
+            background: white;
+            border-radius: 44px;
+            box-shadow: 0 28px 48px -18px rgba(0, 0, 0, 0.12);
+            overflow: hidden;
+            padding: 34px 32px 52px 32px;
+        }
+
+        .guide-header {
+            text-align: center;
+            margin-bottom: 48px;
+            border-bottom: 3px solid #e9f0f7;
+            padding-bottom: 28px;
+        }
+        .guide-header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            background: linear-gradient(145deg, #1877F2, #0c5e9e);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            letter-spacing: -0.4px;
+        }
+        .guide-header .sub {
+            color: #4f6d91;
+            margin-top: 8px;
+            font-size: 1rem;
+        }
+        .resort-badge {
+            background: #eef3fc;
+            display: inline-block;
+            padding: 6px 18px;
+            border-radius: 60px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-top: 14px;
+            color: #0f5b97;
+        }
+        .important-login-box {
+            background: #fff8e1;
+            border: 1px solid #f39c12;
+            border-radius: 16px;
+            padding: 16px 24px;
+            margin: 20px auto 0;
+            max-width: 90%;
+            display: inline-block;
+            text-align: left;
+        }
+        .important-login-box strong {
+            color: #e67e22;
+        }
+        .important-login-box a {
+            color: #1877F2;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .important-login-box a:hover {
+            text-decoration: underline;
+        }
+
+        .section-divider {
+            margin: 48px 0 24px 0;
+            text-align: center;
+            position: relative;
+        }
+        .section-divider span {
+            background: #f0f4fa;
+            padding: 8px 24px;
+            border-radius: 40px;
+            font-weight: 600;
+            font-size: 1rem;
+            color: #1877F2;
+            display: inline-block;
+        }
+
+        .steps-container {
+            display: flex;
+            flex-direction: column;
+            gap: 52px;
+        }
+
+        .step-card {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 32px;
+            align-items: flex-start;
+            width: 100%;
+        }
+
+        .step-info {
+            flex: 1;
+            min-width: 200px;
+            max-width: 270px;
+        }
+        .step-number {
+            background: #1877F2;
+            width: 48px;
+            height: 48px;
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 1.6rem;
+            color: white;
+            margin-bottom: 16px;
+            box-shadow: 0 8px 14px -8px rgba(24,119,242,0.4);
+        }
+        .step-info h3 {
+            font-size: 1.45rem;
+            font-weight: 600;
+            color: #112b44;
+            margin-bottom: 10px;
+        }
+        .step-description {
+            font-size: 0.82rem;
+            color: #476085;
+            line-height: 1.45;
+            border-left: 3px solid #1877F2;
+            padding-left: 12px;
+            margin: 10px 0 14px;
+        }
+        .action-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .tag {
+            background: #ecf3fa;
+            padding: 5px 12px;
+            border-radius: 40px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            color: #1e6eb5;
+        }
+        .red-circle-note {
+            background: #fff0f0;
+            border-left: 3px solid #e74c3c;
+            color: #c0392b;
+            font-weight: 500;
+        }
+        .green-check {
+            background: #e8f5e9;
+            border-left: 3px solid #2ecc71;
+        }
+        .warning-box {
+            background: #fff8e1;
+            border-left: 4px solid #f39c12;
+            padding: 12px;
+            margin: 12px 0;
+            border-radius: 12px;
+        }
+        .warning-box strong {
+            color: #e67e22;
+        }
+
+        .image-frame {
+            flex: 2.2;
+            min-width: 320px;
+            background: #fefefe;
+            border: 2px solid #e3eaf2;
+            border-radius: 28px;
+            padding: 20px;
+            transition: 0.1s;
+        }
+        .image-frame img {
+            width: 100%;
+            height: auto;
+            display: block;
+            border-radius: 18px;
+            background: #fff;
+            border: 1px solid #ecf0f5;
+            object-fit: contain;
+            max-height: 520px;
+            margin: 0 auto;
+        }
+        .image-caption {
+            margin-top: 14px;
+            font-size: 0.7rem;
+            text-align: center;
+            color: #6f7f9c;
+            background: #f7fafd;
+            padding: 6px 10px;
+            border-radius: 50px;
+            font-family: monospace;
+        }
+
+        @media (min-width: 1100px) {
+            .step-card {
+                flex-wrap: nowrap;
+            }
+            .step-info {
+                flex: 0.8;
+            }
+            .image-frame {
+                flex: 2.4;
+            }
+        }
+
+        @media (max-width: 800px) {
+            .master-guide {
+                padding: 20px;
+            }
+            .image-frame {
+                width: 100%;
+            }
+        }
+
+        .final-card {
+            margin-top: 56px;
+            background: linear-gradient(135deg, #f0f7ff 0%, #e8f0fe 100%);
+            border-radius: 32px;
+            padding: 32px 28px;
+            text-align: center;
+            border: 1px solid #d4e2f5;
+        }
+        .final-card h4 {
+            font-size: 1.3rem;
+            color: #0b4b78;
+            margin-bottom: 12px;
+        }
+        .final-card p {
+            font-size: 0.85rem;
+            color: #4d6c8f;
+            line-height: 1.5;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0.1in;
+            }
+            .master-guide {
+                box-shadow: none;
+                padding: 16px;
+            }
+            .step-card {
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+            .image-frame {
+                border: 1px solid #aaa;
+            }
+            .step-number {
+                background: #2a6fb0;
+                print-color-adjust: exact;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="master-guide">
+    <div class="guide-header">
+        <h1>🏝️ Stephen Margolis Resort · Meta Setup</h1>
+        <div class="sub">Connect with customers on Facebook, Instagram & WhatsApp</div>
+        <div class="resort-badge">✨ Business Portfolio: "Stephen Margolis Resort" ✨</div>
+        <div class="important-login-box">
+            🔐 <strong>IMPORTANT — BEFORE YOU START:</strong><br>
+            You must be logged into the <strong>Facebook account that manages the Stephen Margolis Resort Facebook Pages</strong> (and Instagram business accounts).<br>
+            <br>
+            👉 <a href="https://developers.facebook.com/" target="_blank" rel="noopener noreferrer"><strong>Click here to go to Meta for Developers →</strong> https://developers.facebook.com/</a><br>
+            <br>
+            If you are not logged into the correct Facebook account, log out and log in with the account that has <strong>Admin access</strong> to the resort's Pages.
+        </div>
+    </div>
+
+    <div class="steps-container">
+        <!-- ========================================= -->
+        <!-- PART 1: GET STARTED (ACCOUNT REGISTRATION) -->
+        <!-- ========================================= -->
+        <div class="section-divider"><span>📝 PART 1: CREATE META FOR DEVELOPERS ACCOUNT</span></div>
+
+        <!-- Step 1: get started.png -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">1</div>
+                <h3>Get started</h3>
+                <div class="step-description">
+                    Visit <a href="https://developers.facebook.com/" target="_blank">developers.facebook.com</a> (make sure you're logged into the correct Facebook account that manages the resort's Pages). Click the <strong>"Get started"</strong> button.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">🔘 Click "Get started"</span>
+                    <span class="tag">🔐 Logged into resort's FB account</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="get started.png" alt="Meta for Developers landing page" onerror="this.src='https://placehold.co/800x480?text=get+started.png&font=monospace'">
+                <div class="image-caption">📸 get started.png — Meta for Developers homepage</div>
+            </div>
+        </div>
+
+        <!-- Step 2: get started 2.png -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">2</div>
+                <h3>Welcome & terms</h3>
+                <div class="step-description">
+                    Review Meta Platform Terms and Developer Policies. Click <strong>"Continue"</strong> to proceed.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">✅ Accept terms</span>
+                    <span class="tag">➡️ Click Continue</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="get started 2.png" alt="Welcome to Meta for Developers" onerror="this.src='https://placehold.co/800x480?text=get+started+2.png&font=monospace'">
+                <div class="image-caption">📸 get started 2.png — Registration welcome & terms</div>
+            </div>
+        </div>
+
+        <!-- Step 3: get started 3.png -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">3</div>
+                <h3>Contact email</h3>
+                <div class="step-description">
+                    Enter your primary email address (the one associated with the resort's Facebook account). Click <strong>"Send Verification Email"</strong>.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">📧 Enter primary email</span>
+                    <span class="tag">✉️ Send Verification Email</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="get started 3.png" alt="Enter Your Preferred Contact Email" onerror="this.src='https://placehold.co/800x480?text=get+started+3.png&font=monospace'">
+                <div class="image-caption">📸 get started 3.png — Email & verification</div>
+            </div>
+        </div>
+
+        <!-- Step 4: 4get started 3.png -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">4</div>
+                <h3>Verify email code</h3>
+                <div class="step-description">
+                    Enter the 6-digit verification code sent to your email. Click <strong>"Continue"</strong>.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">🔢 Enter verification code</span>
+                    <span class="tag">🔄 Send Email Again (if needed)</span>
+                    <span class="tag">✔️ Click Continue</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="4get started 3.png" alt="Enter the Code from Your Email" onerror="this.src='https://placehold.co/800x480?text=4get+started+3.png&font=monospace'">
+                <div class="image-caption">📸 4get started 3.png — Code verification</div>
+            </div>
+        </div>
+
+        <!-- Step 5: 4get started 5.png -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">5</div>
+                <h3>Select your role</h3>
+                <div class="step-description">
+                    Choose: <strong>Developer, Analyst, Student, or Other</strong>. Click <strong>"Complete Registration"</strong>.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">👨‍💻 Developer</span>
+                    <span class="tag">📊 Analyst</span>
+                    <span class="tag">🎓 Student</span>
+                    <span class="tag">✅ Complete Registration</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="4get started 5.png" alt="Which role best describes you" onerror="this.src='https://placehold.co/800x480?text=4get+started+5.png&font=monospace'">
+                <div class="image-caption">📸 4get started 5.png — Role selection</div>
+            </div>
+        </div>
+
+        <!-- ========================================= -->
+        <!-- PART 2: CREATE APP (FULL 12 SCREENS) -->
+        <!-- ========================================= -->
+        <div class="section-divider"><span>🚀 PART 2: CREATE APP FOR STEPHEN MARGOLIS RESORT</span></div>
+
+        <!-- Step 6: create app 1.png - My Apps dashboard -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">6</div>
+                <h3>My Apps dashboard</h3>
+                <div class="step-description">
+                    After registration, you'll see the <strong>My Apps</strong> dashboard. Click the blue <strong>"Create App"</strong> button.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">📱 My Apps</span>
+                    <span class="tag">✨ Create App</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="create app 1.png" alt="My Apps dashboard with Create App button" onerror="this.src='https://placehold.co/800x480?text=create+app+1.png&font=monospace'">
+                <div class="image-caption">📸 create app 1.png — My Apps dashboard</div>
+            </div>
+        </div>
+
+        <!-- Step 7: create app 2.png - App details basic -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">7</div>
+                <h3>Create an app (basic)</h3>
+                <div class="step-description">
+                    Read about the new app creation system. Enter <strong>App name</strong> (e.g., "Stephen Margolis Guest Connect") and <strong>App contact email</strong>. Click <strong>"Next"</strong>.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">🏷️ App name</span>
+                    <span class="tag">📧 Contact email</span>
+                    <span class="tag">➡️ Next</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="create app 2.png" alt="Create an app - basic details" onerror="this.src='https://placehold.co/800x480?text=create+app+2.png&font=monospace'">
+                <div class="image-caption">📸 create app 2.png — App details (basic)</div>
+            </div>
+        </div>
+
+        <!-- Step 8: create app 3.png - App details refined -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">8</div>
+                <h3>App details (refined)</h3>
+                <div class="step-description">
+                    Confirm App name (max 30 characters) and contact email. Click <strong>"Next"</strong>.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">📝 App name (0/30)</span>
+                    <span class="tag">✉️ Business email</span>
+                    <span class="tag">➡️ Next</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="create app 3.png" alt="App details refined" onerror="this.src='https://placehold.co/800x480?text=create+app+3.png&font=monospace'">
+                <div class="image-caption">📸 create app 3.png — Refined app details</div>
+            </div>
+        </div>
+
+        <!-- Step 9: create app 4.png - Use cases (navigate to Business messaging) -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">9</div>
+                <h3>Navigate to use cases</h3>
+                <div class="step-description">
+                    On the "Add use cases" screen, you'll see various categories. For customer communication, we need Business Messaging options. Use the filter.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">🔘 Filter by: Business messaging</span>
+                    <span class="tag">📱 Focus on customer channels</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="create app 4.png" alt="Add use cases - navigate to Business messaging" onerror="this.src='https://placehold.co/800x480?text=create+app+4.png&font=monospace'">
+                <div class="image-caption">📸 create app 4.png — Use cases (select Business messaging)</div>
+            </div>
+        </div>
+
+        <!-- Step 10: create app 5.png - Select ONLY customer communication use cases -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">10</div>
+                <h3>Select customer channels 🔴</h3>
+                <div class="step-description red-circle-note" style="border-left-color: #e74c3c; background: #fff5f5;">
+                    🔴 <strong>Select ONLY these options (circled in red):</strong><br>
+                    • Engage with customers on Messenger from Meta<br>
+                    • Manage messaging & content on Instagram<br>
+                    • Manage everything on your Page (Facebook)<br>
+                    <strong>DO NOT select</strong> Fundraiser, ThreatExchange, Live Video, or Embed.
+                </div>
+                <div class="action-tags">
+                    <span class="tag" style="background:#ffebee; color:#c0392b;">🔴 Messenger Platform</span>
+                    <span class="tag" style="background:#ffebee; color:#c0392b;">🔴 Instagram API</span>
+                    <span class="tag" style="background:#ffebee; color:#c0392b;">🔴 Pages API</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="create app 5.png" alt="Select Messenger, Instagram, and Pages API - circled in red" onerror="this.src='https://placehold.co/800x480?text=create+app+5.png&font=monospace'">
+                <div class="image-caption">📸 create app 5.png — Select 🔴 Messenger, Instagram, Pages</div>
+            </div>
+        </div>
+
+        <!-- Step 11: create app 6.png - WhatsApp Business Platform -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">11</div>
+                <h3>Add WhatsApp Business</h3>
+                <div class="step-description green-check">
+                    ✅ <strong>Select "Connect with customers through WhatsApp"</strong> — this is essential for WhatsApp customer communication.
+                </div>
+                <div class="action-tags">
+                    <span class="tag" style="background:#e8f5e9; color:#2e7d32;">📱 WhatsApp Business Platform</span>
+                    <span class="tag">➡️ Click Next</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="create app 6.png" alt="Select WhatsApp Business Platform" onerror="this.src='https://placehold.co/800x480?text=create+app+6.png&font=monospace'">
+                <div class="image-caption">📸 create app 6.png — Select WhatsApp Business</div>
+            </div>
+        </div>
+
+        <!-- Step 12: create app 7.png - Business portfolio selection -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">12</div>
+                <h3>Select business portfolio</h3>
+                <div class="step-description warning-box">
+                    <strong>⚠️ IMPORTANT:</strong> Look through the list of portfolios. If you see <strong>"Stephen Margolis Resort"</strong> already listed, select it.<br><br>
+                    <strong>❌ If you do NOT see "Stephen Margolis Resort" in the list, click <span style="color:#e67e22;">"Create a business portfolio"</span> (see next step).</strong>
+                </div>
+                <div class="action-tags">
+                    <span class="tag">🔍 Check if portfolio exists</span>
+                    <span class="tag">✅ Select if found</span>
+                    <span class="tag">✨ Create if missing → Next step</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="create app 7.png" alt="Which business portfolio to connect - check for Stephen Margolis Resort" onerror="this.src='https://placehold.co/800x480?text=create+app+7.png&font=monospace'">
+                <div class="image-caption">📸 create app 7.png — Check if "Stephen Margolis Resort" exists</div>
+            </div>
+        </div>
+
+        <!-- Step 13: create app 8.png - Create Stephen Margolis Resort portfolio -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">13</div>
+                <h3>Create "Stephen Margolis Resort"</h3>
+                <div class="step-description warning-box" style="border-left-color: #2ecc71; background: #e8f8f5;">
+                    <strong>✅ FOLLOW THESE STEPS IF YOU NEED TO CREATE A NEW PORTFOLIO:</strong><br><br>
+                    <strong>1.</strong> Portfolio name: <strong>"Stephen Margolis Resort"</strong><br>
+                    <strong>2.</strong> Enter your first name and last name<br>
+                    <strong>3.</strong> Business email: the email associated with the resort's Facebook account<br>
+                    <strong>4.</strong> Click <strong>"Create portfolio"</strong><br><br>
+                    If you already selected an existing "Stephen Margolis Resort" portfolio in the previous step, skip this screen.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">🏷️ Stephen Margolis Resort</span>
+                    <span class="tag">📧 Resort FB account email</span>
+                    <span class="tag">✅ Create portfolio</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="create app 8.png" alt="Create a business portfolio form - Stephen Margolis Resort" onerror="this.src='https://placehold.co/800x480?text=create+app+8.png&font=monospace'">
+                <div class="image-caption">📸 create app 8.png — Create "Stephen Margolis Resort" portfolio</div>
+            </div>
+        </div>
+
+        <!-- Step 14: create app 9.png - Publishing requirements -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">14</div>
+                <h3>Publishing requirements</h3>
+                <div class="step-description">
+                    Review any requirements. No requirements identified initially. Click <strong>"Next"</strong>.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">📋 No requirements</span>
+                    <span class="tag">➡️ Next</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="create app 9.png" alt="Publishing requirements - none" onerror="this.src='https://placehold.co/800x480?text=create+app+9.png&font=monospace'">
+                <div class="image-caption">📸 create app 9.png — Publishing requirements</div>
+            </div>
+        </div>
+
+        <!-- Step 15: create app 10.png - Overview -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">15</div>
+                <h3>Overview & confirm</h3>
+                <div class="step-description">
+                    Review App Name, App Email, Use cases (Messenger + Instagram + Pages + WhatsApp), Business Portfolio. Accept Platform Terms. Click <strong>"Create app"</strong>.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">🔍 Verify details</span>
+                    <span class="tag">📜 Accept terms</span>
+                    <span class="tag">✅ Create app</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="create app 10.png" alt="Overview screen" onerror="this.src='https://placehold.co/800x480?text=create+app+10.png&font=monospace'">
+                <div class="image-caption">📸 create app 10.png — Overview & confirmation</div>
+            </div>
+        </div>
+
+        <!-- Step 16: create app 11.png - Password re-entry -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">16</div>
+                <h3>Re-enter password</h3>
+                <div class="step-description">
+                    For security, re-enter your Meta account password. Click <strong>"Submit"</strong>.
+                </div>
+                <div class="action-tags">
+                    <span class="tag">🔒 Re-enter password</span>
+                    <span class="tag">✔️ Submit</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="create app 11.png" alt="Re-enter password for security" onerror="this.src='https://placehold.co/800x480?text=create+app+11.png&font=monospace'">
+                <div class="image-caption">📸 create app 11.png — Password confirmation</div>
+            </div>
+        </div>
+
+        <!-- Step 17: create app 12.png - Final dashboard -->
+        <div class="step-card">
+            <div class="step-info">
+                <div class="step-number">17</div>
+                <h3>🎉 App dashboard</h3>
+                <div class="step-description">
+                    App created successfully! Your app now has the customer communication channels configured. From the dashboard you can:
+                    <ul style="margin-top: 8px; margin-left: 16px; font-size: 0.75rem;">
+                        <li>Configure Messenger replies for your Facebook Page</li>
+                        <li>Set up Instagram DMs and comments</li>
+                        <li>Connect WhatsApp Business for customer support</li>
+                    </ul>
+                </div>
+                <div class="action-tags">
+                    <span class="tag">📊 Dashboard overview</span>
+                    <span class="tag">💬 Configure Messenger</span>
+                    <span class="tag">📸 Instagram settings</span>
+                    <span class="tag">📱 WhatsApp Business</span>
+                </div>
+            </div>
+            <div class="image-frame">
+                <img src="create app 12.png" alt="Final app dashboard" onerror="this.src='https://placehold.co/800x480?text=create+app+12.png&font=monospace'">
+                <div class="image-caption">📸 create app 12.png — Final app dashboard</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Card -->
+    <div class="final-card">
+        <h4>🏨 Stephen Margolis Resort — Customer Communication Setup</h4>
+        <p>
+        🔐 <strong>Before starting:</strong> Logged into Facebook account that manages Stephen Margolis Resort Pages<br>
+        ✅ <strong>Steps 1-5:</strong> Meta Developer Account created<br>
+        ✅ <strong>Steps 6-8:</strong> App name and contact email configured<br>
+        ✅ <strong>Step 9:</strong> Navigated to Business messaging use cases<br>
+        ✅ <strong>Step 10:</strong> Selected 🔴 <strong>Messenger, Instagram, and Pages API</strong> (customer channels only)<br>
+        ✅ <strong>Step 11:</strong> Selected ✅ <strong>WhatsApp Business Platform</strong><br>
+        ✅ <strong>Step 12:</strong> <strong>Checked for existing "Stephen Margolis Resort" portfolio</strong> — selected if found<br>
+        ✅ <strong>Step 13:</strong> <strong>Created "Stephen Margolis Resort" portfolio</strong> if it didn't exist<br>
+        ✅ <strong>Steps 14-16:</strong> Requirements reviewed, app created<br>
+        ✅ <strong>Step 17:</strong> Dashboard ready — connect to Facebook Page, Instagram, and WhatsApp
+        </p>
+        <p style="margin-top: 14px;">📸 Your app is now configured to connect with customers on <strong>Facebook Messenger, Instagram, and WhatsApp</strong> — no additional use cases selected.</p>
+        <p style="margin-top: 12px;">🔗 <a href="https://developers.facebook.com/" target="_blank">https://developers.facebook.com/</a> — Bookmark this link for future access.</p>
+    </div>
+</div>
+
+<script>
+    (function() {
+        const images = document.querySelectorAll('.image-frame img');
+        images.forEach(img => {
+            img.addEventListener('error', function(e) {
+                if (!img.hasAttribute('data-fallback')) {
+                    img.setAttribute('data-fallback', 'true');
+                    const parent = img.closest('.image-frame');
+                    img.style.opacity = '0.6';
+                    img.style.minHeight = '180px';
+                    const fileName = img.getAttribute('src')?.split('/').pop() || 'screenshot';
+                    if (parent && !parent.querySelector('.warning')) {
+                        const warn = document.createElement('div');
+                        warn.className = 'warning';
+                        warn.style.fontSize = '0.65rem';
+                        warn.style.backgroundColor = '#fff2e0';
+                        warn.style.marginTop = '10px';
+                        warn.style.padding = '4px 10px';
+                        warn.style.borderRadius = '30px';
+                        warn.style.color = '#aa6f2c';
+                        warn.style.textAlign = 'center';
+                        warn.innerText = `⚠️ Image not loaded: ${fileName}`;
+                        parent.appendChild(warn);
+                    }
+                }
+            });
+        });
+    })();
+</script>
+</body>
+</html>

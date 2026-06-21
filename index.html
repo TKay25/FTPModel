@@ -1451,7 +1451,10 @@
                     <i class="fas fa-file-upload"></i> Download Original Uploaded Workbook
                 </button>
                 <button class="preview-download-btn" id="downloadWorkingsBtn" disabled style="margin-top: 10px; border-color: #7c3aed; color: #7c3aed;">
-                    <i class="fas fa-file-alt"></i> Download Workings Workbook (From JSON)
+                    <i class="fas fa-file-excel"></i> Download Workings Workbook (From JSON)
+                </button>
+                <button class="preview-download-btn" id="downloadWorkingsJsonBtn" disabled style="margin-top: 10px; border-color: #0f766e; color: #0f766e;">
+                    <i class="fas fa-file-code"></i> Download Workings JSON (Lightweight)
                 </button>
             </div>
         </div>
@@ -1930,6 +1933,7 @@
     const downloadExcelBtn = document.getElementById('downloadExcelBtn');
     const downloadOriginalBtn = document.getElementById('downloadOriginalBtn');
     const downloadWorkingsBtn = document.getElementById('downloadWorkingsBtn');
+    const downloadWorkingsJsonBtn = document.getElementById('downloadWorkingsJsonBtn');
     const downloadRangeX = document.getElementById('downloadRangeX');
     const downloadRangeY = document.getElementById('downloadRangeY');
     const previewBadge = document.getElementById('previewBadge');
@@ -2130,7 +2134,11 @@
         if (!downloadWorkingsBtn) {
             return;
         }
-        downloadWorkingsBtn.disabled = !Boolean(isAvailable);
+        const available = Boolean(isAvailable);
+        downloadWorkingsBtn.disabled = !available;
+        if (downloadWorkingsJsonBtn) {
+            downloadWorkingsJsonBtn.disabled = !available;
+        }
     }
 
     function syncForceFullWorkbookOption() {
@@ -4421,6 +4429,43 @@
                 <div style="text-align: center; padding: 20px;">
                     <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
                     <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Workings Download Failed</h3>
+                    <p style="color: #632424;">${error.message}</p>
+                </div>
+            `);
+        }
+    });
+
+    downloadWorkingsJsonBtn.addEventListener('click', async () => {
+        if (!lastComputedRange.firstDay || (!lastComputedRange.summary && !lastComputedRange.reportKey)) {
+            alert('Please compute FTP range first');
+            return;
+        }
+
+        updatePreviewWithData(`
+            <div style="text-align: center; padding: 20px;">
+                <i class="fas fa-spinner fa-pulse" style="font-size: 48px; color: #0f766e; margin-bottom: 20px;"></i>
+                <h3 style="color: #0f766e; margin-bottom: 10px;">Downloading Workings JSON...</h3>
+                <p style="color: #5b6472;">Streaming lightweight JSON data directly from disk</p>
+            </div>
+        `);
+
+        try {
+            await downloadFile('/download-workings-json', 'json');
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 10px;">
+                    <i class="fas fa-file-code" style="font-size: 48px; color: #0f766e; margin-bottom: 15px;"></i>
+                    <h3 style="color: #0f766e; margin-bottom: 10px;">✓ Workings JSON Downloaded</h3>
+                    <p style="color: #2f1a1a;">Lightweight JSON file downloaded. Open in any text editor or import into Excel via <strong>Data → Get Data → From JSON</strong>.</p>
+                </div>
+            `);
+        } catch (error) {
+            console.error('Error downloading workings JSON:', error);
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
+                    <h3 style="color: #dc3545; margin-bottom: 10px;">✗ JSON Download Failed</h3>
                     <p style="color: #632424;">${error.message}</p>
                 </div>
             `);

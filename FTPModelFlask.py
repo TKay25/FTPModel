@@ -1379,6 +1379,85 @@ def download_workings_excel():
     except Exception as e:
         return jsonify({'error': f'Failed to download workings Excel: {str(e)}'}), 500
 
+
+@app.route('/download-workings-json', methods=['GET'])
+def download_workings_json():
+    """Stream workings JSON (NDJSON) as a single downloadable JSON file.
+    This is memory-safe because it reads each sheet's NDJSON file
+    line-by-line and writes directly to the response, avoiding Excel's
+    memory overhead entirely."""
+    try:
+        global latest_data
+        report_key = request.args.get('report_key')
+        month = request.args.get('month')
+        year = request.args.get('year', type=int)
+        if report_key:
+            if not load_latest_data_snapshot(report_key=report_key):
+                return jsonify({'error': 'No processed data found for that report version.'}), 404
+        elif month and year:
+            if not load_latest_data_snapshot(month=month, year=year):
+                return jsonify({'error': 'No processed data found for that month and year.'}), 404
+        elif not ensure_latest_data_available():
+            return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
+
+        resolved_report_key = latest_data.get('period', {}).get('report_key')
+        manifest_path = _build_workings_manifest_path(resolved_report_key)
+        if not manifest_path or not os.path.exists(manifest_path):
+            return jsonify({'error': 'Workings JSON is not available for this report. Recompute this period to generate workings JSON.'}), 404
+
+        with open(manifest_path, 'r', encoding='utf-8') as manifest_file:
+            manifest_payload = json.load(manifest_file)
+
+        sheet_entries = manifest_payload.get('sheets') or {}
+        if not sheet_entries:
+            return jsonify({'error': 'Workings JSON exists but has no sheet entries.'}), 404
+
+        period_month = latest_data.get('period', {}).get('month', 'Month')
+        period_year = latest_data.get('period', {}).get('year', 'Year')
+        download_name = f'FTP_Workings_{period_month}_{period_year}.json'
+
+        # Build a single JSON payload: { sheet_name: [row, row, ...], ... }
+        # Stream each sheet's NDJSON progressively into a buffer.
+        output_buffer = io.StringIO()
+        output_buffer.write('{\n')
+        first_sheet = True
+        for sheet_name, sheet_info in sheet_entries.items():
+            data_path = sheet_info.get('data_path')
+            columns = list(sheet_info.get('columns') or [])
+            if not data_path or not os.path.exists(data_path):
+                continue
+
+            if not first_sheet:
+                output_buffer.write(',\n')
+            first_sheet = False
+            output_buffer.write(f'  {json.dumps(sheet_name)}: [\n')
+
+            first_row = True
+            with open(data_path, 'r', encoding='utf-8') as rows_file:
+                for line in rows_file:
+                    if not line.strip():
+                        continue
+                    if not first_row:
+                        output_buffer.write(',\n')
+                    first_row = False
+                    output_buffer.write('    ')
+                    output_buffer.write(line.strip())
+
+            output_buffer.write('\n  ]')
+
+        output_buffer.write('\n}\n')
+        output_buffer.seek(0)
+
+        return send_file(
+            io.BytesIO(output_buffer.getvalue().encode('utf-8')),
+            as_attachment=True,
+            download_name=download_name,
+            mimetype='application/json'
+        )
+    except Exception as e:
+        return jsonify({'error': f'Failed to download workings JSON: {str(e)}'}), 500
+
+
 def compute_ftp_components(deposit, loan, tenure):
     try:
         d = float(deposit) if deposit else 0
@@ -1931,12 +2010,47 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                     for _, row in chunk_sbu.iterrows():
                                         sbu_name = row['SBU']
                                         if sbu_name not in summary_by_sbu:
-                                            summary_by_sbu[sbu_name] = {'Currency Exposure + Currency Accrued Reporting': 0.0, 'FTP Charge': 0.0}
+                                            summary_by_sbu[sbu_name] = {'Currency Exposure + Currency Accrued Reporting': 0.0, 'FTP Charge': 0.0, 'by_branch': {}}
                                         summary_by_sbu[sbu_name]['Currency Exposure + Currency Accrued Reporting'] += row['Currency Exposure + Currency Accrued Reporting']
                                         summary_by_sbu[sbu_name]['FTP Charge'] += row['FTP Charge']
+                                    
+                                    # Also accumulate branch-level details within each SBU
+                                    if branch_col and branch_col in chunk.columns:
+                                        chunk_branch = chunk.groupby([branch_col, 'SBU']).agg({
+                                            'Currency Exposure + Currency Accrued Reporting': 'sum',
+                                            'FTP Charge': 'sum'
+                                        }).reset_index()
+                                        for _, brow in chunk_branch.iterrows():
+                                            branch_code = str(brow[branch_col]).strip()
+                                            sbu_name = brow['SBU']
+                                            exposure_val = brow['Currency Exposure + Currency Accrued Reporting']
+                                            ftp_val = brow['FTP Charge']
+                                            
+                                            # Get unit name from branch map
+                                            branch_info = branch_sbu_map.get(branch_code, {})
+                                            unit_name = branch_info.get('unit', 'Unknown')
+                                            
+                                            # Initialize branch entry if needed
+                                            if sbu_name not in summary_by_sbu:
+                                                summary_by_sbu[sbu_name] = {'Currency Exposure + Currency Accrued Reporting': 0.0, 'FTP Charge': 0.0, 'by_branch': {}}
+                                            if 'by_branch' not in summary_by_sbu[sbu_name]:
+                                                summary_by_sbu[sbu_name]['by_branch'] = {}
+                                            
+                                            branch_key = f'{branch_code}|{unit_name}'
+                                            if branch_key not in summary_by_sbu[sbu_name]['by_branch']:
+                                                summary_by_sbu[sbu_name]['by_branch'][branch_key] = {
+                                                    'branch_code': branch_code,
+                                                    'unit': unit_name,
+                                                    'sbu': sbu_name,
+                                                    'Currency Exposure + Currency Accrued Reporting': 0.0,
+                                                    'FTP Charge': 0.0
+                                                }
+                                            summary_by_sbu[sbu_name]['by_branch'][branch_key]['Currency Exposure + Currency Accrued Reporting'] += exposure_val
+                                            summary_by_sbu[sbu_name]['by_branch'][branch_key]['FTP Charge'] += ftp_val
 
                                     # Capture preview rows
                                     if len(preview_rows) < 100:
+                                       
                                         preview_chunk = chunk.head(100 - len(preview_rows)).copy()
                                         for col in preview_chunk.select_dtypes(include=['datetime64']).columns:
                                             preview_chunk[col] = preview_chunk[col].astype(str).replace('NaT', None)
