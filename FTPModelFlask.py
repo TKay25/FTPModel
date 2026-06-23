@@ -2215,7 +2215,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                     sheet_row_cursor += len(chunk) + (1 if header else 0)
 
                                     # Clean up computation arrays
-                                    del exposure, mtm_days, bucket_idx, bv, ev, iv, pos, bd, md, chunk
+                                    del exposure, mtm_months, mv, bv, ev, bd, md, chunk
                                     chunk_buffer = []
                                     chunk_count += 1
                                     gc.collect()
