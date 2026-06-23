@@ -3408,5 +3408,54 @@ def delete_processed_report_route(report_key):
 
 _ensure_processed_reports_db()
 
+
+@app.route('/convert-json', methods=['POST'])
+def convert_json():
+    """Convert uploaded JSON file to CSV."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+
+        # Read the uploaded JSON content
+        try:
+            raw_bytes = file.read()
+            data = json.loads(raw_bytes.decode('utf-8-sig'))
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+            return jsonify({'error': f'Invalid JSON file: {str(exc)}'}), 400
+
+        out_path = tempfile.mktemp(suffix='.csv', prefix='jsoncsv_')
+
+        # Normalise input to list of dicts
+        if isinstance(data, list):
+            rows = data
+        elif isinstance(data, dict):
+            # Use first sheet if multi-sheet
+            first_key = next(iter(data.keys()))
+            rows = data[first_key] if isinstance(data[first_key], list) else []
+        else:
+            return jsonify({'error': 'JSON must be an array of objects or an object with array values'}), 400
+
+        if not rows:
+            return jsonify({'error': 'No data rows found'}), 400
+
+        df = pd.DataFrame(rows)
+        df.to_csv(out_path, index=False, encoding='utf-8-sig')
+
+        return send_file(
+            out_path,
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=os.path.splitext(file.filename or 'data.json')[0] + '.csv'
+        )
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Conversion failed: {str(exc)}'}), 500
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

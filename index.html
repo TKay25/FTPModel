@@ -855,6 +855,7 @@
                         <button id="viewCurveBtn"><i class="fas fa-chart-line"></i> FTP Curve Editor</button>
                         <button id="openBranchMapBtn"><i class="fas fa-sitemap"></i> Branch Map</button>
                         <button id="openOperationsHubBtn"><i class="fas fa-tools"></i> Operations Hub</button>
+                        <button id="openJsonExportModalBtn"><i class="fas fa-file-export"></i> JSON to CSV</button>
                     </div>
                 </div>
                 <div class="sidebar-group">
@@ -1296,6 +1297,37 @@
         </div>
     </div>
 
+    <!-- MODAL 7: JSON to CSV Converter -->
+    <div class="modal" id="jsonExportModal">
+        <div class="modal-card" style="width:560px;">
+            <div class="modal-header">
+                <h2><i class="fas fa-file-export"></i> JSON to CSV</h2>
+                <button class="modal-header-close" id="closeJsonExportModalBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom:16px;color:var(--text-soft);font-size:14px;">
+                    Drop a JSON file below and it will be downloaded as CSV instantly.
+                    Supports <code>[{"col": "val"}, ...]</code> (single sheet) format.
+                </p>
+                <div class="fancy-file-upload" id="jsonFancyFileUpload">
+                    <div class="fancy-file-content">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <div class="fancy-file-text">
+                            <span class="fancy-file-title">Drop JSON file here</span>
+                            <span class="fancy-file-subtitle">Click to browse or drag & drop</span>
+                        </div>
+                        <span class="fancy-file-badge">JSON</span>
+                    </div>
+                    <input type="file" id="jsonFileInput" accept=".json, .jsonl" hidden>
+                </div>
+                <div id="jsonExportStatus" style="margin-top:12px;font-size:13px;color:var(--text-soft);"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-ghost" id="closeJsonExportModalBtn2">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
 (function() {
     // ===== Toast Notification System =====
@@ -1361,6 +1393,15 @@
     const closeArchiveBrowserModalBtn2 = document.getElementById('closeArchiveBrowserModalBtn2');
     const closeOperationsHubModalBtn = document.getElementById('closeOperationsHubModalBtn');
     const closeOperationsHubModalBtn2 = document.getElementById('closeOperationsHubModalBtn2');
+
+    // JSON Export modal elements
+    const jsonExportModal = document.getElementById('jsonExportModal');
+    const openJsonExportModalBtn = document.getElementById('openJsonExportModalBtn');
+    const closeJsonExportModalBtn = document.getElementById('closeJsonExportModalBtn');
+    const closeJsonExportModalBtn2 = document.getElementById('closeJsonExportModalBtn2');
+    const jsonFileInput = document.getElementById('jsonFileInput');
+    const jsonFancyFileUpload = document.getElementById('jsonFancyFileUpload');
+    const jsonExportStatus = document.getElementById('jsonExportStatus');
     
     const viewCurveBtn = document.getElementById('viewCurveBtn');
     const openBranchMapBtn = document.getElementById('openBranchMapBtn');
@@ -2585,6 +2626,98 @@
     operationsHubModal.addEventListener('click', (e) => {
         if (e.target === operationsHubModal) {
             operationsHubModal.style.display = 'none';
+        }
+    });
+
+    // ===== JSON to CSV Converter =====
+
+    function openJsonExportModal() {
+        jsonExportModal.style.display = 'flex';
+        jsonExportStatus.textContent = '';
+    }
+
+    function closeJsonExportModal() {
+        jsonExportModal.style.display = 'none';
+    }
+
+    openJsonExportModalBtn.addEventListener('click', openJsonExportModal);
+    closeJsonExportModalBtn.addEventListener('click', closeJsonExportModal);
+    if (closeJsonExportModalBtn2) closeJsonExportModalBtn2.addEventListener('click', closeJsonExportModal);
+
+    jsonExportModal.addEventListener('click', (e) => {
+        if (e.target === jsonExportModal) closeJsonExportModal();
+    });
+
+    // File picker via fancy upload
+    jsonFancyFileUpload.addEventListener('click', () => jsonFileInput.click());
+
+    // Auto-convert on file select
+    async function convertJsonToCsv(file) {
+        jsonExportStatus.textContent = 'Converting...';
+        jsonExportStatus.style.color = 'var(--text-soft)';
+        jsonFancyFileUpload.style.opacity = '0.5';
+        jsonFancyFileUpload.style.pointerEvents = 'none';
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('format', 'csv');
+
+            const response = await fetch('/convert-json', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({ error: 'Conversion failed' }));
+                throw new Error(err.error || `HTTP ${response.status}`);
+            }
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = (file.name.replace(/\.(json|jsonl)$/i, '') || 'converted') + '.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            jsonExportStatus.innerHTML = '✅ Done — <a href="#" onclick="this.closest(\'.modal\').style.display=\'none\';return false;" style="color:var(--accent);text-decoration:underline;">close</a>';
+            jsonExportStatus.style.color = 'var(--badge-ready-color, #1b5e20)';
+        } catch (err) {
+            jsonExportStatus.textContent = '❌ ' + err.message;
+            jsonExportStatus.style.color = '#c0392b';
+        } finally {
+            jsonFancyFileUpload.style.opacity = '1';
+            jsonFancyFileUpload.style.pointerEvents = 'auto';
+        }
+    }
+
+    jsonFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        convertJsonToCsv(file);
+        // Reset so the same file can be selected again
+        jsonFileInput.value = '';
+    });
+
+    // Drag & drop — auto-convert on drop
+    jsonFancyFileUpload.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        jsonFancyFileUpload.style.borderColor = 'var(--accent)';
+    });
+    jsonFancyFileUpload.addEventListener('dragleave', () => {
+        jsonFancyFileUpload.style.borderColor = '';
+    });
+    jsonFancyFileUpload.addEventListener('drop', (e) => {
+        e.preventDefault();
+        jsonFancyFileUpload.style.borderColor = '';
+        const file = e.dataTransfer.files[0];
+        if (file && (file.name.endsWith('.json') || file.name.endsWith('.jsonl'))) {
+            convertJsonToCsv(file);
+        } else {
+            showToast('Please drop a .json or .jsonl file', 'warning');
         }
     });
 
