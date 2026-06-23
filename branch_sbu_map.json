@@ -1,0 +1,642 @@
+{
+  "0": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "11": {
+    "unit": "Kwame Nkrumah",
+    "sbu": "Retail Banking"
+  },
+  "12": {
+    "unit": "8Th Avenue",
+    "sbu": "Retail Banking"
+  },
+  "13": {
+    "unit": "Mutare",
+    "sbu": "Retail Banking"
+  },
+  "14": {
+    "unit": "Kwekwe",
+    "sbu": "Retail Banking"
+  },
+  "15": {
+    "unit": "Chitungwiza",
+    "sbu": "Retail Banking"
+  },
+  "17": {
+    "unit": "Gokwe",
+    "sbu": "Retail Banking"
+  },
+  "18": {
+    "unit": "Gweru",
+    "sbu": "Retail Banking"
+  },
+  "20": {
+    "unit": "Chivhu",
+    "sbu": "Retail Banking"
+  },
+  "21": {
+    "unit": "Selous",
+    "sbu": "Retail Banking"
+  },
+  "23": {
+    "unit": "Southerton",
+    "sbu": "Retail Banking"
+  },
+  "24": {
+    "unit": "Sapphire",
+    "sbu": "Retail Banking"
+  },
+  "25": {
+    "unit": "Masvingo",
+    "sbu": "Retail Banking"
+  },
+  "26": {
+    "unit": "Belmont",
+    "sbu": "Retail Banking"
+  },
+  "27": {
+    "unit": "Cash Depot Bulawayo",
+    "sbu": "Retail Banking"
+  },
+  "28": {
+    "unit": "Chiredzi",
+    "sbu": "Retail Banking"
+  },
+  "29": {
+    "unit": "Borrowdale",
+    "sbu": "Retail Banking"
+  },
+  "30": {
+    "unit": "Avondale",
+    "sbu": "Retail Banking"
+  },
+  "31": {
+    "unit": "Chinhoyi",
+    "sbu": "Retail Banking"
+  },
+  "32": {
+    "unit": "Kwekwe",
+    "sbu": "Retail Banking"
+  },
+  "33": {
+    "unit": "Sapphire",
+    "sbu": "Retail Banking"
+  },
+  "34": {
+    "unit": "Cash Depot Harare",
+    "sbu": "Retail Banking"
+  },
+  "35": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "36": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "37": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "38": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "39": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "40": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "41": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "43": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "44": {
+    "unit": "Private Sector",
+    "sbu": "Corporate Banking"
+  },
+  "45": {
+    "unit": "Business Banking",
+    "sbu": "Corporate Banking"
+  },
+  "46": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "47": {
+    "unit": "Private Sector",
+    "sbu": "Corporate Banking"
+  },
+  "48": {
+    "unit": "Private Sector",
+    "sbu": "Corporate Banking"
+  },
+  "49": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "50": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "51": {
+    "unit": "Retail Head Office",
+    "sbu": "Retail Banking"
+  },
+  "52": {
+    "unit": "Kwame Nkrumah",
+    "sbu": "Retail Banking"
+  },
+  "53": {
+    "unit": "Private Sector",
+    "sbu": "Corporate Banking"
+  },
+  "54": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "55": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "56": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "57": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "58": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "61": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "62": {
+    "unit": "8th Avenue",
+    "sbu": "Retail Banking"
+  },
+  "65": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "66": {
+    "unit": "Treasury",
+    "sbu": "Treasury"
+  },
+  "67": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "68": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "69": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "70": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "87": {
+    "unit": "Chisipite",
+    "sbu": "Retail Banking"
+  },
+  "88": {
+    "unit": "8Th Avenue",
+    "sbu": "Retail Banking"
+  },
+  "89": {
+    "unit": "Highfield",
+    "sbu": "Retail Banking"
+  },
+  "90": {
+    "unit": "Marondera",
+    "sbu": "Retail Banking"
+  },
+  "91": {
+    "unit": "Chitungwiza",
+    "sbu": "Retail Banking"
+  },
+  "92": {
+    "unit": "Gokwe",
+    "sbu": "Retail Banking"
+  },
+  "93": {
+    "unit": "Beitbridge",
+    "sbu": "Retail Banking"
+  },
+  "95": {
+    "unit": "Kariba",
+    "sbu": "Retail Banking"
+  },
+  "96": {
+    "unit": "Kariba",
+    "sbu": "Retail Banking"
+  },
+  "97": {
+    "unit": "Karoi",
+    "sbu": "Retail Banking"
+  },
+  "98": {
+    "unit": "Chinhoyi",
+    "sbu": "Retail Banking"
+  },
+  "99": {
+    "unit": "Masvingo",
+    "sbu": "Retail Banking"
+  },
+  "100": {
+    "unit": "Mvurwi",
+    "sbu": "Retail Banking"
+  },
+  "101": {
+    "unit": "Chipinge",
+    "sbu": "Retail Banking"
+  },
+  "102": {
+    "unit": "Rusape",
+    "sbu": "Retail Banking"
+  },
+  "103": {
+    "unit": "Murehwa",
+    "sbu": "Retail Banking"
+  },
+  "104": {
+    "unit": "Victoria Falls",
+    "sbu": "Retail Banking"
+  },
+  "105": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "106": {
+    "unit": "Agribusiness",
+    "sbu": "Corporate Banking"
+  },
+  "107": {
+    "unit": "Institutional Banking",
+    "sbu": "Corporate Banking"
+  },
+  "108": {
+    "unit": "Business Banking",
+    "sbu": "Corporate Banking"
+  },
+  "109": {
+    "unit": "Chiredzi",
+    "sbu": "Retail Banking"
+  },
+  "110": {
+    "unit": "Selous",
+    "sbu": "Retail Banking"
+  },
+  "111": {
+    "unit": "Selous",
+    "sbu": "Retail Banking"
+  },
+  "112": {
+    "unit": "Mvurwi",
+    "sbu": "Retail Banking"
+  },
+  "113": {
+    "unit": "Custodial Services",
+    "sbu": "Corporate Banking"
+  },
+  "114": {
+    "unit": "Retail Head Office",
+    "sbu": "Retail Banking"
+  },
+  "115": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "116": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "117": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "118": {
+    "unit": "Bureau De Change Hire",
+    "sbu": "Shared Services"
+  },
+  "120": {
+    "unit": "Sapphire",
+    "sbu": "Retail Banking"
+  },
+  "121": {
+    "unit": "Retail Centralised",
+    "sbu": "Retail Banking"
+  },
+  "122": {
+    "unit": "Mat Centre Fire Street",
+    "sbu": "Retail Banking"
+  },
+  "123": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "124": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "125": {
+    "unit": "Passport Centre Harare",
+    "sbu": "Retail Banking"
+  },
+  "126": {
+    "unit": "Virtual Branch",
+    "sbu": "Retail Banking"
+  },
+  "127": {
+    "unit": "Passport Centre Harare",
+    "sbu": "Retail Banking"
+  },
+  "128": {
+    "unit": "Passport Centre Chitungwiza",
+    "sbu": "Retail Banking"
+  },
+  "129": {
+    "unit": "Passport Centre Lupar",
+    "sbu": "Retail Banking"
+  },
+  "130": {
+    "unit": "Passport Centre Hwange",
+    "sbu": "Retail Banking"
+  },
+  "131": {
+    "unit": "Passport Centre Gweru",
+    "sbu": "Retail Banking"
+  },
+  "132": {
+    "unit": "Passport Centre Beitbridge",
+    "sbu": "Retail Banking"
+  },
+  "133": {
+    "unit": "Passport Centre Chinhoyi",
+    "sbu": "Retail Banking"
+  },
+  "134": {
+    "unit": "Passport Centre Marondera",
+    "sbu": "Retail Banking"
+  },
+  "135": {
+    "unit": "Passport Centre Bindura",
+    "sbu": "Retail Banking"
+  },
+  "136": {
+    "unit": "Passport Centre Gwe",
+    "sbu": "Retail Banking"
+  },
+  "137": {
+    "unit": "Passport Centre Mutare",
+    "sbu": "Retail Banking"
+  },
+  "138": {
+    "unit": "Passport Centre Mvurwi",
+    "sbu": "Retail Banking"
+  },
+  "139": {
+    "unit": "Passport Centre Zvishavane",
+    "sbu": "Retail Banking"
+  },
+  "140": {
+    "unit": "Passport Centre Murehwa",
+    "sbu": "Retail Banking"
+  },
+  "141": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "142": {
+    "unit": "Retail Centralised",
+    "sbu": "Retail Banking"
+  },
+  "143": {
+    "unit": "Retail Head Office",
+    "sbu": "Retail Banking"
+  },
+  "144": {
+    "unit": "Retail Head Office",
+    "sbu": "Retail Banking"
+  },
+  "145": {
+    "unit": "Borrowdale",
+    "sbu": "Retail Banking"
+  },
+  "146": {
+    "unit": "Passport Centre Mwer",
+    "sbu": "Retail Banking"
+  },
+  "147": {
+    "unit": "Passport Centre Gokwe",
+    "sbu": "Retail Banking"
+  },
+  "203": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "600": {
+    "unit": "Shared Services",
+    "sbu": "Shared Services"
+  },
+  "601": {
+    "unit": "Treasury",
+    "sbu": "Treasury"
+  },
+  "602": {
+    "unit": "Mortgage Finance",
+    "sbu": "Retail Banking"
+  },
+  "611": {
+    "unit": "Masvingo",
+    "sbu": "Retail Banking"
+  },
+  "612": {
+    "unit": "Chiredzi",
+    "sbu": "Retail Banking"
+  },
+  "613": {
+    "unit": "Chinhoyi",
+    "sbu": "Retail Banking"
+  },
+  "614": {
+    "unit": "Zvishavane",
+    "sbu": "Retail Banking"
+  },
+  "615": {
+    "unit": "Gweru",
+    "sbu": "Retail Banking"
+  },
+  "616": {
+    "unit": "Kwekwe",
+    "sbu": "Retail Banking"
+  },
+  "617": {
+    "unit": "Kadoma",
+    "sbu": "Retail Banking"
+  },
+  "618": {
+    "unit": "Kadoma",
+    "sbu": "Retail Banking"
+  },
+  "619": {
+    "unit": "Gokwe",
+    "sbu": "Retail Banking"
+  },
+  "629": {
+    "unit": "Chipinge",
+    "sbu": "Retail Banking"
+  },
+  "630": {
+    "unit": "Chipinge",
+    "sbu": "Retail Banking"
+  },
+  "631": {
+    "unit": "Mutare",
+    "sbu": "Retail Banking"
+  },
+  "632": {
+    "unit": "Mutare",
+    "sbu": "Retail Banking"
+  },
+  "633": {
+    "unit": "Mutare",
+    "sbu": "Retail Banking"
+  },
+  "634": {
+    "unit": "Rusape",
+    "sbu": "Retail Banking"
+  },
+  "644": {
+    "unit": "8th Avenue",
+    "sbu": "Retail Banking"
+  },
+  "645": {
+    "unit": "8th Avenue",
+    "sbu": "Retail Banking"
+  },
+  "646": {
+    "unit": "Belmont",
+    "sbu": "Retail Banking"
+  },
+  "647": {
+    "unit": "Belmont",
+    "sbu": "Retail Banking"
+  },
+  "648": {
+    "unit": "Belmont",
+    "sbu": "Retail Banking"
+  },
+  "649": {
+    "unit": "Gwanda",
+    "sbu": "Retail Banking"
+  },
+  "658": {
+    "unit": "Cash Depot Bulawayo",
+    "sbu": "Retail Banking"
+  },
+  "660": {
+    "unit": "Samora Machel",
+    "sbu": "Retail Banking"
+  },
+  "661": {
+    "unit": "Avondale",
+    "sbu": "Retail Banking"
+  },
+  "662": {
+    "unit": "Bindura",
+    "sbu": "Retail Banking"
+  },
+  "663": {
+    "unit": "Msasa",
+    "sbu": "Retail Banking"
+  },
+  "664": {
+    "unit": "Chinhoyi",
+    "sbu": "Retail Banking"
+  },
+  "665": {
+    "unit": "Sapphire",
+    "sbu": "Retail Banking"
+  },
+  "667": {
+    "unit": "Karoi",
+    "sbu": "Retail Banking"
+  },
+  "668": {
+    "unit": "Murehwa",
+    "sbu": "Retail Banking"
+  },
+  "669": {
+    "unit": "Samora Machel",
+    "sbu": "Retail Banking"
+  },
+  "670": {
+    "unit": "Samora Machel",
+    "sbu": "Retail Banking"
+  },
+  "671": {
+    "unit": "Cash Depot Harare",
+    "sbu": "Retail Banking"
+  },
+  "672": {
+    "unit": "Kariba",
+    "sbu": "Retail Banking"
+  },
+  "681": {
+    "unit": "Sapphire",
+    "sbu": "Retail Banking"
+  },
+  "682": {
+    "unit": "Chivhu",
+    "sbu": "Retail Banking"
+  },
+  "683": {
+    "unit": "Chitungwiza",
+    "sbu": "Retail Banking"
+  },
+  "684": {
+    "unit": "Chivhu",
+    "sbu": "Retail Banking"
+  },
+  "685": {
+    "unit": "Sapphire",
+    "sbu": "Retail Banking"
+  },
+  "686": {
+    "unit": "Highfield",
+    "sbu": "Retail Banking"
+  },
+  "687": {
+    "unit": "Marondera",
+    "sbu": "Retail Banking"
+  },
+  "688": {
+    "unit": "Msasa",
+    "sbu": "Retail Banking"
+  },
+  "689": {
+    "unit": "Msasa",
+    "sbu": "Retail Banking"
+  },
+  "690": {
+    "unit": "Sapphire",
+    "sbu": "Retail Banking"
+  }
+}

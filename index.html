@@ -862,6 +862,7 @@
                     <div class="sidebar-nav">
                         <button id="downloadResultsBtn" disabled><i class="fas fa-file-pdf"></i> PDF Report</button>
                         <button id="downloadExcelBtn" disabled><i class="fas fa-file-excel"></i> Excel Results</button>
+                        <button id="downloadExcelZipBtn" disabled><i class="fas fa-file-archive"></i> Excel Results (ZIP)</button>
                         <button id="downloadOriginalBtn" disabled><i class="fas fa-file-upload"></i> Original Workbook</button>
                         <button id="downloadWorkingsBtn" disabled><i class="fas fa-file-alt"></i> Workings Excel</button>
                         <button id="downloadWorkingsJsonBtn" disabled><i class="fas fa-file-code"></i> Workings JSON</button>
@@ -1429,6 +1430,7 @@
     const previewContent = document.getElementById('previewContent');
     const downloadResultsBtn = document.getElementById('downloadResultsBtn');
     const downloadExcelBtn = document.getElementById('downloadExcelBtn');
+    const downloadExcelZipBtn = document.getElementById('downloadExcelZipBtn');
     const downloadOriginalBtn = document.getElementById('downloadOriginalBtn');
     const downloadWorkingsBtn = document.getElementById('downloadWorkingsBtn');
     const downloadWorkingsJsonBtn = document.getElementById('downloadWorkingsJsonBtn');
@@ -3332,6 +3334,7 @@
             downloadRangeY.textContent = savedJob.lastDay || 'N/A';
             downloadResultsBtn.disabled = false;
             downloadExcelBtn.disabled = false;
+            if (downloadExcelZipBtn) downloadExcelZipBtn.disabled = false;
             setOriginalWorkbookDownloadState(Boolean(result.original_upload_available));
             setWorkingsDownloadState(Boolean(result.workings_available));
             updatePreviewBadgeMode(Boolean(result.excel_contains_workings), Number(result.skipped_sheet_count || 0));
@@ -3490,6 +3493,7 @@
                 downloadRangeY.textContent = lastDay;
                 downloadResultsBtn.disabled = false;
                 downloadExcelBtn.disabled = false;
+                if (downloadExcelZipBtn) downloadExcelZipBtn.disabled = false;
                 setOriginalWorkbookDownloadState(Boolean(result.original_upload_available));
                 setWorkingsDownloadState(Boolean(result.workings_available));
                 updatePreviewBadgeMode(Boolean(result.excel_contains_workings), Number(result.skipped_sheet_count || 0));
@@ -3875,6 +3879,45 @@
                 <div style="text-align: center; padding: 20px;">
                     <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
                     <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Excel Download Failed</h3>
+                    <p style="color: #632424;">${error.message}</p>
+                </div>
+            `);
+        }
+    });
+
+    downloadExcelZipBtn.addEventListener('click', async () => {
+        if (!lastComputedRange.firstDay || (!lastComputedRange.summary && !lastComputedRange.reportKey)) {
+            showToast('Please compute FTP range first', 'warning');
+            return;
+        }
+
+        updatePreviewWithData(`
+            <div style="text-align: center; padding: 20px;">
+                <i class="fas fa-spinner fa-pulse" style="font-size: 48px; color: #1d4ed8; margin-bottom: 20px;"></i>
+                <h3 style="color: #1d4ed8; margin-bottom: 10px;">Compressing Excel Workbook...</h3>
+                <p style="color: #5b6472;">Wrapping results into a ZIP archive for faster download</p>
+            </div>
+        `);
+
+        try {
+            const query = buildReportQueryString();
+            const sep = query ? '&' : '?';
+            await downloadFile(`/download-excel${query}${sep}zip=1`, 'zip');
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 10px;">
+                    <i class="fas fa-file-archive" style="font-size: 48px; color: #1d4ed8; margin-bottom: 15px;"></i>
+                    <h3 style="color: #1d4ed8; margin-bottom: 10px;">✓ Excel ZIP Downloaded</h3>
+                    <p style="color: #2f1a1a;">Your FTP results have been compressed into a ZIP archive.</p>
+                </div>
+            `);
+            showToast('Excel results downloaded as ZIP!', 'success');
+        } catch (error) {
+            console.error('Error downloading Excel ZIP:', error);
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
+                    <h3 style="color: #dc3545; margin-bottom: 10px;">✗ ZIP Download Failed</h3>
                     <p style="color: #632424;">${error.message}</p>
                 </div>
             `);

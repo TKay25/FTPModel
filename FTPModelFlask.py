@@ -334,9 +334,9 @@ init_branch_map_db()
 
 def load_curve_config():
     default_curves = {
-        'tenors': [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1460, 1800],
-        'usd_rates': [3.29, 3.36, 6.15, 10.97, 11.02, 11.13, 12.22, 12.22, 12.22, 13.96, 15.41, 18.32, 18.32],
-        'zwg_rates': [16.90, 16.90, 16.90, 16.90, 17.90, 18.10, 19.10, 19.10, 20.10, 23.47, 26.54, 32.67, 32.67]
+        'tenors': [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800],
+        'usd_rates': [3.2892, 3.3567, 6.1538, 10.9667, 11.0167, 11.1333, 12.2167, 12.2167, 12.2167, 13.9646, 15.415, 18.3158, 18.3158],
+        'zwg_rates': [16.9019, 16.9019, 16.9019, 16.9019, 17.9019, 18.1019, 19.1019, 19.1019, 20.1019, 23.4741, 26.5397, 32.6708, 32.6708]
     }
 
     if not os.path.exists(CURVE_CONFIG_PATH):
@@ -1275,12 +1275,26 @@ def download_excel():
         if not excel_path or not os.path.exists(excel_path):
             return jsonify({'error': 'Processed Excel output is not available. Please upload the file again.'}), 404
 
-        return send_file(
-            excel_path,
-            as_attachment=True,
-            download_name=excel_filename,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
+        as_zip = str(request.args.get('zip', '0')).lower() in {'1', 'true', 'yes'}
+        if as_zip:
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                zf.write(excel_path, arcname=excel_filename)
+            zip_buffer.seek(0)
+            zip_name = excel_filename.rsplit('.', 1)[0] + '.zip'
+            return send_file(
+                zip_buffer,
+                as_attachment=True,
+                download_name=zip_name,
+                mimetype='application/zip'
+            )
+        else:
+            return send_file(
+                excel_path,
+                as_attachment=True,
+                download_name=excel_filename,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
     except Exception as e:
         return jsonify({'error': f'Failed to download Excel: {str(e)}'}), 500
 
@@ -1927,15 +1941,18 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
 
                 if sheet in LOAN_SHEETS:
                     branch_column_candidates = ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE']
+                    loan_type_candidates = ['Loan Type', 'LOAN_TYPE', 'PRODUCT']
+                    source_of_funding_candidates = ['Source of Funding', 'SOURCE_OF_FUNDING', 'FUNDING_SOURCE']
 
                     # FTP computation constants
                     first_day_ts = pd.Timestamp(first_day.date())
                     last_day_ts = pd.Timestamp(last_day.date())
                     full_period = (last_day_ts - first_day_ts).days + 1
-                    bucket_labels = ['<7days','7-14days','14-21days','21-30days','30-60days','60-90days',
-                                     '90-180days','180-270days','270-360days','360-720days',
-                                     '720-1080days','1080-1460days','1460-1800days','+1800days']
-                    bin_edges = [0, 7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1460, 1800, float('inf')]
+                    # Reference model bucket labels (13 buckets)
+                    bucket_labels = ['<7days','7-14days','14-21days','21days-1m','1m-2m','2m-3m',
+                                     '3m-6m','6m-9m','9m-12m','1y-2y','2y-3y','3y-5y','+5y']
+                    bin_edges = [0, 7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800, float('inf')]
+                    # FTP curve rates per the reference model Offer Rate curve
                     rates = zwg_rates if sheet == 'ZWG LOANS' else usd_rates
                     rv = np.array([(rates[i] if i < len(rates) else rates[-1]) / 100
                                    for i in range(len(bucket_labels))], dtype=np.float32)
@@ -2032,50 +2049,120 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                     chunk['DTM'] = np.where(md > last_day_ts, (md - last_day_ts).dt.days, 0).astype(np.int32)
                                     chunk['MTM'] = (chunk['DTM'] / 30).round(1).astype(np.float32)
 
-                                    # Compute buckets and FTP charges
+                                    # Determine exposure column (handle both spaced and unspaced variants)
+                                    exposure_col = next((c for c in ['Currency Exposure + Currency Accrued Reporting',
+                                                                      'Currency Exposure+ Currency Accrued Reporting',
+                                                                      'Currency Exposure+Currency Accrued Reporting']
+                                                         if c in chunk.columns), None)
+                                    if exposure_col is None:
+                                        exposure_col = 'Currency Exposure + Currency Accrued Reporting'
+
                                     exposure = pd.to_numeric(
-                                        chunk['Currency Exposure + Currency Accrued Reporting'], errors='coerce'
+                                        chunk[exposure_col], errors='coerce'
                                     ).fillna(0).astype(np.float32)
-                                    mtm_days = (chunk['MTM'] * 30).astype(np.float32)
-                                    bucket_idx = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
-                                    bucket_idx = bucket_idx.fillna(len(bucket_labels) - 1).astype(int)
+                                    mtm_months = chunk['MTM'].fillna(0).clip(lower=0).round().astype(np.int32)
+
+                                    # Detect asset type for cashflow model selection
+                                    loan_type_col = next((c for c in loan_type_candidates if c in chunk.columns), None)
+                                    sof_col = next((c for c in source_of_funding_candidates if c in chunk.columns), None)
+                                    loan_type = chunk[loan_type_col].astype(str).str.strip() if loan_type_col else pd.Series([''] * len(chunk))
+                                    source_of_funding = chunk[sof_col].astype(str).str.strip() if sof_col else pd.Series([''] * len(chunk))
+                                    is_od = loan_type.str.upper().str.contains('OD', na=False)
+                                    is_loc = source_of_funding.str.upper().str.contains('LOC|LINE.OF.CREDIT', na=False, regex=True)
 
                                     bv = np.zeros((len(chunk), len(bucket_labels)), dtype=np.float32)
                                     ev = exposure.to_numpy(dtype=np.float32, copy=False)
-                                    iv = bucket_idx.to_numpy(dtype=np.int16, copy=False)
-                                    pos = np.nonzero(ev > 0)[0]
-                                    bv[pos, iv[pos]] = ev[pos]
+                                    mv = mtm_months.to_numpy(dtype=np.int32, copy=False)
+
+                                    # --- Cashflow Model 1: Term Loans (Amortisation / Inflow-based) ---
+                                    # Spread exposure evenly across MTM months
+                                    term_loan_mask = ~is_od.values & ~is_loc.values
+                                    ti = np.where(term_loan_mask)[0]
+                                    if len(ti) > 0:
+                                        mv_t = mv[ti]
+                                        ev_t = ev[ti]
+                                        max_mt = min(mv_t.max(), len(bucket_labels)) if len(mv_t) > 0 else 0
+                                        if max_mt > 0:
+                                            monthly_amt = np.where(mv_t > 0, ev_t / np.maximum(mv_t, 1), 0.0)
+                                            for m in range(1, max_mt + 1):
+                                                active_mask = mv_t >= m
+                                                if active_mask.any():
+                                                    inflow_day = m * 30
+                                                    b = np.searchsorted(bin_edges, inflow_day, side='right') - 1
+                                                    b = min(b, len(bucket_labels) - 1)
+                                                    bv[ti[active_mask], b] += monthly_amt[active_mask]
+                                        # Remaining months beyond bucket limit → last bucket
+                                        if len(mv_t) > 0 and mv_t.max() > len(bucket_labels):
+                                            monthly_amt = np.where(mv_t > 0, ev_t / np.maximum(mv_t, 1), 0.0)
+                                            extra = np.maximum(0, mv_t - len(bucket_labels)).astype(np.float32)
+                                            active_mask = extra > 0
+                                            if active_mask.any():
+                                                bv[ti[active_mask], -1] += monthly_amt[active_mask] * extra[active_mask]
+
+                                    # --- Cashflow Model 2: Overdrafts (Equally Weighted Strips, 12-month tenor) ---
+                                    # Spread exposure evenly across 12 equal monthly strips regardless of actual maturity
+                                    od_mask = is_od.values
+                                    oi = np.where(od_mask)[0]
+                                    if len(oi) > 0:
+                                        ev_od = ev[oi]
+                                        od_strip_months = 12
+                                        strip_amt = np.where(ev_od > 0, ev_od / od_strip_months, 0.0)
+                                        for m in range(1, od_strip_months + 1):
+                                            inflow_day = m * 30
+                                            b = np.searchsorted(bin_edges, inflow_day, side='right') - 1
+                                            b = min(b, len(bucket_labels) - 1)
+                                            bv[oi, b] += strip_amt
+
+                                    # --- Cashflow Model 3: Lines of Credit (Contractual Maturity) ---
+                                    # Full exposure at the contractual maturity bucket
+                                    loc_mask = is_loc.values
+                                    li = np.where(loc_mask)[0]
+                                    if len(li) > 0:
+                                        mv_loc = mv[li]
+                                        # Vectorised: assign full exposure at maturity bucket
+                                        mtm_days_loc = np.maximum(mv_loc, 0) * 30
+                                        b_idx_loc = np.searchsorted(bin_edges, mtm_days_loc, side='right') - 1
+                                        b_idx_loc = np.clip(b_idx_loc, 0, len(bucket_labels) - 1)
+                                        for i, bi in zip(li, b_idx_loc):
+                                            if ev[i] > 0:
+                                                bv[i, bi] = ev[i]
+
+                                    # Zero MTM but positive exposure → shortest bucket
+                                    zero_active = (mv <= 0) & (ev > 0)
+                                    if zero_active.any():
+                                        bv[zero_active, 0] = ev[zero_active]
+
                                     chunk[bucket_labels] = bv
                                     chunk['Check'] = bv.sum(axis=1).astype(np.float32)
                                     chunk['FTP Charge'] = (bv @ rv).astype(np.float32)
 
                                     # Accumulate summaries
-                                    chunk_exposure = chunk['Currency Exposure + Currency Accrued Reporting'].sum()
+                                    chunk_exposure = chunk[exposure_col].sum()
                                     chunk_ftp = chunk['FTP Charge'].sum()
                                     summary_exposure += chunk_exposure
                                     summary_ftp += chunk_ftp
 
                                     chunk_sbu = chunk.groupby('SBU').agg({
-                                        'Currency Exposure + Currency Accrued Reporting': 'sum',
+                                        exposure_col: 'sum',
                                         'FTP Charge': 'sum'
                                     }).reset_index()
                                     for _, row in chunk_sbu.iterrows():
                                         sbu_name = row['SBU']
                                         if sbu_name not in summary_by_sbu:
-                                            summary_by_sbu[sbu_name] = {'Currency Exposure + Currency Accrued Reporting': 0.0, 'FTP Charge': 0.0, 'by_branch': {}}
-                                        summary_by_sbu[sbu_name]['Currency Exposure + Currency Accrued Reporting'] += row['Currency Exposure + Currency Accrued Reporting']
+                                            summary_by_sbu[sbu_name] = {exposure_col: 0.0, 'FTP Charge': 0.0, 'by_branch': {}}
+                                        summary_by_sbu[sbu_name][exposure_col] += row[exposure_col]
                                         summary_by_sbu[sbu_name]['FTP Charge'] += row['FTP Charge']
                                     
                                     # Also accumulate branch-level details within each SBU
                                     if branch_col and branch_col in chunk.columns:
                                         chunk_branch = chunk.groupby([branch_col, 'SBU']).agg({
-                                            'Currency Exposure + Currency Accrued Reporting': 'sum',
+                                            exposure_col: 'sum',
                                             'FTP Charge': 'sum'
                                         }).reset_index()
                                         for _, brow in chunk_branch.iterrows():
                                             branch_code = str(brow[branch_col]).strip()
                                             sbu_name = brow['SBU']
-                                            exposure_val = brow['Currency Exposure + Currency Accrued Reporting']
+                                            exposure_val = brow[exposure_col]
                                             ftp_val = brow['FTP Charge']
                                             
                                             # Get unit name from branch map
@@ -2084,7 +2171,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                             
                                             # Initialize branch entry if needed
                                             if sbu_name not in summary_by_sbu:
-                                                summary_by_sbu[sbu_name] = {'Currency Exposure + Currency Accrued Reporting': 0.0, 'FTP Charge': 0.0, 'by_branch': {}}
+                                                summary_by_sbu[sbu_name] = {exposure_col: 0.0, 'FTP Charge': 0.0, 'by_branch': {}}
                                             if 'by_branch' not in summary_by_sbu[sbu_name]:
                                                 summary_by_sbu[sbu_name]['by_branch'] = {}
                                             
@@ -2094,10 +2181,10 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                                     'branch_code': branch_code,
                                                     'unit': unit_name,
                                                     'sbu': sbu_name,
-                                                    'Currency Exposure + Currency Accrued Reporting': 0.0,
+                                                    exposure_col: 0.0,
                                                     'FTP Charge': 0.0
                                                 }
-                                            summary_by_sbu[sbu_name]['by_branch'][branch_key]['Currency Exposure + Currency Accrued Reporting'] += exposure_val
+                                            summary_by_sbu[sbu_name]['by_branch'][branch_key][exposure_col] += exposure_val
                                             summary_by_sbu[sbu_name]['by_branch'][branch_key]['FTP Charge'] += ftp_val
 
                                     # Capture preview rows
