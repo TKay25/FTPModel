@@ -2512,17 +2512,89 @@
         });
     }
 
+    // --- Live row counter for the compute stage ---
+    // The server reports stage text like "Computing FTP for April 2026: FX LOANS 50000/72281"
+    // once per processed chunk. To make the overlay read like a live "1/72281, 2/72281, ..."
+    // ticker, the client animates the visible count up to the latest server-reported value
+    // between status polls (it never exceeds the real server value).
+    let processingRowTicker = null;
+    let rowTickerState = { prefix: '', sheet: '', current: 0, target: 0, total: 0 };
+
+    function stopRowTicker() {
+        if (processingRowTicker) {
+            clearInterval(processingRowTicker);
+            processingRowTicker = null;
+        }
+    }
+
+    function parseRowProgressStage(stageText) {
+        const text = String(stageText || '').trim();
+        const match = text.match(/^(.*?:\s*)?([A-Za-z][A-Za-z0-9 .()\/-]*?)\s+(\d+)\s*\/\s*(\d+)\s*$/);
+        if (!match) {
+            return null;
+        }
+        const prefix = match[1] || '';
+        const sheet = match[2].trim();
+        const current = parseInt(match[3], 10);
+        const total = parseInt(match[4], 10);
+        if (!sheet || !total || total < 1 || current < 0 || current > total) {
+            return null;
+        }
+        return { prefix, sheet, current, total };
+    }
+
+    function renderRowStageText() {
+        const st = rowTickerState;
+        processingStage.textContent = `${st.prefix}${st.sheet} ${st.current.toLocaleString('en-US')}/${st.total.toLocaleString('en-US')}`;
+    }
+
+    function startRowTicker(parsed) {
+        const st = rowTickerState;
+        const sheetChanged = st.sheet !== parsed.sheet || st.total !== parsed.total || st.prefix !== parsed.prefix;
+        if (sheetChanged) {
+            st.prefix = parsed.prefix;
+            st.sheet = parsed.sheet;
+            st.total = parsed.total;
+            st.current = 0;
+        }
+        st.target = Math.max(sheetChanged ? 0 : st.target, parsed.current);
+        renderRowStageText();
+        if (st.current >= st.target) {
+            stopRowTicker();
+            return;
+        }
+        stopRowTicker();
+        processingRowTicker = setInterval(() => {
+            const t = rowTickerState;
+            if (t.current < t.target) {
+                const step = Math.max(1, Math.ceil((t.target - t.current) / 28));
+                t.current = Math.min(t.target, t.current + step);
+                renderRowStageText();
+            }
+            if (t.current >= t.target) {
+                stopRowTicker();
+            }
+        }, 80);
+    }
+
     function updateProcessingOverlay(percent, stageText) {
         const bounded = Math.max(0, Math.min(100, percent));
         processingFill.style.width = `${bounded}%`;
         processingPercent.textContent = `${Math.round(bounded)}%`;
-        if (stageText) {
-            processingStage.textContent = stageText;
+        const rowProgress = stageText ? parseRowProgressStage(stageText) : null;
+        if (rowProgress) {
+            startRowTicker(rowProgress);
+        } else {
+            stopRowTicker();
+            if (stageText) {
+                processingStage.textContent = stageText;
+            }
         }
         setProcessingSteps(inferProcessingStep(stageText, bounded));
     }
 
     function hideProcessingOverlay() {
+        stopRowTicker();
         processingOverlay.classList.remove('show');
         document.body.classList.remove('app-busy');
     }
@@ -3639,7 +3711,7 @@
                         if (onProgressUpdate) {
                             onProgressUpdate(serverPct, statusJson.stage || 'Processing...');
                         }
-                        setTimeout(poll, 2500);
+                        setTimeout(poll, 1200);
                     }
                 } catch (err) {
                     reject(err);
