@@ -864,6 +864,7 @@
                         <button id="downloadResultsBtn" disabled><i class="fas fa-file-pdf"></i> PDF Report</button>
                         <button id="downloadExcelBtn" disabled><i class="fas fa-file-excel"></i> Excel Results</button>
                         <button id="downloadExcelZipBtn" disabled><i class="fas fa-file-archive"></i> Excel Results (ZIP)</button>
+                        <button id="downloadWorkingPaperBtn" disabled><i class="fas fa-calculator"></i> Working Paper (50 loans)</button>
                         <button id="downloadOriginalBtn" disabled><i class="fas fa-file-upload"></i> Original Workbook</button>
                         <button id="downloadWorkingsBtn" disabled><i class="fas fa-file-alt"></i> Workings Excel</button>
                         <button id="downloadWorkingsJsonBtn" disabled><i class="fas fa-file-code"></i> Workings JSON</button>
@@ -1472,6 +1473,7 @@
     const downloadResultsBtn = document.getElementById('downloadResultsBtn');
     const downloadExcelBtn = document.getElementById('downloadExcelBtn');
     const downloadExcelZipBtn = document.getElementById('downloadExcelZipBtn');
+    const downloadWorkingPaperBtn = document.getElementById('downloadWorkingPaperBtn');
     const downloadOriginalBtn = document.getElementById('downloadOriginalBtn');
     const downloadWorkingsBtn = document.getElementById('downloadWorkingsBtn');
     const downloadWorkingsJsonBtn = document.getElementById('downloadWorkingsJsonBtn');
@@ -1683,6 +1685,9 @@
         }
         if (downloadWorkingsZipBtn) {
             downloadWorkingsZipBtn.disabled = !available;
+        }
+        if (downloadWorkingPaperBtn) {
+            downloadWorkingPaperBtn.disabled = !available;
         }
     }
 
@@ -4125,6 +4130,44 @@
                 <div style="text-align: center; padding: 20px;">
                     <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
                     <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Workings Download Failed</h3>
+                    <p style="color: #632424;">${error.message}</p>
+                </div>
+            `);
+        }
+    });
+
+    downloadWorkingPaperBtn.addEventListener('click', async () => {
+        if (!lastComputedRange.firstDay || (!lastComputedRange.summary && !lastComputedRange.reportKey)) {
+            showToast('Please compute FTP range first', 'warning');
+            return;
+        }
+
+        updatePreviewWithData(`
+            <div style="text-align: center; padding: 20px;">
+                <i class="fas fa-spinner fa-pulse" style="font-size: 48px; color: #0f766e; margin-bottom: 20px;"></i>
+                <h3 style="color: #0f766e; margin-bottom: 10px;">Building Working Paper (First 50 Loans)...</h3>
+                <p style="color: #5b6472;">Preparing row-by-row calculations for the first 50 loans per currency (ZWG &amp; FX)</p>
+            </div>
+        `);
+
+        try {
+            await downloadFile('/download-working-paper', 'xlsx');
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 10px;">
+                    <i class="fas fa-calculator" style="font-size: 48px; color: #0f766e; margin-bottom: 15px;"></i>
+                    <h3 style="color: #0f766e; margin-bottom: 10px;">✓ Working Paper Downloaded</h3>
+                    <p style="color: #2f1a1a;">Working paper Excel downloaded — first 50 loans per currency (ZWG &amp; FX) with all bucket and FTP calculation columns.</p>
+                </div>
+            `);
+            showToast('Working paper Excel downloaded!', 'success');
+        } catch (error) {
+            console.error('Error downloading working paper:', error);
+
+            updatePreviewWithData(`
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
+                    <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Working Paper Download Failed</h3>
                     <p style="color: #632424;">${error.message}</p>
                 </div>
             `);

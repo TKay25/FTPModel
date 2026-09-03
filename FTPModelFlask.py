@@ -37,6 +37,8 @@ BRANCH_MAP_JSON_PATH = os.path.join(DATA_ROOT_DIR, 'branch_sbu_map.json')
 UPLOAD_JOBS_DB_PATH = os.path.join(DATA_ROOT_DIR, 'upload_jobs.db')
 TEMP_UPLOADS_DIR = os.path.join(DATA_ROOT_DIR, 'temp_uploads')
 LOAN_SHEETS = {'ZWG LOANS', 'FX LOANS'}
+# Number of loans (per currency) shown in the downloadable 'Working Paper' Excel.
+WORKING_PAPER_SAMPLE_ROWS = int(os.getenv('WORKING_PAPER_SAMPLE_ROWS', '50'))
 # Disable non-loan sheet export by default to keep memory use below small-instance limits.
 INCLUDE_NON_LOAN_SHEETS = os.getenv('INCLUDE_NON_LOAN_SHEETS', '0').lower() in {'1', 'true', 'yes'}
 # Guardrail for low-memory hosts: downgrade full-workbook export if upload is too large.
@@ -1394,6 +1396,139 @@ def download_workings_excel():
         )
     except Exception as e:
         return jsonify({'error': f'Failed to download workings Excel: {str(e)}'}), 500
+
+
+def _coerce_workbook_datetime(value):
+    """Best-effort: turn ISO-ish date strings (as stored in NDJSON previews)
+    back into datetime objects so date columns display as real Excel dates."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return value
+    for date_format in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(text, date_format)
+        except ValueError:
+            continue
+    return value
+
+
+def _date_like_columns(columns):
+    """Return indices of columns whose name looks like a date field."""
+    return [index for index, column in enumerate(columns) if 'date' in str(column).lower()]
+
+
+@app.route('/download-working-paper', methods=['GET'])
+def download_working_paper():
+    """Download an Excel 'working paper' containing, for each currency
+    (ZWG LOANS and FX LOANS), the first WORKING_PAPER_SAMPLE_ROWS loans
+    shown row by row with every computed FTP calculation column:
+    TENOR, DimDays, DTM, MTM, the 13 cashflow buckets, Check and FTP Charge.
+
+    Built on-demand from the streamed NDJSON workings files (with a fallback
+    to the saved preview rows), so it stays small and memory-safe even when
+    the source workbook has hundreds of thousands of loan rows.
+    """
+    try:
+        global latest_data
+        report_key = request.args.get('report_key')
+        month = request.args.get('month')
+        year = request.args.get('year', type=int)
+        if report_key:
+            if not load_latest_data_snapshot(report_key=report_key):
+                return jsonify({'error': 'No processed data found for that report version.'}), 404
+        elif month and year:
+            if not load_latest_data_snapshot(month=month, year=year):
+                return jsonify({'error': 'No processed data found for that month and year.'}), 404
+        elif not ensure_latest_data_available():
+            return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
+
+        resolved_report_key = latest_data.get('period', {}).get('report_key')
+        manifest_path = _build_workings_manifest_path(resolved_report_key)
+
+        workbook = openpyxl.Workbook(write_only=True)
+        written_sheet_count = 0
+
+        # Source 1: streamed NDJSON workings files (complete column set, fastest).
+        manifest_payload = None
+        if manifest_path and os.path.exists(manifest_path):
+            with open(manifest_path, 'r', encoding='utf-8') as manifest_file:
+                manifest_payload = json.load(manifest_file)
+
+        if manifest_payload:
+            sheet_entries = manifest_payload.get('sheets') or {}
+            loan_entries = {
+                sheet_name: sheet_info
+                for sheet_name, sheet_info in sheet_entries.items()
+                if sheet_name in LOAN_SHEETS
+            }
+            for sheet_name, sheet_info in loan_entries.items():
+                columns = list(sheet_info.get('columns') or [])
+                data_path = sheet_info.get('data_path')
+                if not columns or not data_path or not os.path.exists(data_path):
+                    continue
+
+                worksheet = workbook.create_sheet(title=str(sheet_name)[:31])
+                written_sheet_count += 1
+                worksheet.append(columns)
+                date_cols = _date_like_columns(columns)
+                rows_written = 0
+                with open(data_path, 'r', encoding='utf-8') as rows_file:
+                    for line in rows_file:
+                        if not line.strip():
+                            continue
+                        row_payload = json.loads(line)
+                        row_values = [row_payload.get(column) for column in columns]
+                        for date_index in date_cols:
+                            if date_index < len(row_values):
+                                row_values[date_index] = _coerce_workbook_datetime(row_values[date_index])
+                        worksheet.append(row_values)
+                        rows_written += 1
+                        if rows_written >= WORKING_PAPER_SAMPLE_ROWS:
+                            break
+
+        # Source 2: fall back to the saved preview rows (first 100 loans)
+        # kept in the report snapshot when the NDJSON files are unavailable.
+        if written_sheet_count == 0:
+            for sheet_name in sorted(LOAN_SHEETS):
+                sheet_data = (latest_data.get('sheets') or {}).get(sheet_name) or {}
+                columns = list(sheet_data.get('columns') or [])
+                data_rows = list(sheet_data.get('data') or [])[:WORKING_PAPER_SAMPLE_ROWS]
+                if not columns or not data_rows:
+                    continue
+                worksheet = workbook.create_sheet(title=str(sheet_name)[:31])
+                written_sheet_count += 1
+                worksheet.append(columns)
+                date_cols = _date_like_columns(columns)
+                for row_payload in data_rows:
+                    row_values = [row_payload.get(column) for column in columns]
+                    for date_index in date_cols:
+                        if date_index < len(row_values):
+                            row_values[date_index] = _coerce_workbook_datetime(row_values[date_index])
+                    worksheet.append(row_values)
+
+        if written_sheet_count == 0:
+            return jsonify({
+                'error': 'No loan-level data is available for this report. '
+                         'Recompute this period to generate the working paper.'
+            }), 404
+
+        output_buffer = io.BytesIO()
+        workbook.save(output_buffer)
+        output_buffer.seek(0)
+
+        period_month = latest_data.get('period', {}).get('month', 'Month')
+        period_year = latest_data.get('period', {}).get('year', 'Year')
+        download_name = f'FTP_Working_Paper_{period_month}_{period_year}.xlsx'
+        return send_file(
+            output_buffer,
+            as_attachment=True,
+            download_name=download_name,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        return jsonify({'error': f'Failed to download working paper: {str(e)}'}), 500
 
 
 @app.route('/download-workings-json', methods=['GET'])
