@@ -39,6 +39,26 @@ TEMP_UPLOADS_DIR = os.path.join(DATA_ROOT_DIR, 'temp_uploads')
 LOAN_SHEETS = {'ZWG LOANS', 'FX LOANS'}
 # Number of loans (per currency) shown in the downloadable 'Working Paper' Excel.
 WORKING_PAPER_SAMPLE_ROWS = int(os.getenv('WORKING_PAPER_SAMPLE_ROWS', '50'))
+
+# Period basis used to turn the annualised "rate x outstanding" into a period FTP
+# charge. 'annual'/'none' keeps legacy behaviour (rate x outstanding), 'monthly'
+# divides by 12, 'days365'/'days360' scale by days-in-period / 365 (or / 360).
+_FTP_CHARGE_BASIS_OPTIONS = {'annual', 'none', 'monthly', 'days365', 'days360'}
+FTP_CHARGE_BASIS = os.getenv('FTP_CHARGE_BASIS', 'monthly').strip().lower()
+if FTP_CHARGE_BASIS not in _FTP_CHARGE_BASIS_OPTIONS:
+    FTP_CHARGE_BASIS = 'monthly'
+CHARGE_BASIS_LABELS = {
+    'annual': 'Annual (rate x outstanding, no period scaling)',
+    'none': 'Annual (rate x outstanding, no period scaling)',
+    'monthly': 'Monthly (rate x outstanding / 12)',
+    'days365': 'Days/365 (rate x outstanding x days-in-period / 365)',
+    'days360': 'Days/360 (rate x outstanding x days-in-period / 360)',
+}
+
+# Reference-model time buckets (13) shared by the compute engine and exports.
+FTP_BUCKET_LABELS = ['<7days', '7-14days', '14-21days', '21days-1m', '1m-2m', '2m-3m',
+                     '3m-6m', '6m-9m', '9m-12m', '1y-2y', '2y-3y', '3y-5y', '+5y']
+FTP_BUCKET_EDGES = [0, 7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800, float('inf')]
 # Disable non-loan sheet export by default to keep memory use below small-instance limits.
 INCLUDE_NON_LOAN_SHEETS = os.getenv('INCLUDE_NON_LOAN_SHEETS', '0').lower() in {'1', 'true', 'yes'}
 # Guardrail for low-memory hosts: downgrade full-workbook export if upload is too large.
@@ -1419,12 +1439,165 @@ def _date_like_columns(columns):
     return [index for index, column in enumerate(columns) if 'date' in str(column).lower()]
 
 
+def _resolve_report_charge_basis(period=None):
+    """Charge basis recorded on the report; older reports (computed before the
+    basis was stored) were produced with the legacy annual basis."""
+    basis = str((period or {}).get('charge_basis') or '').strip().lower()
+    if basis not in {'annual', 'none', 'monthly', 'days365', 'days360'}:
+        return 'annual'
+    return basis
+
+
+def _charge_basis_label(basis):
+    if basis in CHARGE_BASIS_LABELS:
+        return CHARGE_BASIS_LABELS[basis]
+    return 'Annual (rate x outstanding, no period scaling)'
+
+
+def _charge_scale_for_row(row_payload, basis):
+    """Period factor that turns a loan's annualised FTP charge into the reported
+    charge (annual=1, monthly=1/12, days365/days360=DimDays/365 or /360)."""
+    if basis == 'monthly':
+        return 1.0 / 12.0
+    if basis in ('days365', 'days360'):
+        try:
+            days = float(row_payload.get('DimDays') or 0)
+        except (TypeError, ValueError):
+            days = 0.0
+        year_days = 365.0 if basis == 'days365' else 360.0
+        return days / year_days
+    return 1.0
+
+
+def _find_row_value(row_payload, candidates):
+    if not isinstance(row_payload, dict):
+        return None
+    for candidate in candidates:
+        if candidate in row_payload:
+            return row_payload[candidate]
+    return None
+
+
+def _as_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _loan_model_label(row_payload):
+    loan_type = str(_find_row_value(row_payload, ['Loan Type', 'LOAN_TYPE', 'PRODUCT']) or '')
+    funding = str(_find_row_value(row_payload, ['Source of Funding', 'SOURCE_OF_FUNDING', 'FUNDING_SOURCE']) or '')
+    if 'OD' in loan_type.upper():
+        return 'Overdraft - 12 equal monthly strips'
+    if re.search(r'LOC|LINE.OF.CREDIT', funding.upper()):
+        return 'Line of Credit - bullet at maturity'
+    return 'Term loan - amortising over MTM months'
+
+
+def _account_label(row_payload):
+    for candidate in ['Account Number', 'Account', 'ACCOUNT', 'Customer Name', 'Customer',
+                      'Loan Number', 'Loan No', 'Name']:
+        if candidate in row_payload:
+            value = row_payload[candidate]
+            if value not in (None, ''):
+                return str(value)
+    return ''
+
+
+def _build_methodology_grid(period_label, report_key_label, basis, blocks, limit):
+    """Build a self-documenting 'Methodology' worksheet that reproduces the
+    row-by-row derivation of the FTP Charge for every sample loan:
+    DTM -> MTM -> bucket allocation -> bucket rate -> period-scaled charge."""
+    grid = []
+
+    def add(*cells):
+        grid.append(list(cells))
+
+    add('FTP WORKING PAPER - METHODOLOGY & ROW-BY-ROW CHARGE BUILD-UP')
+    add(f'Period: {period_label}   Report key: {report_key_label}   Charge basis: {basis} ({_charge_basis_label(basis)})')
+    add('How each loan is charged:')
+    add('  1) The loan outstanding is spread across the 13 time buckets according to its cashflow model.')
+    add('     - Term loan      : exposure amortises evenly over its MTM months.')
+    add('     - Overdraft (OD) : exposure spreads evenly over 12 monthly strips regardless of maturity.')
+    add('     - Line of Credit : the full exposure sits in the bucket at contractual maturity.')
+    add('  2) Each bucket is priced at the FTP rate for that tenor (USD curve for FX LOANS, ZWG curve for ZWG LOANS).')
+    add('  3) The period factor converts the annualised result into the reported FTP Charge:')
+    add('     FTP Charge (loan) = SUM over buckets ( bucket balance x bucket rate % ) x period factor')
+    add('Bucket balances always re-add to the exposure (Check column); every unit of exposure is charged exactly once.')
+    add('')
+    add('Curve reference - annual FTP rates (%)')
+    add('Bucket', 'USD rate %', 'ZWG rate %')
+    for idx, label in enumerate(FTP_BUCKET_LABELS):
+        usd_rate = usd_rates[idx] if idx < len(usd_rates) else (usd_rates[-1] if usd_rates else 0)
+        zwg_rate = zwg_rates[idx] if idx < len(zwg_rates) else (zwg_rates[-1] if zwg_rates else 0)
+        add(label, round(float(usd_rate), 4), round(float(zwg_rate), 4))
+    add('')
+    add(f'Row-by-row derivation - first {limit} loans per currency (ZWG LOANS then FX LOANS)')
+    add('Sheet', 'Loan #', 'Account', 'Cashflow model', 'Exposure', 'DTM', 'MTM', 'DimDays',
+        'Bucket', 'Bucket balance', 'Rate %', 'Contribution', 'Check', 'FTP Charge (loan)', 'Delta', 'OK')
+
+    for block in blocks:
+        sheet_name = block['sheet']
+        rates = zwg_rates if sheet_name == 'ZWG LOANS' else usd_rates
+        for row_index, row_payload in enumerate(block['rows'], start=1):
+            exposure = _as_float(_find_row_value(row_payload, [
+                'Currency Exposure + Currency Accrued Reporting',
+                'Currency Exposure+ Currency Accrued Reporting',
+                'Currency Exposure+Currency Accrued Reporting',
+            ]))
+            dtm = _as_float(row_payload.get('DTM'))
+            mtm = _as_float(row_payload.get('MTM'))
+            dim_days = _as_float(row_payload.get('DimDays'))
+            model = _loan_model_label(row_payload)
+            account = _account_label(row_payload)
+            stored_charge = _as_float(row_payload.get('FTP Charge'))
+            check = _as_float(row_payload.get('Check'))
+            factor = _charge_scale_for_row(row_payload, basis)
+
+            bucket_rows = []
+            contribution_total = 0.0
+            for idx, bucket in enumerate(FTP_BUCKET_LABELS):
+                balance = _as_float(row_payload.get(bucket))
+                if balance == 0:
+                    continue
+                rate_pct = rates[idx] if idx < len(rates) else (rates[-1] if rates else 0)
+                contribution = (balance * float(rate_pct) / 100.0) * factor
+                contribution_total += contribution
+                bucket_rows.append([bucket, balance, rate_pct, contribution])
+
+            if not bucket_rows:
+                delta = stored_charge
+                ok = 'OK' if abs(delta) <= max(0.01, abs(stored_charge) * 0.005) else 'MISMATCH'
+                add(sheet_name, row_index, account, model, round(exposure, 2), dtm, mtm, dim_days,
+                    '(none)', 0, 0, 0, round(check, 2), round(stored_charge, 4), round(delta, 4), ok)
+                continue
+
+            for position, (bucket, balance, rate_pct, contribution) in enumerate(bucket_rows, start=1):
+                is_last = position == len(bucket_rows)
+                if is_last:
+                    delta = stored_charge - contribution_total
+                    ok = 'OK' if abs(delta) <= max(0.01, abs(stored_charge) * 0.005) else 'MISMATCH'
+                else:
+                    delta = ''
+                    ok = ''
+                add(sheet_name, row_index, account, model, round(exposure, 2), dtm, mtm, dim_days,
+                    bucket, round(balance, 2), round(float(rate_pct), 6), round(contribution, 4),
+                    round(check, 2), round(stored_charge, 4),
+                    '' if not is_last else round(delta, 4), ok)
+    return grid
+
+
 @app.route('/download-working-paper', methods=['GET'])
 def download_working_paper():
     """Download an Excel 'working paper' containing, for each currency
     (ZWG LOANS and FX LOANS), the first WORKING_PAPER_SAMPLE_ROWS loans
     shown row by row with every computed FTP calculation column:
     TENOR, DimDays, DTM, MTM, the 13 cashflow buckets, Check and FTP Charge.
+
+    A 'Methodology' sheet (first tab) reproduces the row-by-row derivation of
+    the charge (DTM -> MTM -> bucket -> rate -> contribution) and reconciles
+    each loan's contributions back to its stored FTP Charge.
 
     Built on-demand from the streamed NDJSON workings files (with a fallback
     to the saved preview rows), so it stays small and memory-safe even when
@@ -1445,10 +1618,10 @@ def download_working_paper():
             return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
 
         resolved_report_key = latest_data.get('period', {}).get('report_key')
+        basis = _resolve_report_charge_basis(latest_data.get('period'))
         manifest_path = _build_workings_manifest_path(resolved_report_key)
 
-        workbook = openpyxl.Workbook(write_only=True)
-        written_sheet_count = 0
+        blocks = []  # [{'sheet': name, 'columns': [...], 'rows': [dict, ...]}]
 
         # Source 1: streamed NDJSON workings files (complete column set, fastest).
         manifest_payload = None
@@ -1469,57 +1642,69 @@ def download_working_paper():
                 if not columns or not data_path or not os.path.exists(data_path):
                     continue
 
-                worksheet = workbook.create_sheet(title=str(sheet_name)[:31])
-                written_sheet_count += 1
-                worksheet.append(columns)
-                date_cols = _date_like_columns(columns)
-                rows_written = 0
+                collected_rows = []
                 with open(data_path, 'r', encoding='utf-8') as rows_file:
                     for line in rows_file:
                         if not line.strip():
                             continue
-                        row_payload = json.loads(line)
-                        row_values = [row_payload.get(column) for column in columns]
-                        for date_index in date_cols:
-                            if date_index < len(row_values):
-                                row_values[date_index] = _coerce_workbook_datetime(row_values[date_index])
-                        worksheet.append(row_values)
-                        rows_written += 1
-                        if rows_written >= WORKING_PAPER_SAMPLE_ROWS:
+                        collected_rows.append(json.loads(line))
+                        if len(collected_rows) >= WORKING_PAPER_SAMPLE_ROWS:
                             break
+                if not collected_rows:
+                    continue
+                blocks.append({'sheet': sheet_name, 'columns': columns, 'rows': collected_rows})
 
         # Source 2: fall back to the saved preview rows (first 100 loans)
         # kept in the report snapshot when the NDJSON files are unavailable.
-        if written_sheet_count == 0:
+        if not blocks:
             for sheet_name in sorted(LOAN_SHEETS):
                 sheet_data = (latest_data.get('sheets') or {}).get(sheet_name) or {}
                 columns = list(sheet_data.get('columns') or [])
                 data_rows = list(sheet_data.get('data') or [])[:WORKING_PAPER_SAMPLE_ROWS]
                 if not columns or not data_rows:
                     continue
-                worksheet = workbook.create_sheet(title=str(sheet_name)[:31])
-                written_sheet_count += 1
-                worksheet.append(columns)
-                date_cols = _date_like_columns(columns)
-                for row_payload in data_rows:
-                    row_values = [row_payload.get(column) for column in columns]
-                    for date_index in date_cols:
-                        if date_index < len(row_values):
-                            row_values[date_index] = _coerce_workbook_datetime(row_values[date_index])
-                    worksheet.append(row_values)
+                blocks.append({'sheet': sheet_name, 'columns': columns, 'rows': data_rows})
 
-        if written_sheet_count == 0:
+        if not blocks:
             return jsonify({
                 'error': 'No loan-level data is available for this report. '
                          'Recompute this period to generate the working paper.'
             }), 404
 
+        period_month = latest_data.get('period', {}).get('month', 'Month')
+        period_year = latest_data.get('period', {}).get('year', 'Year')
+
+        workbook = openpyxl.Workbook(write_only=True)
+
+        # Methodology sheet first (self-documenting derivation).
+        methodology_grid = _build_methodology_grid(
+            f'{period_month} {period_year}',
+            resolved_report_key or 'n/a',
+            basis,
+            blocks,
+            WORKING_PAPER_SAMPLE_ROWS
+        )
+        methodology_sheet = workbook.create_sheet(title='Methodology')
+        for methodology_row in methodology_grid:
+            methodology_sheet.append(methodology_row)
+
+        # Loan sample sheets (ZWG LOANS / FX LOANS), header + first N rows.
+        for block in blocks:
+            columns = block['columns']
+            worksheet = workbook.create_sheet(title=str(block['sheet'])[:31])
+            worksheet.append(columns)
+            date_cols = _date_like_columns(columns)
+            for row_payload in block['rows']:
+                row_values = [row_payload.get(column) for column in columns]
+                for date_index in date_cols:
+                    if date_index < len(row_values):
+                        row_values[date_index] = _coerce_workbook_datetime(row_values[date_index])
+                worksheet.append(row_values)
+
         output_buffer = io.BytesIO()
         workbook.save(output_buffer)
         output_buffer.seek(0)
 
-        period_month = latest_data.get('period', {}).get('month', 'Month')
-        period_year = latest_data.get('period', {}).get('year', 'Year')
         download_name = f'FTP_Working_Paper_{period_month}_{period_year}.xlsx'
         return send_file(
             output_buffer,
@@ -2112,9 +2297,8 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                     last_day_ts = pd.Timestamp(last_day.date())
                     full_period = (last_day_ts - first_day_ts).days + 1
                     # Reference model bucket labels (13 buckets)
-                    bucket_labels = ['<7days','7-14days','14-21days','21days-1m','1m-2m','2m-3m',
-                                     '3m-6m','6m-9m','9m-12m','1y-2y','2y-3y','3y-5y','+5y']
-                    bin_edges = [0, 7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800, float('inf')]
+                    bucket_labels = FTP_BUCKET_LABELS
+                    bin_edges = FTP_BUCKET_EDGES
                     # FTP curve rates per the reference model Offer Rate curve
                     rates = zwg_rates if sheet == 'ZWG LOANS' else usd_rates
                     rv = np.array([(rates[i] if i < len(rates) else rates[-1]) / 100
@@ -2297,7 +2481,15 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
 
                                     chunk[bucket_labels] = bv
                                     chunk['Check'] = bv.sum(axis=1).astype(np.float32)
-                                    chunk['FTP Charge'] = (bv @ rv).astype(np.float32)
+                                    annual_charge = (bv @ rv).astype(np.float32)
+                                    if FTP_CHARGE_BASIS == 'monthly':
+                                        charge_scale = np.float32(1.0 / 12.0)
+                                    elif FTP_CHARGE_BASIS in ('days365', 'days360'):
+                                        days_in_year = np.float32(365.0 if FTP_CHARGE_BASIS == 'days365' else 360.0)
+                                        charge_scale = chunk['DimDays'].to_numpy(dtype=np.float32, copy=False) / days_in_year
+                                    else:
+                                        charge_scale = np.float32(1.0)
+                                    chunk['FTP Charge'] = (annual_charge * charge_scale).astype(np.float32)
 
                                     # Accumulate summaries
                                     chunk_exposure = chunk[exposure_col].sum()
@@ -2473,7 +2665,8 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
             'month_number': month_num,
             'year': year,
             'report_key': report_key,
-            'version_suffix': report_key_suffix
+            'version_suffix': report_key_suffix,
+            'charge_basis': FTP_CHARGE_BASIS
         }
         latest_data['excel_output_path'] = excel_output_path
         latest_data['excel_filename'] = excel_filename
@@ -2503,7 +2696,8 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                         'original_upload_available': bool(original_upload_path),
                         'original_upload_filename': original_upload_filename,
                         'workings_available': bool(workings_manifest.get('sheets')),
-                        'report_key': report_key
+                        'report_key': report_key,
+                        'charge_basis': FTP_CHARGE_BASIS
                     })
 
     except Exception as exc:
