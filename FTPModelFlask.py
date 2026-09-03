@@ -1856,37 +1856,65 @@ def _validate_upload_file(file_path, filename):
 
 
 def _merge_processed_loans_into_original_workbook(original_upload_path, processed_loans_path, merged_output_path):
-    """Build a full workbook by overlaying processed loan sheets onto a copy of the original upload."""
-    shutil.copyfile(original_upload_path, merged_output_path)
+    """Build a full workbook by streaming the processed loan sheets over the
+    original workbook.
 
-    merged_wb = None
+    Memory-safe: both inputs are read in read_only (streaming) mode and the
+    merged file is written with a write_only workbook, so we never hold the
+    whole original workbook in memory.
+
+    Loan sheets (ZWG LOANS / FX LOANS) keep every computed row, while every
+    other original ('workings') sheet is copied in light form — capped to its
+    header plus the first WORKING_PAPER_SAMPLE_ROWS data rows — so the merged
+    workbook stays small enough to export reliably.
+    """
+    source_wb = None
     loan_wb = None
+    merged_wb = None
     try:
-        merged_wb = openpyxl.load_workbook(merged_output_path)
+        source_wb = openpyxl.load_workbook(original_upload_path, read_only=True, data_only=False)
         loan_wb = openpyxl.load_workbook(processed_loans_path, read_only=True, data_only=False)
-        original_order = list(merged_wb.sheetnames)
+        loan_sheet_names = {name for name in loan_wb.sheetnames}
 
+        merged_wb = openpyxl.Workbook(write_only=True)
+        processed_names = set()
+
+        for sheet_name in source_wb.sheetnames:
+            is_loan_sheet = sheet_name in loan_sheet_names
+            source_sheet = loan_wb[sheet_name] if is_loan_sheet else source_wb[sheet_name]
+            output_sheet = merged_wb.create_sheet(title=sheet_name[:31])
+
+            if is_loan_sheet:
+                for row in source_sheet.iter_rows(values_only=True):
+                    output_sheet.append(list(row))
+                processed_names.add(sheet_name)
+                continue
+
+            data_rows_written = 0
+            for row_index, row in enumerate(source_sheet.iter_rows(values_only=True)):
+                output_sheet.append(list(row))
+                if row_index == 0:
+                    continue  # header row does not count toward the cap
+                data_rows_written += 1
+                if data_rows_written >= WORKING_PAPER_SAMPLE_ROWS:
+                    break
+
+        # Include any processed loan sheet missing from the original workbook.
         for sheet_name in loan_wb.sheetnames:
-            source_sheet = loan_wb[sheet_name]
-
-            if sheet_name in original_order:
-                sheet_index = original_order.index(sheet_name)
-            else:
-                sheet_index = len(merged_wb.sheetnames)
-
-            if sheet_name in merged_wb.sheetnames:
-                merged_wb.remove(merged_wb[sheet_name])
-
-            destination_sheet = merged_wb.create_sheet(title=sheet_name, index=sheet_index)
-            for row in source_sheet.iter_rows(values_only=True):
-                destination_sheet.append(row)
+            if sheet_name in processed_names or sheet_name in source_wb.sheetnames:
+                continue
+            output_sheet = merged_wb.create_sheet(title=sheet_name[:31])
+            for row in loan_wb[sheet_name].iter_rows(values_only=True):
+                output_sheet.append(list(row))
 
         merged_wb.save(merged_output_path)
     finally:
-        if loan_wb is not None:
-            loan_wb.close()
-        if merged_wb is not None:
-            merged_wb.close()
+        for workbook in (merged_wb, loan_wb, source_wb):
+            if workbook is not None:
+                try:
+                    workbook.close()
+                except Exception:
+                    pass
 
 
 def _run_scheduler_cycle():

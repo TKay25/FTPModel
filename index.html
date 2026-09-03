@@ -1487,18 +1487,10 @@
                 </div>
 
                 <label class="export-option" for="includeWorkingsCheckbox">
-                    <input type="checkbox" id="includeWorkingsCheckbox">
+                    <input type="checkbox" id="includeWorkingsCheckbox" checked>
                     <span>
                         <strong>Include workings in Excel</strong><br>
-                        <span style="font-size: 12px; color: var(--text-muted);">Uncheck for lighter results-only export.</span>
-                    </span>
-                </label>
-
-                <label class="export-option" for="forceFullWorkbookCheckbox">
-                    <input type="checkbox" id="forceFullWorkbookCheckbox">
-                    <span>
-                        <strong>Force full workbook (skip auto-downgrade)</strong><br>
-                        <span style="font-size: 12px; color: var(--text-muted);">Large files may restart the server under memory pressure.</span>
+                        <span style="font-size: 12px; color: var(--text-muted);">Checked by default — other worksheets are included as light 50-row previews. Uncheck for a lighter results-only export.</span>
                     </span>
                 </label>
 
@@ -1735,7 +1727,6 @@
     const fileNameSpan = document.getElementById('fileName');
     const fileMetaSpan = document.getElementById('fileMeta');
     const includeWorkingsCheckbox = document.getElementById('includeWorkingsCheckbox');
-    const forceFullWorkbookCheckbox = document.getElementById('forceFullWorkbookCheckbox');
     const removeFileBtn = document.getElementById('removeFileBtn');
     const saveCurveBtn = document.getElementById('saveCurveBtn');
     const resetCurveBtn = document.getElementById('resetCurveBtn');
@@ -1930,18 +1921,6 @@
         }
         if (downloadWorkingPaperBtn) {
             downloadWorkingPaperBtn.disabled = !available;
-        }
-    }
-
-    function syncForceFullWorkbookOption() {
-        if (!forceFullWorkbookCheckbox || !includeWorkingsCheckbox) {
-            return;
-        }
-        if (!includeWorkingsCheckbox.checked) {
-            forceFullWorkbookCheckbox.checked = false;
-            forceFullWorkbookCheckbox.disabled = true;
-        } else {
-            forceFullWorkbookCheckbox.disabled = false;
         }
     }
 
@@ -3426,11 +3405,7 @@
         uploadModal.style.display = 'flex';
         modalFileInput.value = '';
         selectedFile = null;
-        includeWorkingsCheckbox.checked = false;
-        if (forceFullWorkbookCheckbox) {
-            forceFullWorkbookCheckbox.checked = false;
-        }
-        syncForceFullWorkbookOption();
+        includeWorkingsCheckbox.checked = true;
         updateFileUploadUI();
     });
 
@@ -3439,18 +3414,9 @@
             uploadModal.style.display = 'flex';
             modalFileInput.value = '';
             selectedFile = null;
-            includeWorkingsCheckbox.checked = false;
-            if (forceFullWorkbookCheckbox) {
-                forceFullWorkbookCheckbox.checked = false;
-            }
-            syncForceFullWorkbookOption();
+            includeWorkingsCheckbox.checked = true;
             updateFileUploadUI();
         });
-    }
-
-    if (includeWorkingsCheckbox) {
-        includeWorkingsCheckbox.addEventListener('change', syncForceFullWorkbookOption);
-        syncForceFullWorkbookOption();
     }
 
     function closeUploadModal() { uploadModal.style.display = 'none'; }
@@ -3817,7 +3783,6 @@
             const formData = new FormData();
             formData.append('file', file);
             formData.append('include_workings', includeWorkingsCheckbox.checked ? '1' : '0');
-            formData.append('force_full_workbook', (includeWorkingsCheckbox.checked && forceFullWorkbookCheckbox && forceFullWorkbookCheckbox.checked) ? '1' : '0');
             formData.append('overwrite_existing', overwriteExisting ? '1' : '0');
             updateProcessingOverlay(15, 'Uploading workbook to server');
 
