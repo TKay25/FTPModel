@@ -41,10 +41,11 @@ LOAN_SHEETS = {'ZWG LOANS', 'FX LOANS'}
 WORKING_PAPER_SAMPLE_ROWS = int(os.getenv('WORKING_PAPER_SAMPLE_ROWS', '50'))
 
 # Period basis used to turn the annualised "rate x outstanding" into a period FTP
-# charge. 'annual'/'none' keeps legacy behaviour (rate x outstanding), 'monthly'
-# divides by 12, 'days365'/'days360' scale by days-in-period / 365 (or / 360).
+# charge. The reference model uses days-in-month/365 (DinM/365), so 'days365' is
+# the default. 'annual'/'none' keeps the legacy rate x outstanding, 'monthly'
+# divides by 12, 'days360' scales by days-in-period / 360.
 _FTP_CHARGE_BASIS_OPTIONS = {'annual', 'none', 'monthly', 'days365', 'days360'}
-FTP_CHARGE_BASIS = os.getenv('FTP_CHARGE_BASIS', 'monthly').strip().lower()
+FTP_CHARGE_BASIS = os.getenv('FTP_CHARGE_BASIS', 'days365').strip().lower()
 if FTP_CHARGE_BASIS not in _FTP_CHARGE_BASIS_OPTIONS:
     FTP_CHARGE_BASIS = 'monthly'
 CHARGE_BASIS_LABELS = {
@@ -59,6 +60,9 @@ CHARGE_BASIS_LABELS = {
 FTP_BUCKET_LABELS = ['<7days', '7-14days', '14-21days', '21days-1m', '1m-2m', '2m-3m',
                      '3m-6m', '6m-9m', '9m-12m', '1y-2y', '2y-3y', '3y-5y', '+5y']
 FTP_BUCKET_EDGES = [0, 7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800, float('inf')]
+# Upper day bound of each bucket (boundary day goes to the SHORTER bucket, as in
+# the reference model). Index = count of these strictly below the cashflow day.
+FTP_BUCKET_UPPER_DAYS = [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800]
 # Disable non-loan sheet export by default to keep memory use below small-instance limits.
 INCLUDE_NON_LOAN_SHEETS = os.getenv('INCLUDE_NON_LOAN_SHEETS', '0').lower() in {'1', 'true', 'yes'}
 # Guardrail for low-memory hosts: downgrade full-workbook export if upload is too large.
@@ -2394,7 +2398,11 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                                  (md - first_day_ts).dt.days))
                                     ).astype(np.int32)
                                     chunk['DTM'] = np.where(md > last_day_ts, (md - last_day_ts).dt.days, 0).astype(np.int32)
-                                    chunk['MTM'] = (chunk['DTM'] / 30).round(1).astype(np.float32)
+                                    # MTM = months to maturity: round UP to the next whole 30-day
+                                    # month (reference model uses ceil(DTM/30)); at least 1 month
+                                    # while the loan still has any remaining term.
+                                    mtm_float = np.ceil(chunk['DTM'].to_numpy(dtype=np.float64, copy=False) / 30.0)
+                                    chunk['MTM'] = np.maximum(mtm_float, 1).astype(np.float32)
 
                                     # Determine exposure column (handle both spaced and unspaced variants)
                                     exposure_col = next((c for c in ['Currency Exposure + Currency Accrued Reporting',
@@ -2407,72 +2415,63 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                     exposure = pd.to_numeric(
                                         chunk[exposure_col], errors='coerce'
                                     ).fillna(0).astype(np.float32)
-                                    mtm_months = chunk['MTM'].fillna(0).clip(lower=0).round().astype(np.int32)
+                                    mtm_months = chunk['MTM'].astype(np.int32)
 
-                                    # Detect asset type for cashflow model selection
+                                    # Detect repayment/cashflow behaviour (matches the reference
+                                    # model's Assets sheet): 'Amortising' loans - including
+                                    # overdrafts - spread evenly over their MTM months; anything
+                                    # non-amortising (bullet, e.g. LOC) sits at the maturity bucket.
                                     loan_type_col = next((c for c in loan_type_candidates if c in chunk.columns), None)
                                     sof_col = next((c for c in source_of_funding_candidates if c in chunk.columns), None)
-                                    loan_type = chunk[loan_type_col].astype(str).str.strip() if loan_type_col else pd.Series([''] * len(chunk))
-                                    source_of_funding = chunk[sof_col].astype(str).str.strip() if sof_col else pd.Series([''] * len(chunk))
-                                    is_od = loan_type.str.upper().str.contains('OD', na=False)
-                                    is_loc = source_of_funding.str.upper().str.contains('LOC|LINE.OF.CREDIT', na=False, regex=True)
+                                    repayment_col = next((c for c in ['Repayment Type', 'REPAYMENT_TYPE', 'Repayment'] if c in chunk.columns), None)
+                                    if repayment_col:
+                                        repayment = chunk[repayment_col].astype(str).str.strip()
+                                        is_bullet = ~repayment.str.upper().str.startswith('AMORTIS')
+                                    else:
+                                        source_of_funding = chunk[sof_col].astype(str).str.strip() if sof_col else pd.Series([''] * len(chunk))
+                                        is_bullet = source_of_funding.str.upper().str.contains('LOC|LINE.OF.CREDIT', na=False, regex=True)
 
                                     bv = np.zeros((len(chunk), len(bucket_labels)), dtype=np.float32)
                                     ev = exposure.to_numpy(dtype=np.float32, copy=False)
                                     mv = mtm_months.to_numpy(dtype=np.int32, copy=False)
+                                    upper_days = np.array(FTP_BUCKET_UPPER_DAYS, dtype=np.int64)
 
-                                    # --- Cashflow Model 1: Term Loans (Amortisation / Inflow-based) ---
-                                    # Spread exposure evenly across MTM months
-                                    term_loan_mask = ~is_od.values & ~is_loc.values
-                                    ti = np.where(term_loan_mask)[0]
-                                    if len(ti) > 0:
-                                        mv_t = mv[ti]
-                                        ev_t = ev[ti]
-                                        max_mt = min(mv_t.max(), len(bucket_labels)) if len(mv_t) > 0 else 0
-                                        if max_mt > 0:
-                                            monthly_amt = np.where(mv_t > 0, ev_t / np.maximum(mv_t, 1), 0.0)
-                                            for m in range(1, max_mt + 1):
-                                                active_mask = mv_t >= m
-                                                if active_mask.any():
-                                                    inflow_day = m * 30
-                                                    b = np.searchsorted(bin_edges, inflow_day, side='right') - 1
-                                                    b = min(b, len(bucket_labels) - 1)
-                                                    bv[ti[active_mask], b] += monthly_amt[active_mask]
-                                        # Remaining months beyond bucket limit → last bucket
-                                        if len(mv_t) > 0 and mv_t.max() > len(bucket_labels):
-                                            monthly_amt = np.where(mv_t > 0, ev_t / np.maximum(mv_t, 1), 0.0)
-                                            extra = np.maximum(0, mv_t - len(bucket_labels)).astype(np.float32)
-                                            active_mask = extra > 0
-                                            if active_mask.any():
-                                                bv[ti[active_mask], -1] += monthly_amt[active_mask] * extra[active_mask]
+                                    def _bucket_for_day(day):
+                                        index = int(np.searchsorted(upper_days, day, side='left'))
+                                        return min(index, len(FTP_BUCKET_LABELS) - 1)
 
-                                    # --- Cashflow Model 2: Overdrafts (Equally Weighted Strips, 12-month tenor) ---
-                                    # Spread exposure evenly across 12 equal monthly strips regardless of actual maturity
-                                    od_mask = is_od.values
-                                    oi = np.where(od_mask)[0]
-                                    if len(oi) > 0:
-                                        ev_od = ev[oi]
-                                        od_strip_months = 12
-                                        strip_amt = np.where(ev_od > 0, ev_od / od_strip_months, 0.0)
-                                        for m in range(1, od_strip_months + 1):
-                                            inflow_day = m * 30
-                                            b = np.searchsorted(bin_edges, inflow_day, side='right') - 1
-                                            b = min(b, len(bucket_labels) - 1)
-                                            bv[oi, b] += strip_amt
+                                    # --- Amortising (terms AND overdrafts): spread over MTM months ---
+                                    # A cashflow at month m lands on day m*30; a day exactly on a
+                                    # boundary belongs to the shorter bucket (reference convention).
+                                    amort_mask = ~is_bullet.values
+                                    ai = np.where(amort_mask)[0]
+                                    if len(ai) > 0:
+                                        mv_a = mv[ai]
+                                        ev_a = ev[ai]
+                                        monthly_amt = np.where(mv_a > 0, ev_a / np.maximum(mv_a, 1), 0.0)
+                                        # Months 1..60 map onto the buckets; anything past 60 months
+                                        # falls entirely in the final (+5y) bucket.
+                                        spread_months = int(mv_a.max()) if len(mv_a) > 0 else 0
+                                        for month in range(1, min(spread_months, 60) + 1):
+                                            active_mask = mv_a >= month
+                                            if not active_mask.any():
+                                                continue
+                                            bucket_index = _bucket_for_day(month * 30)
+                                            bv[ai[active_mask], bucket_index] += monthly_amt[active_mask]
+                                        long_mask = (mv_a > 60) & (monthly_amt > 0)
+                                        if long_mask.any():
+                                            bv[ai[long_mask], -1] += monthly_amt[long_mask] * (mv_a[long_mask] - 60).astype(np.float32)
 
-                                    # --- Cashflow Model 3: Lines of Credit (Contractual Maturity) ---
-                                    # Full exposure at the contractual maturity bucket
-                                    loc_mask = is_loc.values
-                                    li = np.where(loc_mask)[0]
-                                    if len(li) > 0:
-                                        mv_loc = mv[li]
-                                        # Vectorised: assign full exposure at maturity bucket
-                                        mtm_days_loc = np.maximum(mv_loc, 0) * 30
-                                        b_idx_loc = np.searchsorted(bin_edges, mtm_days_loc, side='right') - 1
-                                        b_idx_loc = np.clip(b_idx_loc, 0, len(bucket_labels) - 1)
-                                        for i, bi in zip(li, b_idx_loc):
-                                            if ev[i] > 0:
-                                                bv[i, bi] = ev[i]
+                                    # --- Bullet / non-amortising (e.g. LOC): full exposure at maturity ---
+                                    bullet_mask = is_bullet.values & (mv > 0) & (ev > 0)
+                                    bi = np.where(bullet_mask)[0]
+                                    if len(bi) > 0:
+                                        days_bi = np.maximum(mv[bi], 1) * 30
+                                        index_bi = np.searchsorted(upper_days, days_bi, side='left')
+                                        index_bi = np.minimum(index_bi, len(FTP_BUCKET_LABELS) - 1)
+                                        for row_i, bucket_i in zip(bi, index_bi):
+                                            if ev[row_i] > 0:
+                                                bv[row_i, int(bucket_i)] = ev[row_i]
 
                                     # Zero MTM but positive exposure → shortest bucket
                                     zero_active = (mv <= 0) & (ev > 0)
