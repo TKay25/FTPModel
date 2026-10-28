@@ -56,13 +56,37 @@ CHARGE_BASIS_LABELS = {
     'days360': 'Days/360 (rate x outstanding x days-in-period / 360)',
 }
 
-# Reference-model time buckets (13) shared by the compute engine and exports.
-FTP_BUCKET_LABELS = ['<7days', '7-14days', '14-21days', '21days-1m', '1m-2m', '2m-3m',
-                     '3m-6m', '6m-9m', '9m-12m', '1y-2y', '2y-3y', '3y-5y', '+5y']
-FTP_BUCKET_EDGES = [0, 7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800, float('inf')]
-# Upper day bound of each bucket (boundary day goes to the SHORTER bucket, as in
-# the reference model). Index = count of these strictly below the cashflow day.
-FTP_BUCKET_UPPER_DAYS = [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800]
+# Reference-model time buckets. The layout follows the configured FTP curve (one
+# rate per bucket): 13 buckets for the 2026-02 model (Assets!V4:AE4 of that
+# workbook) and 10 buckets for the 2026-04 model. A cashflow landing exactly on a
+# boundary day belongs to the SHORTER bucket, as in the reference workbook.
+FTP_DEFAULT_BUCKET_UPPER_DAYS = [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800]
+FTP_BUCKET_LABELS_BY_BOUNDS = {
+    tuple(FTP_DEFAULT_BUCKET_UPPER_DAYS): [
+        '<7days', '7-14days', '14-21days', '21days-1m', '1m-2m', '2m-3m',
+        '3m-6m', '6m-9m', '9m-12m', '1y-2y', '2y-3y', '3y-5y', '+5y'],
+    (30, 60, 90, 180, 270, 360, 720, 1080, 1800): [
+        '<1m', '1m-2m', '2m-3m', '3m-6m', '6m-9m', '9m-12m', '1y-2y', '2y-3y', '3y-5y', '+5y'],
+}
+# Backwards-compatible aliases for the default (13 bucket) layout.
+FTP_BUCKET_UPPER_DAYS = FTP_DEFAULT_BUCKET_UPPER_DAYS
+FTP_BUCKET_LABELS = FTP_BUCKET_LABELS_BY_BOUNDS[tuple(FTP_DEFAULT_BUCKET_UPPER_DAYS)]
+FTP_BUCKET_EDGES = [0] + FTP_DEFAULT_BUCKET_UPPER_DAYS + [float('inf')]
+# Day-count convention for loans booked inside the reporting month: the ZWG
+# 2026-04 reference workbook excludes the booking day, while the USD workbook and
+# every earlier workbook includes it. Set FTP_DINM_BOOKED_IN_MONTH_EXCLUSIVE=''
+# to apply the inclusive convention to both currencies.
+DINM_BOOKED_IN_MONTH_EXCLUSIVE = {
+    part.strip().upper()
+    for part in os.getenv('FTP_DINM_BOOKED_IN_MONTH_EXCLUSIVE', 'ZWG').split(',')
+    if part.strip()
+}
+# The 2026-02 reference workbooks counted a full month of DinM for loans that had
+# already matured and forced MTM=3 once a loan was more than 45 days past due.
+# The 2026-04 model dropped both rules; set FTP_MODEL_VERSION=2026-02 to
+# reproduce the older generation of reports.
+MODEL_VERSION = os.getenv('FTP_MODEL_VERSION', '2026-04').strip()
+LEGACY_MATURED_LOAN_RULES = MODEL_VERSION.startswith('2026-02')
 # Disable non-loan sheet export by default to keep memory use below small-instance limits.
 INCLUDE_NON_LOAN_SHEETS = os.getenv('INCLUDE_NON_LOAN_SHEETS', '0').lower() in {'1', 'true', 'yes'}
 # Guardrail for low-memory hosts: downgrade full-workbook export if upload is too large.
@@ -116,7 +140,7 @@ DEFAULT_BRANCH_SBU_MAP = {
     '40': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '41': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '43': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-    '44': {'unit': 'Private Sector', 'sbu': 'Corporate Banking'},
+    '44': {'unit': 'Wealth Management', 'sbu': 'Retail Banking'},
     '45': {'unit': 'Business Banking', 'sbu': 'Corporate Banking'},
     '46': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '47': {'unit': 'Private Sector', 'sbu': 'Corporate Banking'},
@@ -132,14 +156,14 @@ DEFAULT_BRANCH_SBU_MAP = {
     '57': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '58': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '61': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-    '62': {'unit': '8th Avenue', 'sbu': 'Retail Banking'},
+    '62': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
     '65': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '66': {'unit': 'Treasury', 'sbu': 'Treasury'},
     '67': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '68': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '69': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '70': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-    '87': {'unit': 'Chisipite', 'sbu': 'Retail Banking'},
+    '87': {'unit': 'Chipinge', 'sbu': 'Retail Banking'},
     '88': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
     '89': {'unit': 'Highfield', 'sbu': 'Retail Banking'},
     '90': {'unit': 'Marondera', 'sbu': 'Retail Banking'},
@@ -169,42 +193,42 @@ DEFAULT_BRANCH_SBU_MAP = {
     '115': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '116': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '117': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-    '118': {'unit': 'Bureau De Change Hire', 'sbu': 'Shared Services'},
+    '118': {'unit': 'Bureau De Change Hre', 'sbu': 'Shared Services'},
     '120': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
-    '121': {'unit': 'Retail Centralised', 'sbu': 'Retail Banking'},
-    '122': {'unit': 'Mat Centre Fire Street', 'sbu': 'Retail Banking'},
+    '121': {'unit': 'Retail Centraslised Back Office', 'sbu': 'Retail Banking'},
+    '122': {'unit': 'Mta Centre Fife Street', 'sbu': 'Retail Banking'},
     '123': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '124': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '125': {'unit': 'Passport Centre Harare', 'sbu': 'Retail Banking'},
     '126': {'unit': 'Virtual Branch', 'sbu': 'Retail Banking'},
-    '127': {'unit': 'Passport Centre Harare', 'sbu': 'Retail Banking'},
+    '127': {'unit': 'Passport Centre Bulawayo', 'sbu': 'Retail Banking'},
     '128': {'unit': 'Passport Centre Chitungwiza', 'sbu': 'Retail Banking'},
-    '129': {'unit': 'Passport Centre Lupar', 'sbu': 'Retail Banking'},
+    '129': {'unit': 'Passport Centre Lupane', 'sbu': 'Retail Banking'},
     '130': {'unit': 'Passport Centre Hwange', 'sbu': 'Retail Banking'},
     '131': {'unit': 'Passport Centre Gweru', 'sbu': 'Retail Banking'},
     '132': {'unit': 'Passport Centre Beitbridge', 'sbu': 'Retail Banking'},
     '133': {'unit': 'Passport Centre Chinhoyi', 'sbu': 'Retail Banking'},
     '134': {'unit': 'Passport Centre Marondera', 'sbu': 'Retail Banking'},
     '135': {'unit': 'Passport Centre Bindura', 'sbu': 'Retail Banking'},
-    '136': {'unit': 'Passport Centre Gwe', 'sbu': 'Retail Banking'},
+    '136': {'unit': 'Passport Centre Gwanda', 'sbu': 'Retail Banking'},
     '137': {'unit': 'Passport Centre Mutare', 'sbu': 'Retail Banking'},
-    '138': {'unit': 'Passport Centre Mvurwi', 'sbu': 'Retail Banking'},
+    '138': {'unit': 'Passport Centre Masvingo', 'sbu': 'Retail Banking'},
     '139': {'unit': 'Passport Centre Zvishavane', 'sbu': 'Retail Banking'},
     '140': {'unit': 'Passport Centre Murehwa', 'sbu': 'Retail Banking'},
     '141': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
-    '142': {'unit': 'Retail Centralised', 'sbu': 'Retail Banking'},
+    '142': {'unit': 'Retail Centralised Byo', 'sbu': 'Retail Banking'},
     '143': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'},
     '144': {'unit': 'Retail Head Office', 'sbu': 'Retail Banking'},
     '145': {'unit': 'Borrowdale', 'sbu': 'Retail Banking'},
-    '146': {'unit': 'Passport Centre Mwer', 'sbu': 'Retail Banking'},
+    '146': {'unit': 'Passport Centre Mwenezi', 'sbu': 'Retail Banking'},
     '147': {'unit': 'Passport Centre Gokwe', 'sbu': 'Retail Banking'},
-    '203': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
+    '200': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '600': {'unit': 'Shared Services', 'sbu': 'Shared Services'},
     '601': {'unit': 'Treasury', 'sbu': 'Treasury'},
     '602': {'unit': 'Mortgage Finance', 'sbu': 'Retail Banking'},
     '611': {'unit': 'Masvingo', 'sbu': 'Retail Banking'},
     '612': {'unit': 'Chiredzi', 'sbu': 'Retail Banking'},
-    '613': {'unit': 'Chinhoyi', 'sbu': 'Retail Banking'},
+    '613': {'unit': 'Masvingo', 'sbu': 'Retail Banking'},
     '614': {'unit': 'Zvishavane', 'sbu': 'Retail Banking'},
     '615': {'unit': 'Gweru', 'sbu': 'Retail Banking'},
     '616': {'unit': 'Kwekwe', 'sbu': 'Retail Banking'},
@@ -217,13 +241,13 @@ DEFAULT_BRANCH_SBU_MAP = {
     '632': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
     '633': {'unit': 'Mutare', 'sbu': 'Retail Banking'},
     '634': {'unit': 'Rusape', 'sbu': 'Retail Banking'},
-    '644': {'unit': '8th Avenue', 'sbu': 'Retail Banking'},
-    '645': {'unit': '8th Avenue', 'sbu': 'Retail Banking'},
+    '644': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
+    '645': {'unit': '8Th Avenue', 'sbu': 'Retail Banking'},
     '646': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
     '647': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
     '648': {'unit': 'Belmont', 'sbu': 'Retail Banking'},
     '649': {'unit': 'Gwanda', 'sbu': 'Retail Banking'},
-    '658': {'unit': 'Cash Depot Bulawayo', 'sbu': 'Retail Banking'},
+    '650': {'unit': 'Cash Depot Bulawayo', 'sbu': 'Retail Banking'},
     '660': {'unit': 'Samora Machel', 'sbu': 'Retail Banking'},
     '661': {'unit': 'Avondale', 'sbu': 'Retail Banking'},
     '662': {'unit': 'Bindura', 'sbu': 'Retail Banking'},
@@ -237,7 +261,7 @@ DEFAULT_BRANCH_SBU_MAP = {
     '671': {'unit': 'Cash Depot Harare', 'sbu': 'Retail Banking'},
     '672': {'unit': 'Kariba', 'sbu': 'Retail Banking'},
     '681': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
-    '682': {'unit': 'Chivhu', 'sbu': 'Retail Banking'},
+    '682': {'unit': 'Cripps', 'sbu': 'Retail Banking'},
     '683': {'unit': 'Chitungwiza', 'sbu': 'Retail Banking'},
     '684': {'unit': 'Chivhu', 'sbu': 'Retail Banking'},
     '685': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
@@ -245,7 +269,7 @@ DEFAULT_BRANCH_SBU_MAP = {
     '687': {'unit': 'Marondera', 'sbu': 'Retail Banking'},
     '688': {'unit': 'Msasa', 'sbu': 'Retail Banking'},
     '689': {'unit': 'Msasa', 'sbu': 'Retail Banking'},
-    '690': {'unit': 'Sapphire', 'sbu': 'Retail Banking'}
+    '690': {'unit': 'Sapphire', 'sbu': 'Retail Banking'},
 }
 
 
@@ -359,10 +383,12 @@ init_branch_map_db()
 
 
 def load_curve_config():
+    # Curve of the current reference model (CBZ Bank USD/ZWG New FTP Model -
+    # April 2026, Assets!U2:AE2). The bucket labels follow the number of rates.
     default_curves = {
-        'tenors': [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800],
-        'usd_rates': [3.2892, 3.3567, 6.1538, 10.9667, 11.0167, 11.1333, 12.2167, 12.2167, 12.2167, 13.9646, 15.415, 18.3158, 18.3158],
-        'zwg_rates': [16.9019, 16.9019, 16.9019, 16.9019, 17.9019, 18.1019, 19.1019, 19.1019, 20.1019, 23.4741, 26.5397, 32.6708, 32.6708]
+        'tenors': [30, 60, 90, 180, 270, 360, 720, 1080, 1800],
+        'usd_rates': [9.15, 10.15, 11.15, 12.15, 12.15, 12.15, 15.54, 18.26, 23.7, 23.7],
+        'zwg_rates': [12.0, 13.0, 14.0, 14.0, 14.0, 14.0, 15.94, 17.45, 20.47, 19.47]
     }
 
     if not os.path.exists(CURVE_CONFIG_PATH):
@@ -376,7 +402,9 @@ def load_curve_config():
         usd_curve = [float(value) for value in curve_config.get('usd_rates', default_curves['usd_rates'])]
         zwg_curve = [float(value) for value in curve_config.get('zwg_rates', default_curves['zwg_rates'])]
 
-        if len(tenors) != len(usd_curve) or len(tenors) != len(zwg_curve):
+        # The reference model keeps one rate per bucket and the tenors hold the
+        # bucket boundaries (n-1). The curve editor form submits one tenor per rate.
+        if len(usd_curve) != len(zwg_curve) or len(usd_curve) not in (len(tenors), len(tenors) + 1):
             raise ValueError('Curve config lengths do not match')
 
         return {
@@ -418,6 +446,44 @@ usd_rates = curve_config['usd_rates']
 
 # ZWG FTP curve data
 zwg_rates = curve_config['zwg_rates']
+
+
+def _bucket_layout():
+    """Bucket labels and upper day bounds implied by the active curve config.
+
+    The reference workbook carries one curve point per bucket, so n rates define
+    n buckets and the first n-1 tenors are the bucket boundaries. Configs that
+    instead carry one tenor per rate (the curve editor form) are trimmed to n-1
+    boundaries.
+    """
+    rate_count = max(len(usd_rates), len(zwg_rates), 1)
+    bounds = [int(value) for value in tenors]
+    if len(bounds) >= rate_count:
+        bounds = bounds[:rate_count - 1]
+    if not bounds:
+        bounds = list(FTP_DEFAULT_BUCKET_UPPER_DAYS)
+    labels = FTP_BUCKET_LABELS_BY_BOUNDS.get(tuple(bounds))
+    if labels is None:
+        labels, previous = [], 0
+        for bound in bounds:
+            labels.append(f'<{bound}days' if previous == 0 else f'{previous}-{bound}days')
+            previous = bound
+        labels.append(f'+{bounds[-1]}days')
+    return list(labels), bounds
+
+
+def _default_maturity_date(reference_date):
+    """Maturity the reference extract substitutes for loans with no maturity date.
+
+    Both workbooks use the month end eleven months after the reporting month
+    (Feb-2026 -> 31-Jan-2027, Apr-2026 -> 31-Mar-2027).
+    """
+    month_index = reference_date.month + 10
+    year = reference_date.year + month_index // 12
+    month = month_index % 12 + 1
+    next_month = datetime(year + (month // 12), month % 12 + 1, 1)
+    return next_month - timedelta(days=1)
+
 
 # Global variable
 latest_data = {
@@ -1518,13 +1584,14 @@ def _build_methodology_grid(period_label, report_key_label, basis, blocks, limit
     def add(*cells):
         grid.append(list(cells))
 
+    bucket_labels, _ = _bucket_layout()
+
     add('FTP WORKING PAPER - METHODOLOGY & ROW-BY-ROW CHARGE BUILD-UP')
     add(f'Period: {period_label}   Report key: {report_key_label}   Charge basis: {basis} ({_charge_basis_label(basis)})')
     add('How each loan is charged:')
-    add('  1) The loan outstanding is spread across the 13 time buckets according to its cashflow model.')
-    add('     - Term loan      : exposure amortises evenly over its MTM months.')
-    add('     - Overdraft (OD) : exposure spreads evenly over 12 monthly strips regardless of maturity.')
-    add('     - Line of Credit : the full exposure sits in the bucket at contractual maturity.')
+    add(f'  1) The loan outstanding is spread across the {len(bucket_labels)} time buckets according to its cashflow model.')
+    add('     - Term loan / OD : exposure amortises evenly over its month-to-maturity strips.')
+    add('     - Bullet        : the full exposure sits in the bucket at contractual maturity.')
     add('  2) Each bucket is priced at the FTP rate for that tenor (USD curve for FX LOANS, ZWG curve for ZWG LOANS).')
     add('  3) The period factor converts the annualised result into the reported FTP Charge:')
     add('     FTP Charge (loan) = SUM over buckets ( bucket balance x bucket rate % ) x period factor')
@@ -1532,7 +1599,7 @@ def _build_methodology_grid(period_label, report_key_label, basis, blocks, limit
     add('')
     add('Curve reference - annual FTP rates (%)')
     add('Bucket', 'USD rate %', 'ZWG rate %')
-    for idx, label in enumerate(FTP_BUCKET_LABELS):
+    for idx, label in enumerate(bucket_labels):
         usd_rate = usd_rates[idx] if idx < len(usd_rates) else (usd_rates[-1] if usd_rates else 0)
         zwg_rate = zwg_rates[idx] if idx < len(zwg_rates) else (zwg_rates[-1] if zwg_rates else 0)
         add(label, round(float(usd_rate), 4), round(float(zwg_rate), 4))
@@ -1561,7 +1628,7 @@ def _build_methodology_grid(period_label, report_key_label, basis, blocks, limit
 
             bucket_rows = []
             contribution_total = 0.0
-            for idx, bucket in enumerate(FTP_BUCKET_LABELS):
+            for idx, bucket in enumerate(bucket_labels):
                 balance = _as_float(row_payload.get(bucket))
                 if balance == 0:
                     continue
@@ -2300,14 +2367,15 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                     first_day_ts = pd.Timestamp(first_day.date())
                     last_day_ts = pd.Timestamp(last_day.date())
                     full_period = (last_day_ts - first_day_ts).days + 1
-                    # Reference model bucket labels (13 buckets)
-                    bucket_labels = FTP_BUCKET_LABELS
-                    bin_edges = FTP_BUCKET_EDGES
+                    # Bucket layout follows the configured curve (13 or 10 buckets).
+                    bucket_labels, bucket_upper_days = _bucket_layout()
                     # FTP curve rates per the reference model Offer Rate curve
                     rates = zwg_rates if sheet == 'ZWG LOANS' else usd_rates
                     rv = np.array([(rates[i] if i < len(rates) else rates[-1]) / 100
-                                   for i in range(len(bucket_labels))], dtype=np.float32)
+                                   for i in range(len(bucket_labels))], dtype=np.float64)
                     currency = 'ZWG' if sheet == 'ZWG LOANS' else 'FX'
+                    dinm_booked_in_month_inclusive = (LEGACY_MATURED_LOAN_RULES
+                                                      or currency not in DINM_BOOKED_IN_MONTH_EXCLUSIVE)
 
                     sheet_data_path = _build_workings_sheet_data_path(report_key, sheet)
                     raw_data_path = sheet_data_path.replace('.ndjson', '_raw.ndjson')
@@ -2367,13 +2435,17 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                     chunk_pct = 20 + int(45 * (completed_loan + (chunk_end / max(total_rows, 1))) / total_loan_sheets)
                                     progress(chunk_pct, f'Computing FTP for {month_name} {year}: {sheet} {chunk_end}/{total_rows}')
 
-                                    # Add SBU mapping
+                                    # Add SBU mapping (reference model: staff loans sit in
+                                    # Shared Services ahead of the branch mapping)
                                     branch_col = next((column for column in branch_column_candidates if column in chunk.columns), None)
                                     if branch_col:
                                         chunk[branch_col] = chunk[branch_col].astype(str).str.strip()
                                         chunk['SBU'] = chunk[branch_col].map(branch_sbu_lookup).fillna('Unknown')
                                     else:
                                         chunk['SBU'] = 'Unknown'
+                                    staff_col = next((column for column in ['Staff Status', 'STAFF_STATUS', 'STAFF'] if column in chunk.columns), None)
+                                    if staff_col:
+                                        chunk.loc[chunk[staff_col].astype(str).str.strip().str.upper() == 'STAFF', 'SBU'] = 'Shared Services'
 
                                     # Parse and convert dates
                                     if 'BOOKING_DATE' in chunk.columns:
@@ -2381,9 +2453,9 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                     else:
                                         chunk['BOOKING_DATE'] = first_day
                                     if 'MATURITY_DATE' in chunk.columns:
-                                        chunk['MATURITY_DATE'] = pd.to_datetime(chunk['MATURITY_DATE'], errors='coerce').fillna(first_day + timedelta(days=365))
+                                        chunk['MATURITY_DATE'] = pd.to_datetime(chunk['MATURITY_DATE'], errors='coerce').fillna(_default_maturity_date(first_day))
                                     else:
-                                        chunk['MATURITY_DATE'] = first_day + timedelta(days=365)
+                                        chunk['MATURITY_DATE'] = _default_maturity_date(first_day)
 
                                     # Compute TENOR
                                     chunk['TENOR'] = (chunk['MATURITY_DATE'] - chunk['BOOKING_DATE']).dt.days.clip(lower=0)
@@ -2391,18 +2463,29 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                     # Compute DimDays, DTM, MTM
                                     bd = chunk['BOOKING_DATE']
                                     md = chunk['MATURITY_DATE']
+                                    # DinM (reference workbook column S) - days the loan is
+                                    # actually on book during the reporting month.
+                                    booked_in_month_days = (last_day_ts - bd).dt.days + (
+                                        1 if dinm_booked_in_month_inclusive else 0)
                                     chunk['DimDays'] = np.where(
                                         (bd <= first_day_ts) & (md >= last_day_ts), full_period,
-                                        np.where((bd >= first_day_ts) & (md >= last_day_ts), (last_day_ts - bd).dt.days + 1,
+                                        np.where((bd >= first_day_ts) & (md >= last_day_ts), booked_in_month_days,
                                         np.where((bd >= first_day_ts) & (md <= last_day_ts), (md - bd).dt.days,
-                                                 (md - first_day_ts).dt.days))
+                                        np.where((bd < first_day_ts) & (md < first_day_ts),
+                                                 full_period if LEGACY_MATURED_LOAN_RULES else full_period - 1,
+                                                 (md - first_day_ts).dt.days)))
                                     ).astype(np.int32)
-                                    chunk['DTM'] = np.where(md > last_day_ts, (md - last_day_ts).dt.days, 0).astype(np.int32)
-                                    # MTM = months to maturity: round UP to the next whole 30-day
-                                    # month (reference model uses ceil(DTM/30)); at least 1 month
-                                    # while the loan still has any remaining term.
-                                    mtm_float = np.ceil(chunk['DTM'].to_numpy(dtype=np.float64, copy=False) / 30.0)
-                                    chunk['MTM'] = np.maximum(mtm_float, 1).astype(np.float32)
+                                    chunk['DTM'] = (md - last_day_ts).dt.days.astype(np.int32)
+                                    # MTM = ROUNDUP(DTM/30, 0) as in the reference workbook
+                                    # (Excel rounds away from zero, so matured loans go negative).
+                                    dtm_values = chunk['DTM'].to_numpy(dtype=np.float64, copy=False)
+                                    chunk['MTM'] = np.where(
+                                        dtm_values < 0,
+                                        -np.ceil(-dtm_values / 30.0),
+                                        np.ceil(dtm_values / 30.0),
+                                    ).astype(np.float32)
+                                    if LEGACY_MATURED_LOAN_RULES:
+                                        chunk.loc[chunk['DTM'] < -45, 'MTM'] = 3.0
 
                                     # Determine exposure column (handle both spaced and unspaced variants)
                                     exposure_col = next((c for c in ['Currency Exposure + Currency Accrued Reporting',
@@ -2414,8 +2497,9 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
 
                                     exposure = pd.to_numeric(
                                         chunk[exposure_col], errors='coerce'
-                                    ).fillna(0).astype(np.float32)
-                                    mtm_months = chunk['MTM'].astype(np.int32)
+                                    ).fillna(0).astype(np.float64)
+                                    # Matured or same-day loans still occupy one monthly strip.
+                                    mtm_months = np.maximum(chunk['MTM'].astype(np.int32), 1)
 
                                     # Detect repayment/cashflow behaviour (matches the reference
                                     # model's Assets sheet): 'Amortising' loans - including
@@ -2431,19 +2515,21 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                         source_of_funding = chunk[sof_col].astype(str).str.strip() if sof_col else pd.Series([''] * len(chunk))
                                         is_bullet = source_of_funding.str.upper().str.contains('LOC|LINE.OF.CREDIT', na=False, regex=True)
 
-                                    bv = np.zeros((len(chunk), len(bucket_labels)), dtype=np.float32)
-                                    ev = exposure.to_numpy(dtype=np.float32, copy=False)
+                                    bv = np.zeros((len(chunk), len(bucket_labels)), dtype=np.float64)
+                                    ev = exposure.to_numpy(dtype=np.float64, copy=False)
                                     mv = mtm_months.to_numpy(dtype=np.int32, copy=False)
-                                    upper_days = np.array(FTP_BUCKET_UPPER_DAYS, dtype=np.int64)
+                                    upper_days = np.array(bucket_upper_days, dtype=np.int64)
 
                                     def _bucket_for_day(day):
                                         index = int(np.searchsorted(upper_days, day, side='left'))
-                                        return min(index, len(FTP_BUCKET_LABELS) - 1)
+                                        return min(index, len(bucket_labels) - 1)
 
                                     # --- Amortising (terms AND overdrafts): spread over MTM months ---
                                     # A cashflow at month m lands on day m*30; a day exactly on a
                                     # boundary belongs to the shorter bucket (reference convention).
-                                    amort_mask = ~is_bullet.values
+                                    # Negative (contra) exposures carry no bucket balance, as in the
+                                    # reference workbook.
+                                    amort_mask = (~is_bullet.values) & (ev >= 0)
                                     ai = np.where(amort_mask)[0]
                                     if len(ai) > 0:
                                         mv_a = mv[ai]
@@ -2460,17 +2546,17 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                             bv[ai[active_mask], bucket_index] += monthly_amt[active_mask]
                                         long_mask = (mv_a > 60) & (monthly_amt > 0)
                                         if long_mask.any():
-                                            bv[ai[long_mask], -1] += monthly_amt[long_mask] * (mv_a[long_mask] - 60).astype(np.float32)
+                                            bv[ai[long_mask], -1] += monthly_amt[long_mask] * (mv_a[long_mask] - 60).astype(np.float64)
 
                                     # --- Bullet / non-amortising (e.g. LOC): full exposure at maturity ---
-                                    bullet_mask = is_bullet.values & (mv > 0) & (ev > 0)
+                                    bullet_mask = is_bullet.values & (ev != 0)
                                     bi = np.where(bullet_mask)[0]
                                     if len(bi) > 0:
                                         days_bi = np.maximum(mv[bi], 1) * 30
                                         index_bi = np.searchsorted(upper_days, days_bi, side='left')
-                                        index_bi = np.minimum(index_bi, len(FTP_BUCKET_LABELS) - 1)
+                                        index_bi = np.minimum(index_bi, len(bucket_labels) - 1)
                                         for row_i, bucket_i in zip(bi, index_bi):
-                                            if ev[row_i] > 0:
+                                            if ev[row_i] != 0:
                                                 bv[row_i, int(bucket_i)] = ev[row_i]
 
                                     # Zero MTM but positive exposure → shortest bucket
@@ -2479,16 +2565,16 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                         bv[zero_active, 0] = ev[zero_active]
 
                                     chunk[bucket_labels] = bv
-                                    chunk['Check'] = bv.sum(axis=1).astype(np.float32)
-                                    annual_charge = (bv @ rv).astype(np.float32)
+                                    chunk['Check'] = bv.sum(axis=1)
+                                    annual_charge = bv @ rv
                                     if FTP_CHARGE_BASIS == 'monthly':
-                                        charge_scale = np.float32(1.0 / 12.0)
+                                        charge_scale = 1.0 / 12.0
                                     elif FTP_CHARGE_BASIS in ('days365', 'days360'):
-                                        days_in_year = np.float32(365.0 if FTP_CHARGE_BASIS == 'days365' else 360.0)
-                                        charge_scale = chunk['DimDays'].to_numpy(dtype=np.float32, copy=False) / days_in_year
+                                        days_in_year = 365.0 if FTP_CHARGE_BASIS == 'days365' else 360.0
+                                        charge_scale = chunk['DimDays'].to_numpy(dtype=np.float64, copy=False) / days_in_year
                                     else:
-                                        charge_scale = np.float32(1.0)
-                                    chunk['FTP Charge'] = (annual_charge * charge_scale).astype(np.float32)
+                                        charge_scale = 1.0
+                                    chunk['FTP Charge'] = annual_charge * charge_scale
 
                                     # Accumulate summaries
                                     chunk_exposure = chunk[exposure_col].sum()
@@ -3391,8 +3477,10 @@ def update_ftp_curve_data():
     if not isinstance(updated_tenors, list) or not isinstance(updated_usd_rates, list) or not isinstance(updated_zwg_rates, list):
         return jsonify({'error': 'tenors, usd_rates, and zwg_rates must all be arrays'}), 400
 
-    if not updated_tenors or len(updated_tenors) != len(updated_usd_rates) or len(updated_tenors) != len(updated_zwg_rates):
+    if not updated_tenors or len(updated_usd_rates) != len(updated_zwg_rates):
         return jsonify({'error': 'Curve arrays must be non-empty and have matching lengths'}), 400
+    if len(updated_usd_rates) not in (len(updated_tenors), len(updated_tenors) + 1):
+        return jsonify({'error': 'Provide one rate per bucket: either one tenor per rate or the n-1 bucket boundaries'}), 400
 
     try:
         normalized_tenors = [int(value) for value in updated_tenors]
