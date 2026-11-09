@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, send_file, has_request_context, Response
 import json
 import os
+import glob
 import sqlite3
 import gc
 import threading
@@ -10,6 +11,7 @@ import zipfile
 import pandas as pd
 import io
 import tempfile
+import atexit
 import openpyxl
 import numpy as np
 from datetime import datetime, timedelta
@@ -29,12 +31,8 @@ APP_BASE_DIR = os.path.dirname(__file__)
 DATA_ROOT_DIR = os.getenv('FTP_DATA_DIR', APP_BASE_DIR)
 
 CURVE_CONFIG_PATH = os.path.join(DATA_ROOT_DIR, 'curve_config.json')
-PROCESSED_REPORTS_DB_PATH = os.path.join(DATA_ROOT_DIR, 'processed_reports.db')
-PROCESSED_OUTPUTS_DIR = os.path.join(DATA_ROOT_DIR, 'processed_outputs')
-WORKINGS_JSON_DIR = os.path.join(DATA_ROOT_DIR, 'workings_json')
 BRANCH_MAP_DB_PATH = os.path.join(DATA_ROOT_DIR, 'branch_sbu_map.db')
 BRANCH_MAP_JSON_PATH = os.path.join(DATA_ROOT_DIR, 'branch_sbu_map.json')
-UPLOAD_JOBS_DB_PATH = os.path.join(DATA_ROOT_DIR, 'upload_jobs.db')
 TEMP_UPLOADS_DIR = os.path.join(DATA_ROOT_DIR, 'temp_uploads')
 LOAN_SHEETS = {'ZWG LOANS', 'FX LOANS'}
 # Number of loans (per currency) shown in the downloadable 'Working Paper' Excel.
@@ -95,18 +93,48 @@ FORCE_RESULTS_ONLY_ON_HOSTED = os.getenv(
     'FTP_FORCE_RESULTS_ONLY_ON_HOSTED',
     '1' if (os.getenv('RENDER') or os.getenv('RENDER_EXTERNAL_URL')) else '0'
 ).lower() in {'1', 'true', 'yes', 'on'}
-REPORT_RETENTION_MAX_VERSIONS = int(os.getenv('REPORT_RETENTION_MAX_VERSIONS', '3'))
-REPORT_RETENTION_MAX_MONTHS = int(os.getenv('REPORT_RETENTION_MAX_MONTHS', '24'))
 FTP_REQUIRE_ROLE = os.getenv('FTP_REQUIRE_ROLE', '0').lower() in {'1', 'true', 'yes', 'on'}
 FTP_DEFAULT_ROLE = os.getenv('FTP_DEFAULT_ROLE', 'admin').strip().lower() or 'admin'
-ENABLE_SCHEDULER = os.getenv('ENABLE_SCHEDULER', '0').lower() in {'1', 'true', 'yes', 'on'}
-SCHEDULER_POLL_SECONDS = int(os.getenv('SCHEDULER_POLL_SECONDS', '30'))
-ENABLE_NOTIFICATIONS = os.getenv('ENABLE_NOTIFICATIONS', '1').lower() in {'1', 'true', 'yes', 'on'}
 os.makedirs(DATA_ROOT_DIR, exist_ok=True)
-os.makedirs(PROCESSED_OUTPUTS_DIR, exist_ok=True)
-os.makedirs(WORKINGS_JSON_DIR, exist_ok=True)
 os.makedirs(TEMP_UPLOADS_DIR, exist_ok=True)
+for stale in glob.glob(os.path.join(TEMP_UPLOADS_DIR, '*')):
+    try:
+        os.remove(stale)
+    except OSError:
+        pass
 print(f"[INFO] FTP storage root: {DATA_ROOT_DIR}")
+
+# Results are never archived. Each upload gets a scratch directory under the OS
+# temp folder that is deleted when the next upload starts or the process exits,
+# so downloads are only available for the run that produced them.
+_run_dir_lock = threading.Lock()
+_run_dir = {'path': None}
+
+
+def _start_run_dir():
+    """Return a clean scratch directory for the current upload."""
+    with _run_dir_lock:
+        previous = _run_dir['path']
+        _run_dir['path'] = tempfile.mkdtemp(prefix='ftp_model_run_')
+        if previous and os.path.isdir(previous):
+            shutil.rmtree(previous, ignore_errors=True)
+        return _run_dir['path']
+
+
+def _current_run_dir():
+    with _run_dir_lock:
+        return _run_dir['path']
+
+
+def _clear_run_dir():
+    with _run_dir_lock:
+        current = _run_dir['path']
+        _run_dir['path'] = None
+    if current and os.path.isdir(current):
+        shutil.rmtree(current, ignore_errors=True)
+
+
+atexit.register(_clear_run_dir)
 
 
 DEFAULT_BRANCH_SBU_MAP = {
@@ -420,6 +448,242 @@ def save_curve_config(curve_config):
     with open(CURVE_CONFIG_PATH, 'w', encoding='utf-8') as curve_file:
         json.dump(curve_config, curve_file, indent=2)
 
+
+def _curve_payload():
+    """Curve definition in the shape the editor and chart consume."""
+    return {
+        'tenors': list(tenors),
+        'zwg': {'name': 'ZWG FTP Curve', 'rates': list(zwg_rates), 'color': '#b33a3a', 'borderColor': '#921f1f'},
+        'usd': {'name': 'USD FTP Curve', 'rates': list(usd_rates), 'color': '#2563eb', 'borderColor': '#1d4ed8'}
+    }
+
+
+def _normalize_curve_payload(raw_tenors, raw_usd, raw_zwg):
+    """Validate a curve definition. Returns (config, error_message)."""
+    try:
+        normalized_tenors = [int(round(float(value))) for value in raw_tenors]
+        normalized_usd = [float(value) for value in raw_usd]
+        normalized_zwg = [float(value) for value in raw_zwg]
+    except (TypeError, ValueError):
+        return None, 'All curve values must be numeric'
+
+    if not normalized_usd or not normalized_zwg:
+        return None, 'The curve must contain at least one bucket'
+    if len(normalized_usd) != len(normalized_zwg):
+        return None, 'The USD and ZWG curves must have the same number of rates'
+    if len(normalized_tenors) not in (len(normalized_usd), len(normalized_usd) - 1):
+        return None, (f'{len(normalized_usd)} rates need {len(normalized_usd)} tenors '
+                      f'(one per bucket) or {len(normalized_usd) - 1} bucket boundaries')
+    if any(value <= 0 for value in normalized_tenors):
+        return None, 'Tenors must be greater than zero'
+    if normalized_tenors != sorted(normalized_tenors):
+        return None, 'Tenors must be in ascending order'
+    if any(value < 0 for value in normalized_usd + normalized_zwg):
+        return None, 'Rates cannot be negative'
+
+    return {
+        'tenors': normalized_tenors,
+        'usd_rates': normalized_usd,
+        'zwg_rates': normalized_zwg,
+    }, None
+
+
+def _apply_curve_config(config):
+    """Persist a validated curve and publish it to the running process."""
+    global tenors, usd_rates, zwg_rates
+
+    save_curve_config(config)
+    tenors = list(config['tenors'])
+    usd_rates = list(config['usd_rates'])
+    zwg_rates = list(config['zwg_rates'])
+
+
+FTP_CURVE_TEMPLATE_SHEET = 'FTP Curve'
+FTP_CURVE_INSTRUCTIONS_SHEET = 'Instructions'
+FTP_CURVE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _build_curve_template_workbook():
+    """Excel template for entering the FTP curve, pre-filled with the live curve."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    header_fill = PatternFill('solid', fgColor='FFD9E1F2')
+    editable_fill = PatternFill('solid', fgColor='FFFFF2CC')
+    thin = Side(style='thin', color='FFBFBFBF')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    labels, _ = _bucket_layout()
+    bucket_count = max(len(usd_rates), len(zwg_rates), len(labels))
+    tenor_values = list(tenors)
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = FTP_CURVE_TEMPLATE_SHEET
+
+    sheet['A1'] = 'CBZ Bank FTP Yield Curve Template'
+    sheet['A1'].font = Font(bold=True, size=14)
+    sheet['A2'] = ('Fill the yellow cells below, then upload this workbook from the '
+                   'FTP Curve Editor. Rates are annual percentages (e.g. 11.15 for 11.15%).')
+    sheet['A2'].font = Font(italic=True, size=10, color='FF555555')
+
+    headers = ['Bucket', 'Tenor (days)', 'USD FTP Curve (%)', 'ZWG FTP Curve (%)']
+    header_row = 4
+    for column, value in enumerate(headers, start=1):
+        cell = sheet.cell(row=header_row, column=column, value=value)
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.border = border
+        cell.alignment = Alignment(horizontal='center', wrap_text=True)
+
+    for index in range(bucket_count):
+        row_number = header_row + 1 + index
+        label = labels[index] if index < len(labels) else f'Bucket {index + 1}'
+        tenor_cell = sheet.cell(row=row_number, column=1, value=label)
+        tenor_cell.border = border
+        tenor_cell.font = Font(bold=True)
+
+        # The last bucket is open-ended ('+5y'), so its tenor stays blank.
+        if index < len(tenor_values):
+            day_cell = sheet.cell(row=row_number, column=2, value=tenor_values[index])
+            day_cell.fill = editable_fill
+            day_cell.number_format = '0'
+        else:
+            day_cell = sheet.cell(row=row_number, column=2)
+            day_cell.fill = editable_fill
+        day_cell.border = border
+
+        usd_cell = sheet.cell(row=row_number, column=3,
+                              value=usd_rates[index] if index < len(usd_rates) else None)
+        usd_cell.fill = editable_fill
+        usd_cell.number_format = '0.0000'
+        usd_cell.border = border
+
+        zwg_cell = sheet.cell(row=row_number, column=4,
+                              value=zwg_rates[index] if index < len(zwg_rates) else None)
+        zwg_cell.fill = editable_fill
+        zwg_cell.number_format = '0.0000'
+        zwg_cell.border = border
+
+    note_row = header_row + bucket_count + 2
+    notes = [
+        'Notes',
+        '1. Leave the last "Tenor (days)" cell blank: that bucket is open-ended (above the previous boundary).',
+        '2. Tenors must increase down the column and must be whole days.',
+        '3. Every row needs both a USD and a ZWG rate; blank rates at the bottom are ignored.',
+        '4. Add rows to create more buckets; delete trailing rows to use fewer.',
+    ]
+    for offset, text in enumerate(notes):
+        cell = sheet.cell(row=note_row + offset, column=1, value=text)
+        cell.font = Font(bold=(offset == 0), size=10, color='FF555555')
+
+    sheet.column_dimensions['A'].width = 20
+    sheet.column_dimensions['B'].width = 14
+    sheet.column_dimensions['C'].width = 20
+    sheet.column_dimensions['D'].width = 20
+    sheet.freeze_panes = sheet.cell(row=header_row + 1, column=1)
+
+    guide = workbook.create_sheet(FTP_CURVE_INSTRUCTIONS_SHEET)
+    guide_rows = [
+        ('How to use this template', True),
+        ('', False),
+        ('1. Open the "FTP Curve" sheet.', False),
+        ('2. Edit the Tenor (days), USD rate % and ZWG rate % cells (highlighted).', False),
+        ('3. Save the workbook.', False),
+        ('4. In the app, open FTP Curve Editor and choose "Upload Curve".', False),
+        ('', False),
+        ('Rules', True),
+        ('- One rate per bucket; the USD and ZWG columns must have the same number of rows.', False),
+        ('- Tenors are bucket upper bounds in days and must increase down the column.', False),
+        ('- The final bucket is open-ended, so its tenor cell can stay blank.', False),
+        ('- Rates are percentages: enter 11.15, not 0.1115. Negative rates are rejected.', False),
+        ('- Saving the edited grid in the app produces the same result as uploading a workbook.', False),
+    ]
+    for offset, (text, bold) in enumerate(guide_rows, start=1):
+        cell = guide.cell(row=offset, column=1, value=text)
+        if bold:
+            cell.font = Font(bold=True, size=12)
+    guide.column_dimensions['A'].width = 95
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def _read_curve_workbook(path):
+    """Extract (tenors, usd_rates, zwg_rates) from an uploaded curve workbook."""
+    extension = os.path.splitext(str(path))[1].lower()
+    try:
+        if extension == '.csv':
+            frame = pd.read_csv(path, header=None)
+        else:
+            frame = pd.read_excel(path, sheet_name=0, header=None)
+    except Exception as exc:
+        raise ValueError(f'Could not read the curve file: {exc}') from exc
+
+    header_index = None
+    columns = {}
+    for row_index in range(min(len(frame), 40)):
+        row_values = [str(value).strip() for value in frame.iloc[row_index].tolist() if pd.notna(value)]
+        lowered = [value.lower() for value in row_values]
+        if not any('usd' in value or 'zwg' in value for value in lowered):
+            continue
+        for column_index, value in enumerate(frame.iloc[row_index].tolist()):
+            if pd.isna(value):
+                continue
+            text = str(value).strip().lower()
+            if 'usd' in text:
+                columns.setdefault('usd', column_index)
+            elif 'zwg' in text:
+                columns.setdefault('zwg', column_index)
+            elif 'tenor' in text or 'days' in text:
+                columns.setdefault('tenor', column_index)
+            elif 'bucket' in text:
+                columns.setdefault('bucket', column_index)
+        if 'usd' in columns and 'zwg' in columns:
+            header_index = row_index
+            break
+
+    if header_index is None:
+        raise ValueError('Could not find the curve header row. Use the downloadable template as a starting point.')
+
+    if 'tenor' not in columns:
+        columns['tenor'] = columns.get('bucket')
+
+    tenors_out, usd_out, zwg_out = [], [], []
+    for row_index in range(header_index + 1, len(frame)):
+        record = frame.iloc[row_index].tolist()
+
+        def cell(key):
+            index = columns.get(key)
+            if index is None or index >= len(record):
+                return None
+            value = record[index]
+            return None if pd.isna(value) else value
+
+        tenor_value, usd_value, zwg_value = cell('tenor'), cell('usd'), cell('zwg')
+        if usd_value is None and zwg_value is None:
+            if tenor_value is None:
+                continue
+            if usd_out:  # notes/legend rows after the data block
+                break
+            continue
+        if usd_value is None or zwg_value is None:
+            # A trailing open-ended bucket may legitimately have a blank tenor.
+            if usd_out and tenor_value is None:
+                continue
+            raise ValueError(f'Row {row_index + 1} is missing a USD or ZWG rate')
+
+        usd_out.append(usd_value)
+        zwg_out.append(zwg_value)
+        if tenor_value is not None and str(tenor_value).strip() != '':
+            tenors_out.append(tenor_value)
+
+    if not usd_out:
+        raise ValueError('No curve rows were found in the workbook')
+    return tenors_out, usd_out, zwg_out
+
 curve_config = load_curve_config()
 
 MONTH_NAME_TO_NUMBER = {
@@ -491,11 +755,10 @@ latest_data = {
     'sheets': {},
     'ftp_results': None,
     'summaries': {},
+    'results_summary': None,
     'period': {},
     'excel_output_path': None,
     'excel_filename': None,
-    'original_upload_path': None,
-    'original_upload_filename': None,
     'workings_manifest_path': None,
     'excel_contains_workings': False,
     'skipped_sheet_count': 0,
@@ -547,12 +810,12 @@ def _safe_sheet_token(sheet_name):
 
 
 def _build_workings_manifest_path(report_key):
-    return os.path.join(WORKINGS_JSON_DIR, f'FTP_Workings_{report_key}.json')
+    return os.path.join(_current_run_dir() or TEMP_UPLOADS_DIR, f'FTP_Workings_{report_key}.json')
 
 
 def _build_workings_sheet_data_path(report_key, sheet_name):
     token = _safe_sheet_token(sheet_name)
-    return os.path.join(WORKINGS_JSON_DIR, f'FTP_Workings_{report_key}_{token}.ndjson')
+    return os.path.join(_current_run_dir() or TEMP_UPLOADS_DIR, f'FTP_Workings_{report_key}_{token}.ndjson')
 
 
 def _normalize_sheet_columns(raw_columns):
@@ -624,112 +887,6 @@ def _write_dataframe_ndjson(df, output_path):
             output_file.write('\n')
 
 
-def _delete_workings_artifacts(report_key):
-    if not report_key:
-        return
-
-    manifest_path = _build_workings_manifest_path(report_key)
-    if os.path.exists(manifest_path):
-        try:
-            with open(manifest_path, 'r', encoding='utf-8') as manifest_file:
-                manifest_payload = json.load(manifest_file)
-            for sheet_info in (manifest_payload.get('sheets') or {}).values():
-                data_path = sheet_info.get('data_path')
-                if data_path and os.path.exists(data_path):
-                    os.remove(data_path)
-        except Exception as exc:
-            print(f"[WARN] Failed to remove workings data files for {report_key}: {exc}")
-        finally:
-            try:
-                os.remove(manifest_path)
-            except OSError:
-                pass
-
-
-def _ensure_processed_reports_db():
-    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-        connection.execute(
-            '''
-            CREATE TABLE IF NOT EXISTS processed_reports (
-                report_key TEXT PRIMARY KEY,
-                month_number INTEGER NOT NULL,
-                month_name TEXT NOT NULL,
-                year INTEGER NOT NULL,
-                filename TEXT,
-                period_json TEXT NOT NULL,
-                summaries_json TEXT NOT NULL,
-                sheets_json TEXT NOT NULL,
-                excel_output_path TEXT,
-                excel_filename TEXT,
-                original_upload_path TEXT,
-                original_upload_filename TEXT,
-                excel_contains_workings INTEGER NOT NULL DEFAULT 0,
-                skipped_sheet_count INTEGER NOT NULL DEFAULT 0,
-                export_warning TEXT,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            )
-            '''
-        )
-        existing_columns = {
-            row[1] for row in connection.execute('PRAGMA table_info(processed_reports)').fetchall()
-        }
-        if 'original_upload_path' not in existing_columns:
-            connection.execute('ALTER TABLE processed_reports ADD COLUMN original_upload_path TEXT')
-        if 'original_upload_filename' not in existing_columns:
-            connection.execute('ALTER TABLE processed_reports ADD COLUMN original_upload_filename TEXT')
-        connection.execute(
-            '''
-            CREATE TABLE IF NOT EXISTS report_notes (
-                note_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                report_key TEXT NOT NULL,
-                note_text TEXT NOT NULL,
-                created_by TEXT,
-                created_at REAL NOT NULL
-            )
-            '''
-        )
-        connection.execute(
-            '''
-            CREATE TABLE IF NOT EXISTS audit_log (
-                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_type TEXT NOT NULL,
-                report_key TEXT,
-                actor TEXT,
-                actor_role TEXT,
-                details_json TEXT,
-                created_at REAL NOT NULL
-            )
-            '''
-        )
-        connection.execute(
-            '''
-            CREATE TABLE IF NOT EXISTS scheduler_jobs (
-                job_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                folder_path TEXT NOT NULL,
-                include_workings INTEGER NOT NULL DEFAULT 0,
-                overwrite_existing INTEGER NOT NULL DEFAULT 0,
-                active INTEGER NOT NULL DEFAULT 1,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL,
-                last_run_at REAL,
-                last_status TEXT,
-                last_message TEXT
-            )
-            '''
-        )
-        connection.commit()
-
-
-def _current_actor():
-    if not has_request_context():
-        return 'system'
-    actor = request.headers.get('X-FTP-Actor') or request.args.get('actor')
-    if not actor:
-        actor = 'local-user'
-    return str(actor).strip() or 'local-user'
-
-
 def _current_role():
     if not has_request_context():
         return 'system'
@@ -750,388 +907,9 @@ def _require_role(*allowed_roles):
     return None
 
 
-def _audit_event(event_type, report_key=None, details=None):
-    _ensure_processed_reports_db()
-    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-        connection.execute(
-            '''
-            INSERT INTO audit_log (event_type, report_key, actor, actor_role, details_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ''',
-            (
-                event_type,
-                report_key,
-                _current_actor(),
-                _current_role(),
-                json.dumps(details or {}, ensure_ascii=True, default=_json_default),
-                time.time(),
-            )
-        )
-        connection.commit()
-
-
-def _register_notification(message, level='info', report_key=None):
-    if not ENABLE_NOTIFICATIONS:
-        return
-    _audit_event('notification', report_key=report_key, details={'message': message, 'level': level})
-
-
-def _fetch_report_metadata(report_key):
-    _ensure_processed_reports_db()
-    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-        connection.row_factory = sqlite3.Row
-        cursor = connection.cursor()
-        cursor.execute(
-            '''
-            SELECT report_key, month_number, month_name, year, filename, excel_filename,
-                   excel_output_path, original_upload_path, original_upload_filename,
-                   excel_contains_workings, skipped_sheet_count, export_warning,
-                   created_at, updated_at, period_json, summaries_json, sheets_json
-            FROM processed_reports
-            WHERE report_key = ?
-            ''',
-            (report_key,)
-        )
-        return cursor.fetchone()
-
-
-def _load_report_notes(report_key):
-    _ensure_processed_reports_db()
-    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-        connection.row_factory = sqlite3.Row
-        rows = connection.execute(
-            'SELECT note_id, note_text, created_by, created_at FROM report_notes WHERE report_key = ? ORDER BY created_at DESC',
-            (report_key,)
-        ).fetchall()
-    return [dict(row) for row in rows]
-
-
-def _delete_report_workbook(excel_output_path):
-    if excel_output_path and os.path.exists(excel_output_path):
-        try:
-            os.remove(excel_output_path)
-        except OSError as exc:
-            print(f"[WARN] Failed to remove archived workbook {excel_output_path}: {exc}")
-
-
-def _delete_original_upload(original_upload_path):
-    if original_upload_path and os.path.exists(original_upload_path):
-        try:
-            os.remove(original_upload_path)
-        except OSError as exc:
-            print(f"[WARN] Failed to remove archived original upload {original_upload_path}: {exc}")
-
-
-def _cleanup_report_retention(month_number=None, year=None):
-    _ensure_processed_reports_db()
-    now = datetime.now()
-    cutoff_year = now.year
-    cutoff_month = now.month - REPORT_RETENTION_MAX_MONTHS
-    while cutoff_month <= 0:
-        cutoff_month += 12
-        cutoff_year -= 1
-
-    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-        connection.row_factory = sqlite3.Row
-        rows_to_delete = []
-
-        if REPORT_RETENTION_MAX_MONTHS > 0:
-            old_rows = connection.execute(
-                '''
-                SELECT report_key, excel_output_path, original_upload_path
-                FROM processed_reports
-                WHERE (year < ?) OR (year = ? AND month_number < ?)
-                ''',
-                (cutoff_year, cutoff_year, cutoff_month)
-            ).fetchall()
-            rows_to_delete.extend(old_rows)
-
-        if month_number and year and REPORT_RETENTION_MAX_VERSIONS > 0:
-            version_rows = connection.execute(
-                '''
-                SELECT report_key, excel_output_path, original_upload_path
-                FROM processed_reports
-                WHERE month_number = ? AND year = ?
-                ORDER BY updated_at DESC
-                ''',
-                (int(month_number), int(year))
-            ).fetchall()
-            rows_to_delete.extend(version_rows[REPORT_RETENTION_MAX_VERSIONS:])
-
-        unique_rows = {}
-        for row in rows_to_delete:
-            unique_rows[row['report_key']] = {
-                'excel_output_path': row['excel_output_path'],
-                'original_upload_path': row['original_upload_path'],
-            }
-
-        if not unique_rows:
-            return 0
-
-        for report_key, output_paths in unique_rows.items():
-            connection.execute('DELETE FROM report_notes WHERE report_key = ?', (report_key,))
-            connection.execute('DELETE FROM processed_reports WHERE report_key = ?', (report_key,))
-            _audit_event('retention_delete', report_key=report_key, details={'reason': 'retention_policy'})
-            _delete_report_workbook(output_paths.get('excel_output_path'))
-            _delete_original_upload(output_paths.get('original_upload_path'))
-            _delete_workings_artifacts(report_key)
-
-        connection.commit()
-        return len(unique_rows)
-
-
-def save_latest_data_snapshot():
-    period = latest_data.get('period') or {}
-    month_number = period.get('month_number')
-    if not month_number:
-        month_value = str(period.get('month', '')).strip().lower()
-        month_number = MONTH_NAME_TO_NUMBER.get(month_value)
-
-    year_value = period.get('year')
-    if not month_number or year_value is None:
-        return
-
-    month_number = int(month_number)
-    year_value = int(year_value)
-    report_key = period.get('report_key') or f'{year_value:04d}-{month_number:02d}'
-    payload = {
-        'filename': latest_data.get('filename'),
-        'sheets': latest_data.get('sheets', {}),
-        'ftp_results': latest_data.get('ftp_results'),
-        'summaries': latest_data.get('summaries', {}),
-        'period': {
-            **period,
-            'month_number': month_number,
-            'report_key': report_key,
-        },
-        'excel_output_path': latest_data.get('excel_output_path'),
-        'excel_filename': latest_data.get('excel_filename'),
-        'original_upload_path': latest_data.get('original_upload_path'),
-        'original_upload_filename': latest_data.get('original_upload_filename'),
-        'excel_contains_workings': bool(latest_data.get('excel_contains_workings')),
-        'skipped_sheet_count': int(latest_data.get('skipped_sheet_count') or 0),
-        'export_warning': latest_data.get('export_warning'),
-    }
-
-    _ensure_processed_reports_db()
-    now_ts = time.time()
-    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-        connection.execute(
-            '''
-            INSERT INTO processed_reports (
-                report_key, month_number, month_name, year, filename,
-                period_json, summaries_json, sheets_json,
-                excel_output_path, excel_filename,
-                original_upload_path, original_upload_filename,
-                excel_contains_workings, skipped_sheet_count, export_warning,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(report_key) DO UPDATE SET
-                month_number = excluded.month_number,
-                month_name = excluded.month_name,
-                year = excluded.year,
-                filename = excluded.filename,
-                period_json = excluded.period_json,
-                summaries_json = excluded.summaries_json,
-                sheets_json = excluded.sheets_json,
-                excel_output_path = excluded.excel_output_path,
-                excel_filename = excluded.excel_filename,
-                original_upload_path = excluded.original_upload_path,
-                original_upload_filename = excluded.original_upload_filename,
-                excel_contains_workings = excluded.excel_contains_workings,
-                skipped_sheet_count = excluded.skipped_sheet_count,
-                export_warning = excluded.export_warning,
-                updated_at = excluded.updated_at
-            ''',
-            (
-                report_key,
-                month_number,
-                MONTH_NUMBER_TO_NAME[month_number],
-                year_value,
-                payload['filename'],
-                json.dumps(payload['period'], ensure_ascii=True, default=_json_default),
-                json.dumps(payload['summaries'], ensure_ascii=True, default=_json_default),
-                json.dumps(payload['sheets'], ensure_ascii=True, default=_json_default),
-                payload['excel_output_path'],
-                payload['excel_filename'],
-                payload['original_upload_path'],
-                payload['original_upload_filename'],
-                int(payload['excel_contains_workings']),
-                int(payload['skipped_sheet_count']),
-                payload['export_warning'],
-                now_ts,
-                now_ts,
-            )
-        )
-        connection.commit()
-
-    _audit_event(
-        'report_saved',
-        report_key=report_key,
-        details={
-            'month': payload['period'].get('month'),
-            'year': payload['period'].get('year'),
-            'excel_contains_workings': payload['excel_contains_workings'],
-            'skipped_sheet_count': payload['skipped_sheet_count'],
-            'original_upload_available': bool(payload['original_upload_path']),
-            'filename': payload['filename'],
-        }
-    )
-    _register_notification(f'Report {report_key} is ready for download.', level='success', report_key=report_key)
-    _cleanup_report_retention(month_number=month_number, year=year_value)
-
-
-def _normalize_month_number(month_value):
-    if month_value is None:
-        return None
-    month_text = str(month_value).strip().lower()
-    if not month_text:
-        return None
-    if month_text.isdigit():
-        month_number = int(month_text)
-    else:
-        month_number = MONTH_NAME_TO_NUMBER.get(month_text)
-    if month_number is None or month_number < 1 or month_number > 12:
-        return None
-    return month_number
-
-
-def _make_report_key(year_value, month_number, version_suffix=None):
-    base_key = f'{int(year_value):04d}-{int(month_number):02d}'
-    if version_suffix is None:
-        return base_key
-    return f'{base_key}-{int(version_suffix)}'
-
-
-def _load_processed_report_row(month=None, year=None, report_key=None):
-    _ensure_processed_reports_db()
-    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-        connection.row_factory = sqlite3.Row
-        cursor = connection.cursor()
-
-        if report_key:
-            cursor.execute('SELECT * FROM processed_reports WHERE report_key = ?', (report_key,))
-            return cursor.fetchone()
-
-        if month is None and year is None:
-            cursor.execute('SELECT * FROM processed_reports ORDER BY updated_at DESC LIMIT 1')
-            return cursor.fetchone()
-
-        month_number = _normalize_month_number(month)
-        if not month_number or year is None:
-            return None
-
-        cursor.execute(
-            'SELECT * FROM processed_reports WHERE month_number = ? AND year = ? ORDER BY updated_at DESC LIMIT 1',
-            (int(month_number), int(year))
-        )
-        return cursor.fetchone()
-
-
-def _next_report_version_suffix(year_value, month_number):
-    base_key = _make_report_key(year_value, month_number)
-    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-        cursor = connection.cursor()
-        cursor.execute(
-            'SELECT report_key FROM processed_reports WHERE report_key = ? OR report_key LIKE ? ORDER BY report_key',
-            (base_key, f'{base_key}-%')
-        )
-        existing_keys = [row[0] for row in cursor.fetchall()]
-
-    if base_key not in existing_keys:
-        return None
-
-    suffixes = []
-    for existing_key in existing_keys:
-        if existing_key == base_key:
-            suffixes.append(0)
-            continue
-        try:
-            suffixes.append(int(existing_key.rsplit('-', 1)[1]))
-        except (IndexError, ValueError):
-            continue
-
-    suffixes = sorted(set(suffixes))
-    next_suffix = 1
-    for suffix in suffixes:
-        if suffix == next_suffix:
-            next_suffix += 1
-    return next_suffix
-
-
-def load_latest_data_snapshot(month=None, year=None, report_key=None):
-    global latest_data
-
-    try:
-        snapshot = _load_processed_report_row(month=month, year=year, report_key=report_key)
-        if not snapshot:
-            return False
-
-        period = json.loads(snapshot['period_json']) if snapshot['period_json'] else {}
-        latest_data = {
-            'filename': snapshot['filename'],
-            'sheets': json.loads(snapshot['sheets_json']) if snapshot['sheets_json'] else {},
-            'ftp_results': None,
-            'summaries': json.loads(snapshot['summaries_json']) if snapshot['summaries_json'] else {},
-            'period': period,
-            'excel_output_path': snapshot['excel_output_path'],
-            'excel_filename': snapshot['excel_filename'],
-            'original_upload_path': snapshot['original_upload_path'],
-            'original_upload_filename': snapshot['original_upload_filename'],
-            'workings_manifest_path': _build_workings_manifest_path(period.get('report_key') or snapshot['report_key']),
-            'excel_contains_workings': bool(snapshot['excel_contains_workings']),
-            'skipped_sheet_count': int(snapshot['skipped_sheet_count'] or 0),
-            'export_warning': snapshot['export_warning'],
-        }
-        return True
-    except (OSError, ValueError, TypeError, json.JSONDecodeError, sqlite3.Error, KeyError):
-        return False
-
-
-def delete_processed_report(report_key):
-    _ensure_processed_reports_db()
-    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-        connection.row_factory = sqlite3.Row
-        cursor = connection.cursor()
-        cursor.execute('SELECT excel_output_path, original_upload_path FROM processed_reports WHERE report_key = ?', (report_key,))
-        row = cursor.fetchone()
-        if not row:
-            return False
-
-        excel_output_path = row['excel_output_path']
-        original_upload_path = row['original_upload_path']
-        cursor.execute('DELETE FROM report_notes WHERE report_key = ?', (report_key,))
-        cursor.execute('DELETE FROM processed_reports WHERE report_key = ?', (report_key,))
-        connection.commit()
-
-    _delete_report_workbook(excel_output_path)
-    _delete_original_upload(original_upload_path)
-    _delete_workings_artifacts(report_key)
-    _audit_event('report_deleted', report_key=report_key, details={'deleted_via': 'api'})
-    _register_notification(f'Report {report_key} was deleted.', level='warning', report_key=report_key)
-
-    return True
-
-
-def ensure_latest_data_available(month=None, year=None):
-    if latest_data.get('summaries') and latest_data.get('period'):
-        return True
-    return load_latest_data_snapshot(month=month, year=year)
-
-
-def _resolve_month_year_args(month_value, year_value):
-    if year_value is None:
-        return None, None
-    month_value = str(month_value).strip().lower() if month_value is not None else ''
-    if not month_value:
-        return None, None
-    if month_value.isdigit():
-        month_number = int(month_value)
-    else:
-        month_number = MONTH_NAME_TO_NUMBER.get(month_value)
-    if not month_number:
-        return None, None
-    return MONTH_NUMBER_TO_NAME[month_number], int(year_value)
+def _has_current_results():
+    """True while the results of the most recent upload are still available."""
+    return bool(latest_data.get('sheets')) and bool(latest_data.get('summaries'))
 
 
 def format_number(value):
@@ -1325,16 +1103,7 @@ def generate_pdf_report():
 def download_pdf():
     try:
         global latest_data
-        report_key = request.args.get('report_key')
-        month = request.args.get('month')
-        year = request.args.get('year', type=int)
-        if report_key:
-            if not load_latest_data_snapshot(report_key=report_key):
-                return jsonify({'error': 'No processed data found for that report version.'}), 404
-        elif month and year:
-            if not load_latest_data_snapshot(month=month, year=year):
-                return jsonify({'error': 'No processed data found for that month and year.'}), 404
-        elif not ensure_latest_data_available():
+        if not _has_current_results():
             return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
         pdf_buffer = generate_pdf_report()
         month = latest_data.get('period', {}).get('month', 'Report')
@@ -1349,16 +1118,7 @@ def download_pdf():
 def download_excel():
     try:
         global latest_data
-        report_key = request.args.get('report_key')
-        month = request.args.get('month')
-        year = request.args.get('year', type=int)
-        if report_key:
-            if not load_latest_data_snapshot(report_key=report_key):
-                return jsonify({'error': 'No processed data found for that report version.'}), 404
-        elif month and year:
-            if not load_latest_data_snapshot(month=month, year=year):
-                return jsonify({'error': 'No processed data found for that month and year.'}), 404
-        elif not ensure_latest_data_available():
+        if not _has_current_results():
             return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
 
         excel_path = latest_data.get('excel_output_path')
@@ -1391,51 +1151,11 @@ def download_excel():
         return jsonify({'error': f'Failed to download Excel: {str(e)}'}), 500
 
 
-@app.route('/download-original-workbook', methods=['GET'])
-def download_original_workbook():
-    try:
-        global latest_data
-        report_key = request.args.get('report_key')
-        month = request.args.get('month')
-        year = request.args.get('year', type=int)
-        if report_key:
-            if not load_latest_data_snapshot(report_key=report_key):
-                return jsonify({'error': 'No processed data found for that report version.'}), 404
-        elif month and year:
-            if not load_latest_data_snapshot(month=month, year=year):
-                return jsonify({'error': 'No processed data found for that month and year.'}), 404
-        elif not ensure_latest_data_available():
-            return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
-
-        original_path = latest_data.get('original_upload_path')
-        original_filename = latest_data.get('original_upload_filename') or 'FTP_Original_Input.xlsx'
-        if not original_path or not os.path.exists(original_path):
-            return jsonify({'error': 'Original uploaded workbook is not available for this report version.'}), 404
-
-        return send_file(
-            original_path,
-            as_attachment=True,
-            download_name=original_filename,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-    except Exception as e:
-        return jsonify({'error': f'Failed to download original workbook: {str(e)}'}), 500
-
-
 @app.route('/download-workings-excel', methods=['GET'])
 def download_workings_excel():
     try:
         global latest_data
-        report_key = request.args.get('report_key')
-        month = request.args.get('month')
-        year = request.args.get('year', type=int)
-        if report_key:
-            if not load_latest_data_snapshot(report_key=report_key):
-                return jsonify({'error': 'No processed data found for that report version.'}), 404
-        elif month and year:
-            if not load_latest_data_snapshot(month=month, year=year):
-                return jsonify({'error': 'No processed data found for that month and year.'}), 404
-        elif not ensure_latest_data_available():
+        if not _has_current_results():
             return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
 
         resolved_report_key = latest_data.get('period', {}).get('report_key')
@@ -1888,16 +1608,7 @@ def download_working_paper():
     """
     try:
         global latest_data
-        report_key = request.args.get('report_key')
-        month = request.args.get('month')
-        year = request.args.get('year', type=int)
-        if report_key:
-            if not load_latest_data_snapshot(report_key=report_key):
-                return jsonify({'error': 'No processed data found for that report version.'}), 404
-        elif month and year:
-            if not load_latest_data_snapshot(month=month, year=year):
-                return jsonify({'error': 'No processed data found for that month and year.'}), 404
-        elif not ensure_latest_data_available():
+        if not _has_current_results():
             return jsonify({'error': 'No processed data available. Please upload a file first.'}), 404
 
         resolved_report_key = latest_data.get('period', {}).get('report_key')
@@ -2009,27 +1720,7 @@ def download_workings_json():
     files exist on disk."""
     try:
         global latest_data
-        report_key = request.args.get('report_key')
-        month = request.args.get('month')
-        year = request.args.get('year', type=int)
-
-        resolved_report_key = None
-
-        # Try loading from DB snapshot first
-        if report_key:
-            if load_latest_data_snapshot(report_key=report_key):
-                resolved_report_key = latest_data.get('period', {}).get('report_key') or report_key
-        elif month and year:
-            if load_latest_data_snapshot(month=month, year=year):
-                resolved_report_key = latest_data.get('period', {}).get('report_key')
-        elif ensure_latest_data_available():
-            resolved_report_key = latest_data.get('period', {}).get('report_key')
-
-        # Fallback: if DB lookup failed but we have a report_key, try
-        # constructing the manifest path directly — the NDJSON files
-        # may still be on disk even if the DB record was cleaned up.
-        if not resolved_report_key and report_key:
-            resolved_report_key = report_key
+        resolved_report_key = latest_data.get('period', {}).get('report_key')
 
         if not resolved_report_key:
             return jsonify({'error': 'No processed data found. Please upload and compute a report first.'}), 404
@@ -2161,130 +1852,40 @@ def _update_job(job_id, **kwargs):
             if kwargs.get('status') in {'done', 'error'}:
                 _jobs[job_id]['completed_at'] = now_ts
 
-    try:
-        with sqlite3.connect(UPLOAD_JOBS_DB_PATH) as conn:
-            cur = conn.cursor()
-            fields = []
-            values = []
-
-            if 'status' in kwargs:
-                fields.append('status = ?')
-                values.append(kwargs['status'])
-            if 'progress' in kwargs:
-                fields.append('progress = ?')
-                values.append(int(kwargs['progress']))
-            if 'stage' in kwargs:
-                fields.append('stage = ?')
-                values.append(kwargs['stage'])
-            if 'result' in kwargs:
-                fields.append('result_json = ?')
-                values.append(json.dumps(kwargs['result']))
-            if 'error' in kwargs:
-                fields.append('error = ?')
-                values.append(kwargs['error'])
-
-            fields.append('updated_at = ?')
-            values.append(now_ts)
-
-            if kwargs.get('status') in {'done', 'error'}:
-                fields.append('completed_at = ?')
-                values.append(now_ts)
-
-            values.append(job_id)
-            cur.execute(
-                f"UPDATE upload_jobs SET {', '.join(fields)} WHERE job_id = ?",
-                values
-            )
-            conn.commit()
-    except Exception as exc:
-        print(f"[WARN] Failed to persist job update for {job_id}: {exc}")
-
 
 def _cleanup_expired_jobs():
     now = time.time()
     with _jobs_lock:
-        expired_ids = []
-        for jid, job in _jobs.items():
-            completed_at = job.get('completed_at')
-            if completed_at is None:
-                continue
-            if now - completed_at > JOB_RETENTION_SECONDS:
-                expired_ids.append(jid)
+        expired_ids = [
+            jid for jid, job in _jobs.items()
+            if job.get('completed_at') is not None
+            and now - job['completed_at'] > JOB_RETENTION_SECONDS
+        ]
         for jid in expired_ids:
             _jobs.pop(jid, None)
-
-    try:
-        threshold = now - JOB_RETENTION_SECONDS
-        with sqlite3.connect(UPLOAD_JOBS_DB_PATH) as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "DELETE FROM upload_jobs WHERE completed_at IS NOT NULL AND completed_at < ?",
-                (threshold,)
-            )
-            conn.commit()
-    except Exception as exc:
-        print(f"[WARN] Failed to cleanup expired upload jobs: {exc}")
-
-
-def _ensure_upload_jobs_db():
-    with sqlite3.connect(UPLOAD_JOBS_DB_PATH) as conn:
-        cur = conn.cursor()
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS upload_jobs (
-                job_id TEXT PRIMARY KEY,
-                status TEXT NOT NULL,
-                progress INTEGER NOT NULL DEFAULT 0,
-                stage TEXT NOT NULL DEFAULT 'Queued',
-                result_json TEXT,
-                error TEXT,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL,
-                completed_at REAL
-            )
-        ''')
-        conn.commit()
 
 
 def _insert_upload_job(job_id):
     now_ts = time.time()
-    with sqlite3.connect(UPLOAD_JOBS_DB_PATH) as conn:
-        cur = conn.cursor()
-        cur.execute('''
-            INSERT OR REPLACE INTO upload_jobs
-            (job_id, status, progress, stage, result_json, error, created_at, updated_at, completed_at)
-            VALUES (?, 'running', 0, 'Queued', NULL, NULL, ?, ?, NULL)
-        ''', (job_id, now_ts, now_ts))
-        conn.commit()
-
-
-def _fetch_upload_job(job_id):
-    with sqlite3.connect(UPLOAD_JOBS_DB_PATH) as conn:
-        cur = conn.cursor()
-        cur.execute('''
-            SELECT status, progress, stage, result_json, error
-            FROM upload_jobs
-            WHERE job_id = ?
-        ''', (job_id,))
-        row = cur.fetchone()
-        if not row:
-            return None
-        result_json = row[3]
-        result_payload = None
-        if result_json:
-            try:
-                result_payload = json.loads(result_json)
-            except Exception:
-                result_payload = None
-        return {
-            'status': row[0],
-            'progress': row[1],
-            'stage': row[2],
-            'result': result_payload,
-            'error': row[4]
+    with _jobs_lock:
+        _jobs[job_id] = {
+            'status': 'running', 'progress': 0, 'stage': 'Queued', 'result': None,
+            'error': None, 'created_at': now_ts, 'updated_at': now_ts, 'completed_at': None,
         }
 
 
-_ensure_upload_jobs_db()
+def _fetch_upload_job(job_id):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return None
+        return {
+            'status': job.get('status'),
+            'progress': job.get('progress'),
+            'stage': job.get('stage'),
+            'result': job.get('result'),
+            'error': job.get('error'),
+        }
 
 
 def _validate_upload_file(file_path, filename):
@@ -2385,73 +1986,8 @@ def _merge_processed_loans_into_original_workbook(original_upload_path, processe
                     pass
 
 
-def _run_scheduler_cycle():
-    if not ENABLE_SCHEDULER:
-        return 0
-
-    _ensure_processed_reports_db()
-    processed_files = 0
-    with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-        connection.row_factory = sqlite3.Row
-        jobs = connection.execute(
-            'SELECT job_id, folder_path, include_workings, overwrite_existing FROM scheduler_jobs WHERE active = 1'
-        ).fetchall()
-
-        for job in jobs:
-            folder_path = job['folder_path']
-            if not os.path.isdir(folder_path):
-                connection.execute(
-                    'UPDATE scheduler_jobs SET updated_at = ?, last_status = ?, last_message = ? WHERE job_id = ?',
-                    (time.time(), 'error', 'Folder not found', job['job_id'])
-                )
-                continue
-
-            for entry in os.listdir(folder_path):
-                file_path = os.path.join(folder_path, entry)
-                if not os.path.isfile(file_path):
-                    continue
-                if not re.search(r'FTP Input File \w+ \d{4}.*\.(xlsx|xls)$', entry, flags=re.IGNORECASE):
-                    continue
-
-                archive_path = f'{file_path}.processed'
-                if os.path.exists(archive_path):
-                    continue
-
-                validation = _validate_upload_file(file_path, entry)
-                if not validation['filename_valid'] or not validation['required_sheets_present']:
-                    connection.execute(
-                        'UPDATE scheduler_jobs SET updated_at = ?, last_status = ?, last_message = ? WHERE job_id = ?',
-                        (time.time(), 'error', '; '.join(validation['warnings']) or 'Validation failed', job['job_id'])
-                    )
-                    continue
-
-                scheduler_job_id = f'scheduler-{uuid.uuid4()}'
-                temp_copy_path = f'{file_path}.{scheduler_job_id}.tmp'
-                shutil.copyfile(file_path, temp_copy_path)
-                _insert_upload_job(scheduler_job_id)
-                _run_ftp_job(
-                    scheduler_job_id,
-                    temp_copy_path,
-                    entry,
-                    bool(job['include_workings']),
-                    bool(job['overwrite_existing']),
-                    export_warning='Processed automatically by scheduler.'
-                )
-                shutil.copyfile(file_path, archive_path)
-                connection.execute(
-                    'UPDATE scheduler_jobs SET updated_at = ?, last_run_at = ?, last_status = ?, last_message = ? WHERE job_id = ?',
-                    (time.time(), time.time(), 'success', f'Processed {entry}', job['job_id'])
-                )
-                processed_files += 1
-                _audit_event('scheduler_processed', details={'folder_path': folder_path, 'filename': entry})
-
-        connection.commit()
-
-    return processed_files
-
-
-def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwrite_existing=False, export_warning=None):
-    """Background thread: process workbook and write results."""
+def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, export_warning=None):
+    """Background thread: process workbook and write results for this run only."""
     global latest_data
 
     def log_stage(stage_name, t0):
@@ -2483,8 +2019,8 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
 
         progress(8, f'Preparing upload for {month_name} {year}')
 
-        report_key_suffix = None if overwrite_existing else _next_report_version_suffix(year, month_num)
-        report_key = _make_report_key(year, month_num, report_key_suffix)
+        run_dir = _start_run_dir()
+        report_key = f'{year:04d}-{month_num:02d}'
         workings_manifest_path = _build_workings_manifest_path(report_key)
         workings_manifest = {
             'report_key': report_key,
@@ -2506,23 +2042,13 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
 
         output_stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         excel_filename = f"FTP_Results_{month_name}_{year}_{output_stamp}.xlsx"
-        excel_output_path = os.path.join(PROCESSED_OUTPUTS_DIR, excel_filename)
+        excel_output_path = os.path.join(run_dir, excel_filename)
         loan_results_output_path = excel_output_path
         if include_non_loan_sheets:
             loan_results_output_path = os.path.join(
-                PROCESSED_OUTPUTS_DIR,
+                run_dir,
                 f"FTP_Results_LoansOnly_{month_name}_{year}_{output_stamp}.xlsx"
             )
-        original_extension = os.path.splitext(filename)[1] or '.xlsx'
-        original_upload_filename = f"FTP_Original_{month_name}_{year}_{output_stamp}{original_extension}"
-        original_upload_path = os.path.join(PROCESSED_OUTPUTS_DIR, original_upload_filename)
-
-        try:
-            shutil.copyfile(upload_path, original_upload_path)
-        except OSError as exc:
-            original_upload_path = None
-            original_upload_filename = None
-            print(f"[WARN] Failed to archive original upload for {filename}: {exc}")
 
         sheets_data = {}
         global_summaries = {'ZWG': {}, 'FX': {}}
@@ -2966,7 +2492,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                         print(f"[WARN] Failed to remove temporary loan-only workbook {loan_results_output_path}: {exc}")
 
         log_stage('Write processed workbook', excel_write_start)
-        progress(92, 'Saving results to archive')
+        progress(92, 'Finalising results')
 
         with open(workings_manifest_path, 'w', encoding='utf-8') as workings_manifest_file:
             json.dump(workings_manifest, workings_manifest_file, ensure_ascii=True, default=_json_default, allow_nan=False)
@@ -2983,22 +2509,18 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
             'month_number': month_num,
             'year': year,
             'report_key': report_key,
-            'version_suffix': report_key_suffix,
             'charge_basis': FTP_CHARGE_BASIS
         }
         latest_data['excel_output_path'] = excel_output_path
         latest_data['excel_filename'] = excel_filename
-        latest_data['original_upload_path'] = original_upload_path
-        latest_data['original_upload_filename'] = original_upload_filename
         latest_data['workings_manifest_path'] = workings_manifest_path
         latest_data['excel_contains_workings'] = include_non_loan_sheets
         latest_data['skipped_sheet_count'] = skipped_sheet_count
         latest_data['export_warning'] = export_warning
 
-        save_latest_data_snapshot()
-        log_stage('Persist snapshot', snapshot_start_time)
+        log_stage('Publish results', snapshot_start_time)
         log_stage('Total upload pipeline', upload_start_time)
-        print(f"✅ Stored summaries: {list(global_summaries.keys())}")
+        print(f"[INFO] Stored summaries: {list(global_summaries.keys())}")
 
         _update_job(job_id,
                     status='done',
@@ -3012,8 +2534,6 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                         'excel_contains_workings': include_non_loan_sheets,
                         'skipped_sheet_count': skipped_sheet_count,
                         'export_warning': export_warning,
-                        'original_upload_available': bool(original_upload_path),
-                        'original_upload_filename': original_upload_filename,
                         'workings_available': bool(workings_manifest.get('sheets')),
                         'report_key': report_key,
                         'charge_basis': FTP_CHARGE_BASIS
@@ -3024,6 +2544,10 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
         traceback.print_exc()
         _update_job(job_id, status='error', error=str(exc))
     finally:
+        try:
+            excel_file.close()
+        except Exception:
+            pass
         try:
             if upload_path and os.path.exists(upload_path):
                 os.remove(upload_path)
@@ -3065,16 +2589,13 @@ def upload_file():
     force_full_workbook_raw = str(request.form.get('force_full_workbook', '0')).strip().lower()
     force_full_workbook = force_full_workbook_raw in {'1', 'true', 'yes', 'on'}
     include_non_loan_sheets = INCLUDE_NON_LOAN_SHEETS or include_workings_requested
-    overwrite_existing_raw = str(request.form.get('overwrite_existing', '0')).strip().lower()
-    overwrite_existing = overwrite_existing_raw in {'1', 'true', 'yes', 'on'}
-
     upload_size_mb = os.path.getsize(temp_upload_path) / (1024 * 1024)
     export_warning = None
     if include_non_loan_sheets and FORCE_RESULTS_ONLY_ON_HOSTED:
         include_non_loan_sheets = False
         export_warning = (
             'Full workbook export is disabled on this hosted deployment to prevent worker restarts. '
-            'Use the processed Excel results, the original uploaded workbook, and the workings workbook generated from JSON.'
+            'Use the processed Excel results and the workings workbook generated from the JSON export.'
         )
     elif (
         include_non_loan_sheets
@@ -3095,23 +2616,11 @@ def upload_file():
         )
 
     job_id = str(uuid.uuid4())
-    now = time.time()
-    with _jobs_lock:
-        _jobs[job_id] = {
-            'status': 'running',
-            'progress': 0,
-            'stage': 'Queued',
-            'result': None,
-            'error': None,
-            'created_at': now,
-            'updated_at': now,
-            'completed_at': None
-        }
     _insert_upload_job(job_id)
 
     thread = threading.Thread(
         target=_run_ftp_job,
-        args=(job_id, temp_upload_path, filename, include_non_loan_sheets, overwrite_existing, export_warning),
+        args=(job_id, temp_upload_path, filename, include_non_loan_sheets, export_warning),
         daemon=True
     )
     thread.start()
@@ -3167,522 +2676,6 @@ def upload_status(job_id):
 # Legacy synchronous path kept for local dev / non-Render environments.
 # Remove once async path is proven in production.
 # ---------------------------------------------------------------------------
-def _upload_file_sync():
-    global latest_data
-
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-
-    temp_upload_path = os.path.join(TEMP_UPLOADS_DIR, f'{uuid.uuid4()}_{os.path.basename(file.filename)}')
-
-    try:
-        upload_start_time = perf_counter()
-
-        def log_stage(stage_name, stage_start_time):
-            elapsed_seconds = perf_counter() - stage_start_time
-            print(f"[PERF] {stage_name}: {elapsed_seconds:.3f}s")
-
-        # Parse filename
-        filename_match = re.search(r'FTP Input File (\w+) (\d{4})', file.filename)
-        if not filename_match:
-            return jsonify({'error': 'Filename must be: FTP Input File Month Year.xlsx'}), 400
-        
-        month_name = filename_match.group(1)
-        year = int(filename_match.group(2))
-        
-        month_map = {'january':1,'february':2,'march':3,'april':4,'may':5,'june':6,
-                     'july':7,'august':8,'september':9,'october':10,'november':11,'december':12}
-        month_num = month_map.get(month_name.lower())
-        if not month_num:
-            return jsonify({'error': f'Invalid month: {month_name}'}), 400
-
-        report_key_suffix = None if overwrite_existing else _next_report_version_suffix(year, month_num)
-        report_key = _make_report_key(year, month_num, report_key_suffix)
-
-        try:
-            file.save(temp_upload_path)
-        except Exception as exc:
-            return jsonify({'error': f'Failed to store upload temporarily: {str(exc)}'}), 500
-
-        include_workings_raw = str(request.form.get('include_workings', '1')).strip().lower()
-        include_workings_requested = include_workings_raw in {'1', 'true', 'yes', 'on'}
-        include_non_loan_sheets = INCLUDE_NON_LOAN_SHEETS or include_workings_requested
-        overwrite_existing_raw = str(request.form.get('overwrite_existing', '0')).strip().lower()
-        overwrite_existing = overwrite_existing_raw in {'1', 'true', 'yes', 'on'}
-        
-        first_day = datetime(year, month_num, 1)
-        if month_num == 12:
-            last_day = datetime(year + 1, 1, 1) - timedelta(days=1)
-        else:
-            last_day = datetime(year, month_num + 1, 1) - timedelta(days=1)
-        
-        # Get sheet names
-        read_start_time = perf_counter()
-        excel_file = pd.ExcelFile(temp_upload_path)
-        sheet_names = excel_file.sheet_names
-        log_stage('Read workbook metadata', read_start_time)
-        print(f"Found sheets: {sheet_names}")
-
-        output_stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        excel_filename = f"FTP_Results_{month_name}_{year}_{output_stamp}.xlsx"
-        excel_output_path = os.path.join(PROCESSED_OUTPUTS_DIR, excel_filename)
-        
-        sheets_data = {}
-        global_summaries = {'ZWG': {}, 'FX': {}}
-        skipped_sheet_count = 0
-        
-        branch_sbu_map = load_branch_sbu_map()
-        branch_sbu_lookup = {code: value.get('sbu', 'Unknown') for code, value in branch_sbu_map.items()}
-        
-        excel_write_start_time = perf_counter()
-        if include_non_loan_sheets:
-            # openpyxl can exceed memory limits for large files; prefer xlsxwriter here.
-            writer_engine = 'xlsxwriter'
-            writer_kwargs = {}
-        else:
-            writer_engine = 'xlsxwriter'
-            writer_kwargs = {'engine_kwargs': {'options': {'constant_memory': True}}}
-        try:
-            with pd.ExcelWriter(excel_output_path, engine=writer_engine, **writer_kwargs) as writer:
-                for sheet in sheet_names:
-                    print(f"Processing: {sheet}")
-                    sheet_start_time = perf_counter()
-
-                    if sheet not in LOAN_SHEETS and not include_non_loan_sheets:
-                        skipped_sheet_count += 1
-                        sheets_data[sheet] = {
-                            'columns': [],
-                            'data': [],
-                            'shape': [0, 0],
-                            'note': 'Skipped for memory optimization (set INCLUDE_NON_LOAN_SHEETS=1 to include)'
-                        }
-                        log_stage(f'Sheet {sheet} (skipped)', sheet_start_time)
-                        print(f"Completed: {sheet} (skipped)")
-                        continue
-
-                    try:
-                        df = excel_file.parse(sheet_name=sheet)
-                    except Exception as e:
-                        print(f"Error: {e}")
-                        continue
-
-                    if sheet in LOAN_SHEETS:
-                        df_processed = df
-                        del df
-
-                        # Add SBU column
-                        branch_col = None
-                        for col in ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE']:
-                            if col in df_processed.columns:
-                                branch_col = col
-                                break
-
-                        if branch_col:
-                            df_processed[branch_col] = df_processed[branch_col].astype(str).str.strip()
-                            df_processed['SBU'] = df_processed[branch_col].map(branch_sbu_lookup).fillna('Unknown')
-                        else:
-                            df_processed['SBU'] = 'Unknown'
-
-                        # Date processing
-                        if 'BOOKING_DATE' in df_processed.columns:
-                            df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'], errors='coerce')
-                            df_processed['BOOKING_DATE'] = df_processed['BOOKING_DATE'].fillna(first_day)
-
-                        if 'MATURITY_DATE' in df_processed.columns:
-                            df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'], errors='coerce')
-                            df_processed['MATURITY_DATE'] = df_processed['MATURITY_DATE'].fillna(first_day + timedelta(days=365))
-
-                        # Calculate TENOR
-                        if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
-                            df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days
-                            df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
-
-                        # Calculate DimDays with vectorized date logic.
-                        first_day_ts = pd.Timestamp(first_day.date())
-                        last_day_ts = pd.Timestamp(last_day.date())
-                        booking_dates = df_processed['BOOKING_DATE']
-                        maturity_dates = df_processed['MATURITY_DATE']
-
-                        full_period_days = (last_day_ts - first_day_ts).days + 1
-                        dim_days = np.where(
-                            (booking_dates <= first_day_ts) & (maturity_dates >= last_day_ts),
-                            full_period_days,
-                            np.where(
-                                (booking_dates >= first_day_ts) & (maturity_dates >= last_day_ts),
-                                (last_day_ts - booking_dates).dt.days + 1,
-                                np.where(
-                                    (booking_dates >= first_day_ts) & (maturity_dates <= last_day_ts),
-                                    (maturity_dates - booking_dates).dt.days,
-                                    (maturity_dates - first_day_ts).dt.days
-                                )
-                            )
-                        )
-                        df_processed['DimDays'] = dim_days.astype(np.int32)
-
-                        # Calculate DTM and MTM
-                        df_processed['DTM'] = np.where(
-                            maturity_dates > last_day_ts,
-                            (maturity_dates - last_day_ts).dt.days,
-                            0
-                        ).astype(np.int32)
-                        df_processed['MTM'] = (df_processed['DTM'] / 30).round(1).astype(np.float32)
-
-                        # Bucket columns
-                        bucket_labels = ['<7days', '7-14days', '14-21days', '21-30days', '30-60days', '60-90days', '90-180days', '180-270days', '270-360days', '360-720days', '720-1080days', '1080-1460days', '1460-1800days', '+1800days']
-
-                        # Allocate to buckets
-                        exposure = pd.to_numeric(
-                            df_processed['Currency Exposure + Currency Accrued Reporting'],
-                            errors='coerce'
-                        ).fillna(0).astype(np.float32)
-                        mtm_days = (df_processed['MTM'] * 30).astype(np.float32)
-                        tenors_list = [7,14,21,30,60,90,180,270,360,720,1080,1460,1800]
-                        bin_edges = [0] + tenors_list + [float('inf')]
-                        bucket_indices = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
-                        bucket_indices = bucket_indices.fillna(len(bucket_labels)-1).astype(int)
-
-                        bucket_values = np.zeros((len(df_processed), len(bucket_labels)), dtype=np.float32)
-                        exposure_values = exposure.to_numpy(dtype=np.float32, copy=False)
-                        index_values = bucket_indices.to_numpy(dtype=np.int16, copy=False)
-                        positive_exposure_rows = np.nonzero(exposure_values > 0)[0]
-                        bucket_values[positive_exposure_rows, index_values[positive_exposure_rows]] = exposure_values[positive_exposure_rows]
-                        df_processed[bucket_labels] = bucket_values
-
-                        df_processed['Check'] = df_processed[bucket_labels].sum(axis=1).astype(np.float32)
-
-                        # FTP Charge
-                        rates = zwg_rates if sheet == "ZWG LOANS" else usd_rates
-                        rate_vector = np.array(
-                            [(rates[i] if i < len(rates) else rates[-1]) / 100 for i in range(len(bucket_labels))],
-                            dtype=np.float32
-                        )
-                        df_processed['FTP Charge'] = (
-                            df_processed[bucket_labels].to_numpy(dtype=np.float32, copy=False) @ rate_vector
-                        ).astype(np.float32)
-
-                        # Summary
-                        currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
-                        sbu_summary = df_processed.groupby('SBU').agg({
-                            'Currency Exposure + Currency Accrued Reporting': 'sum',
-                            'FTP Charge': 'sum'
-                        }).reset_index()
-
-                        global_summaries[currency][sheet] = {
-                            'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
-                            'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
-                            'by_sbu': sbu_summary.to_dict(orient='records'),
-                            'row_count': len(df_processed)
-                        }
-
-                        # Preview
-                        preview = df_processed.head(100).copy()
-                        for col in preview.select_dtypes(include=['datetime64']).columns:
-                            preview[col] = preview[col].astype(str).replace('NaT', None)
-
-                        sheets_data[sheet] = {
-                            'columns': df_processed.columns.tolist(),
-                            'data': preview.to_dict(orient='records'),
-                            'shape': df_processed.shape
-                        }
-
-                        # Persist full processed worksheet for Excel download
-                        df_processed.to_excel(writer, sheet_name=sheet[:31], index=False)
-                        del df_processed
-
-                    else:
-                        preview = df.head(100).copy()
-                        sheets_data[sheet] = {
-                            'columns': df.columns.tolist(),
-                            'data': preview.to_dict(orient='records'),
-                            'shape': df.shape
-                        }
-                        # Optional: include non-loan sheets in output when explicitly enabled.
-                        df.to_excel(writer, sheet_name=sheet[:31], index=False)
-                        del df
-
-                    gc.collect()
-                    log_stage(f'Sheet {sheet}', sheet_start_time)
-                    print(f"Completed: {sheet}")
-        except (ImportError, ModuleNotFoundError, ValueError):
-            # Fallback when xlsxwriter is unavailable.
-            with pd.ExcelWriter(excel_output_path, engine='openpyxl') as writer:
-                for sheet in sheet_names:
-                    print(f"Processing: {sheet}")
-                    sheet_start_time = perf_counter()
-
-                    if sheet not in LOAN_SHEETS and not include_non_loan_sheets:
-                        skipped_sheet_count += 1
-                        sheets_data[sheet] = {
-                            'columns': [],
-                            'data': [],
-                            'shape': [0, 0],
-                            'note': 'Skipped for memory optimization (set INCLUDE_NON_LOAN_SHEETS=1 to include)'
-                        }
-                        log_stage(f'Sheet {sheet} (skipped)', sheet_start_time)
-                        print(f"Completed: {sheet} (skipped)")
-                        continue
-
-                    try:
-                        df = excel_file.parse(sheet_name=sheet)
-                    except Exception as e:
-                        print(f"Error: {e}")
-                        continue
-
-                    if sheet in LOAN_SHEETS:
-                        df_processed = df
-                        del df
-
-                        # Add SBU column
-                        branch_col = None
-                        for col in ['Branch Code', 'BRANCHCODE', 'BRANCH_CODE']:
-                            if col in df_processed.columns:
-                                branch_col = col
-                                break
-
-                        if branch_col:
-                            df_processed[branch_col] = df_processed[branch_col].astype(str).str.strip()
-                            df_processed['SBU'] = df_processed[branch_col].map(branch_sbu_lookup).fillna('Unknown')
-                        else:
-                            df_processed['SBU'] = 'Unknown'
-
-                        # Date processing
-                        if 'BOOKING_DATE' in df_processed.columns:
-                            df_processed['BOOKING_DATE'] = pd.to_datetime(df_processed['BOOKING_DATE'], errors='coerce')
-                            df_processed['BOOKING_DATE'] = df_processed['BOOKING_DATE'].fillna(first_day)
-
-                        if 'MATURITY_DATE' in df_processed.columns:
-                            df_processed['MATURITY_DATE'] = pd.to_datetime(df_processed['MATURITY_DATE'], errors='coerce')
-                            df_processed['MATURITY_DATE'] = df_processed['MATURITY_DATE'].fillna(first_day + timedelta(days=365))
-
-                        # Calculate TENOR
-                        if 'BOOKING_DATE' in df_processed.columns and 'MATURITY_DATE' in df_processed.columns:
-                            df_processed['TENOR'] = (df_processed['MATURITY_DATE'] - df_processed['BOOKING_DATE']).dt.days
-                            df_processed.loc[df_processed['TENOR'] < 0, 'TENOR'] = 0
-
-                        # Calculate DimDays with vectorized date logic.
-                        first_day_ts = pd.Timestamp(first_day.date())
-                        last_day_ts = pd.Timestamp(last_day.date())
-                        booking_dates = df_processed['BOOKING_DATE']
-                        maturity_dates = df_processed['MATURITY_DATE']
-
-                        full_period_days = (last_day_ts - first_day_ts).days + 1
-                        dim_days = np.where(
-                            (booking_dates <= first_day_ts) & (maturity_dates >= last_day_ts),
-                            full_period_days,
-                            np.where(
-                                (booking_dates >= first_day_ts) & (maturity_dates >= last_day_ts),
-                                (last_day_ts - booking_dates).dt.days + 1,
-                                np.where(
-                                    (booking_dates >= first_day_ts) & (maturity_dates <= last_day_ts),
-                                    (maturity_dates - booking_dates).dt.days,
-                                    (maturity_dates - first_day_ts).dt.days
-                                )
-                            )
-                        )
-                        df_processed['DimDays'] = dim_days.astype(np.int32)
-
-                        # Calculate DTM and MTM
-                        df_processed['DTM'] = np.where(
-                            maturity_dates > last_day_ts,
-                            (maturity_dates - last_day_ts).dt.days,
-                            0
-                        ).astype(np.int32)
-                        df_processed['MTM'] = (df_processed['DTM'] / 30).round(1).astype(np.float32)
-
-                        # Bucket columns
-                        bucket_labels = ['<7days', '7-14days', '14-21days', '21-30days', '30-60days', '60-90days', '90-180days', '180-270days', '270-360days', '360-720days', '720-1080days', '1080-1460days', '1460-1800days', '+1800days']
-
-                        # Allocate to buckets
-                        exposure = pd.to_numeric(
-                            df_processed['Currency Exposure + Currency Accrued Reporting'],
-                            errors='coerce'
-                        ).fillna(0).astype(np.float32)
-                        mtm_days = (df_processed['MTM'] * 30).astype(np.float32)
-                        tenors_list = [7,14,21,30,60,90,180,270,360,720,1080,1460,1800]
-                        bin_edges = [0] + tenors_list + [float('inf')]
-                        bucket_indices = pd.cut(mtm_days, bins=bin_edges, labels=False, right=False, include_lowest=True)
-                        bucket_indices = bucket_indices.fillna(len(bucket_labels)-1).astype(int)
-
-                        bucket_values = np.zeros((len(df_processed), len(bucket_labels)), dtype=np.float32)
-                        exposure_values = exposure.to_numpy(dtype=np.float32, copy=False)
-                        index_values = bucket_indices.to_numpy(dtype=np.int16, copy=False)
-                        positive_exposure_rows = np.nonzero(exposure_values > 0)[0]
-                        bucket_values[positive_exposure_rows, index_values[positive_exposure_rows]] = exposure_values[positive_exposure_rows]
-                        df_processed[bucket_labels] = bucket_values
-
-                        df_processed['Check'] = df_processed[bucket_labels].sum(axis=1).astype(np.float32)
-
-                        # FTP Charge
-                        rates = zwg_rates if sheet == "ZWG LOANS" else usd_rates
-                        rate_vector = np.array(
-                            [(rates[i] if i < len(rates) else rates[-1]) / 100 for i in range(len(bucket_labels))],
-                            dtype=np.float32
-                        )
-                        df_processed['FTP Charge'] = (
-                            df_processed[bucket_labels].to_numpy(dtype=np.float32, copy=False) @ rate_vector
-                        ).astype(np.float32)
-
-                        # Summary
-                        currency = 'ZWG' if sheet == "ZWG LOANS" else 'FX'
-                        sbu_summary = df_processed.groupby('SBU').agg({
-                            'Currency Exposure + Currency Accrued Reporting': 'sum',
-                            'FTP Charge': 'sum'
-                        }).reset_index()
-
-                        global_summaries[currency][sheet] = {
-                            'total_exposure': float(df_processed['Currency Exposure + Currency Accrued Reporting'].sum()),
-                            'total_ftp_charge': float(df_processed['FTP Charge'].sum()),
-                            'by_sbu': sbu_summary.to_dict(orient='records'),
-                            'row_count': len(df_processed)
-                        }
-
-                        # Preview
-                        preview = df_processed.head(100).copy()
-                        for col in preview.select_dtypes(include=['datetime64']).columns:
-                            preview[col] = preview[col].astype(str).replace('NaT', None)
-
-                        sheets_data[sheet] = {
-                            'columns': df_processed.columns.tolist(),
-                            'data': preview.to_dict(orient='records'),
-                            'shape': df_processed.shape
-                        }
-
-                        # Persist full processed worksheet for Excel download
-                        df_processed.to_excel(writer, sheet_name=sheet[:31], index=False)
-                        del df_processed
-
-                    else:
-                        preview = df.head(100).copy()
-                        sheets_data[sheet] = {
-                            'columns': df.columns.tolist(),
-                            'data': preview.to_dict(orient='records'),
-                            'shape': df.shape
-                        }
-                        # Optional: include non-loan sheets in output when explicitly enabled.
-                        df.to_excel(writer, sheet_name=sheet[:31], index=False)
-                        del df
-
-                    gc.collect()
-                    log_stage(f'Sheet {sheet}', sheet_start_time)
-                    print(f"Completed: {sheet}")
-            log_stage('Write processed workbook', excel_write_start_time)
-
-            # Add SBU Summary Sheet to the Excel file
-            try:
-                from openpyxl.styles import Font, PatternFill, Alignment
-                workbook = openpyxl.load_workbook(excel_output_path)
-                
-                # Remove 'Summary' sheet if it exists
-                if 'Summary' in workbook.sheetnames:
-                    del workbook['Summary']
-                
-                # Create Summary sheet at the beginning
-                summary_sheet = workbook.create_sheet('Summary', 0)
-                
-                # Write headers
-                headers = ['Currency', 'SBU', 'Exposure', 'FTP Charge']
-                header_fill = PatternFill(start_color='7F1D1D', end_color='7F1D1D', fill_type='solid')
-                header_font = Font(color='FFFFFF', bold=True)
-                
-                for col_idx, header in enumerate(headers, 1):
-                    cell = summary_sheet.cell(row=1, column=col_idx)
-                    cell.value = header
-                    cell.fill = header_fill
-                    cell.font = header_font
-                    cell.alignment = Alignment(horizontal='center')
-                
-                # Write data
-                row_idx = 2
-                for currency in sorted(global_summaries.keys()):
-                    sbu_aggregates = {}
-                    
-                    # Aggregate SBU data from all sheets
-                    for sheet_data in global_summaries[currency].values():
-                        if sheet_data.get('by_sbu'):
-                            for sbu in sheet_data['by_sbu']:
-                                sbu_name = sbu.get('SBU', 'Unknown')
-                                if sbu_name not in sbu_aggregates:
-                                    sbu_aggregates[sbu_name] = {'exposure': 0.0, 'ftp_charge': 0.0}
-                                sbu_aggregates[sbu_name]['exposure'] += sbu.get('Currency Exposure + Currency Accrued Reporting', 0)
-                                sbu_aggregates[sbu_name]['ftp_charge'] += sbu.get('FTP Charge', 0)
-                    
-                    # Write SBU rows
-                    for sbu_name in sorted(sbu_aggregates.keys()):
-                        sbu_vals = sbu_aggregates[sbu_name]
-                        summary_sheet.cell(row=row_idx, column=1).value = currency
-                        summary_sheet.cell(row=row_idx, column=2).value = sbu_name
-                        summary_sheet.cell(row=row_idx, column=3).value = float(sbu_vals['exposure'])
-                        summary_sheet.cell(row=row_idx, column=4).value = float(sbu_vals['ftp_charge'])
-                        
-                        # Format numbers
-                        summary_sheet.cell(row=row_idx, column=3).number_format = '#,##0.00'
-                        summary_sheet.cell(row=row_idx, column=4).number_format = '#,##0.00'
-                        
-                        row_idx += 1
-                
-                # Adjust column widths
-                summary_sheet.column_dimensions['A'].width = 12
-                summary_sheet.column_dimensions['B'].width = 20
-                summary_sheet.column_dimensions['C'].width = 18
-                summary_sheet.column_dimensions['D'].width = 18
-                
-                workbook.save(excel_output_path)
-                workbook.close()
-                print(f"✅ Added Summary sheet to {excel_filename}")
-            except Exception as summary_error:
-                print(f"[WARN] Failed to add Summary sheet: {summary_error}")
-                import traceback
-                traceback.print_exc()
-
-            # Store data
-        latest_data['filename'] = file.filename
-        latest_data['sheets'] = sheets_data
-        latest_data['summaries'] = global_summaries
-        latest_data['period'] = {
-            'first_day': first_day.strftime('%d %B %Y'),
-            'last_day': last_day.strftime('%d %B %Y'),
-            'month': month_name,
-            'month_number': month_num,
-            'year': year,
-            'report_key': report_key,
-            'version_suffix': report_key_suffix
-        }
-        latest_data['excel_output_path'] = excel_output_path
-        latest_data['excel_filename'] = excel_filename
-        latest_data['excel_contains_workings'] = include_non_loan_sheets
-        latest_data['skipped_sheet_count'] = skipped_sheet_count
-
-        snapshot_start_time = perf_counter()
-        save_latest_data_snapshot()
-        log_stage('Persist snapshot', snapshot_start_time)
-        log_stage('Total upload pipeline', upload_start_time)
-        
-        print(f"✅ Stored summaries: {list(global_summaries.keys())}")
-        
-        return jsonify({
-            'status': 'success',
-            'summary': global_summaries,
-            'period': latest_data['period'],
-            'excel_contains_workings': include_non_loan_sheets,
-            'skipped_sheet_count': skipped_sheet_count,
-            'report_key': report_key
-        })
-    
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-    finally:
-        try:
-            if os.path.exists(temp_upload_path):
-                os.remove(temp_upload_path)
-        except OSError as exc:
-            print(f"[WARN] Failed to remove temp upload {temp_upload_path}: {exc}")
 
 @app.route('/calculate', methods=['POST'])
 def calculate():
@@ -3692,17 +2685,11 @@ def calculate():
 
 @app.route('/ftp-curve-data', methods=['GET'])
 def ftp_curve_data():
-    return jsonify({
-        'tenors': tenors,
-        'zwg': {'name': 'ZWG FTP Curve', 'rates': zwg_rates, 'color': '#b33a3a', 'borderColor': '#921f1f'},
-        'usd': {'name': 'USD FTP Curve', 'rates': usd_rates, 'color': '#2563eb', 'borderColor': '#1d4ed8'}
-    })
+    return jsonify(_curve_payload())
 
 
 @app.route('/ftp-curve-data', methods=['POST'])
 def update_ftp_curve_data():
-    global tenors, usd_rates, zwg_rates
-
     payload = request.get_json(silent=True) or {}
     updated_tenors = payload.get('tenors')
     updated_usd_rates = payload.get('usd_rates')
@@ -3711,45 +2698,79 @@ def update_ftp_curve_data():
     if not isinstance(updated_tenors, list) or not isinstance(updated_usd_rates, list) or not isinstance(updated_zwg_rates, list):
         return jsonify({'error': 'tenors, usd_rates, and zwg_rates must all be arrays'}), 400
 
-    if not updated_tenors or len(updated_usd_rates) != len(updated_zwg_rates):
-        return jsonify({'error': 'Curve arrays must be non-empty and have matching lengths'}), 400
-    if len(updated_usd_rates) not in (len(updated_tenors), len(updated_tenors) + 1):
-        return jsonify({'error': 'Provide one rate per bucket: either one tenor per rate or the n-1 bucket boundaries'}), 400
+    curve_config, error = _normalize_curve_payload(updated_tenors, updated_usd_rates, updated_zwg_rates)
+    if error:
+        return jsonify({'error': error}), 400
 
     try:
-        normalized_tenors = [int(value) for value in updated_tenors]
-        normalized_usd_rates = [float(value) for value in updated_usd_rates]
-        normalized_zwg_rates = [float(value) for value in updated_zwg_rates]
-    except (TypeError, ValueError):
-        return jsonify({'error': 'All curve values must be numeric'}), 400
-
-    if any(value <= 0 for value in normalized_tenors):
-        return jsonify({'error': 'Tenors must be greater than zero'}), 400
-
-    if normalized_tenors != sorted(normalized_tenors):
-        return jsonify({'error': 'Tenors must be sorted in ascending order'}), 400
-
-    curve_config = {
-        'tenors': normalized_tenors,
-        'usd_rates': normalized_usd_rates,
-        'zwg_rates': normalized_zwg_rates
-    }
-
-    try:
-        save_curve_config(curve_config)
+        _apply_curve_config(curve_config)
     except OSError as exc:
         return jsonify({'error': f'Unable to save curve config: {str(exc)}'}), 500
 
-    tenors = normalized_tenors
-    usd_rates = normalized_usd_rates
-    zwg_rates = normalized_zwg_rates
+    return jsonify({'status': 'success', **_curve_payload()})
 
-    return jsonify({
-        'status': 'success',
-        'tenors': tenors,
-        'zwg': {'name': 'ZWG FTP Curve', 'rates': zwg_rates, 'color': '#b33a3a', 'borderColor': '#921f1f'},
-        'usd': {'name': 'USD FTP Curve', 'rates': usd_rates, 'color': '#2563eb', 'borderColor': '#1d4ed8'}
-    })
+
+@app.route('/ftp-curve-template', methods=['GET'])
+def download_ftp_curve_template():
+    """Download an Excel template for entering the FTP curve."""
+    try:
+        buffer = _build_curve_template_workbook()
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name='FTP Curve Template.xlsx',
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to build the curve template: {str(exc)}'}), 500
+
+
+@app.route('/ftp-curve-upload', methods=['POST'])
+def upload_ftp_curve():
+    """Apply an FTP curve from an uploaded Excel workbook."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+
+    file = request.files['file']
+    filename = file.filename or ''
+    if not filename:
+        return jsonify({'error': 'No selected file'}), 400
+
+    extension = os.path.splitext(filename)[1].lower()
+    if extension not in {'.xlsx', '.xlsm', '.xls', '.csv'}:
+        return jsonify({'error': 'Upload an Excel workbook (.xlsx) or CSV file'}), 400
+
+    os.makedirs(TEMP_UPLOADS_DIR, exist_ok=True)
+    temp_path = os.path.join(TEMP_UPLOADS_DIR, f'curve_{uuid.uuid4()}_{os.path.basename(filename)}')
+    try:
+        file.save(temp_path)
+        if os.path.getsize(temp_path) > FTP_CURVE_UPLOAD_MAX_BYTES:
+            return jsonify({'error': 'Curve workbook is too large (limit 5 MB)'}), 400
+
+        raw_tenors, raw_usd, raw_zwg = _read_curve_workbook(temp_path)
+        curve_config, error = _normalize_curve_payload(raw_tenors, raw_usd, raw_zwg)
+        if error:
+            return jsonify({'error': error}), 400
+
+        _apply_curve_config(curve_config)
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except OSError as exc:
+        return jsonify({'error': f'Unable to read the curve workbook: {str(exc)}'}), 500
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to import the curve: {str(exc)}'}), 500
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+    return jsonify({'status': 'success', 'filename': filename, **_curve_payload()})
 
 
 @app.route('/branch-sbu-map', methods=['GET'])
@@ -3787,304 +2808,11 @@ def reset_branch_sbu_map():
 
 @app.route('/get-preview', methods=['GET'])
 def get_preview():
-    report_key = request.args.get('report_key')
-    month = request.args.get('month')
-    year = request.args.get('year', type=int)
-    if report_key:
-        if load_latest_data_snapshot(report_key=report_key):
-            return _strict_json_response({'filename': latest_data['filename'], 'sheets': latest_data['sheets'], 'summaries': latest_data.get('summaries', {}), 'period': latest_data.get('period')})
-        return _strict_json_response({'message': 'No data found for that report version'}, status_code=404)
-    if month and year:
-        if load_latest_data_snapshot(month=month, year=year):
-            return _strict_json_response({'filename': latest_data['filename'], 'sheets': latest_data['sheets'], 'summaries': latest_data.get('summaries', {}), 'period': latest_data.get('period')})
-        return _strict_json_response({'message': 'No data found for that month and year'}, status_code=404)
-
-    if latest_data['sheets'] or load_latest_data_snapshot():
-        return _strict_json_response({'filename': latest_data['filename'], 'sheets': latest_data['sheets'], 'summaries': latest_data.get('summaries', {})})
+    if latest_data['sheets']:
+        return _strict_json_response({'filename': latest_data['filename'], 'sheets': latest_data['sheets'],
+                                      'summaries': latest_data.get('summaries', {}),
+                                      'period': latest_data.get('period')})
     return _strict_json_response({'message': 'No data uploaded yet'}, status_code=404)
-
-
-@app.route('/processed-reports', methods=['GET'])
-def processed_reports():
-    try:
-        _ensure_processed_reports_db()
-        month = request.args.get('month')
-        year = request.args.get('year', type=int)
-        with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-            connection.row_factory = sqlite3.Row
-            if month and year:
-                month_number = _normalize_month_number(month)
-                rows = connection.execute(
-                    '''
-                    SELECT report_key, month_number, month_name, year, filename, excel_filename, updated_at, excel_contains_workings, skipped_sheet_count, export_warning, original_upload_path, original_upload_filename
-                    FROM processed_reports
-                    WHERE month_number = ? AND year = ?
-                    ORDER BY updated_at DESC
-                    ''',
-                    (month_number, int(year))
-                ).fetchall()
-            else:
-                rows = connection.execute(
-                    '''
-                    SELECT report_key, month_number, month_name, year, filename, excel_filename, updated_at, excel_contains_workings, skipped_sheet_count, export_warning, original_upload_path, original_upload_filename
-                    FROM processed_reports
-                    ORDER BY year DESC, month_number DESC, updated_at DESC
-                    '''
-                ).fetchall()
-
-        return jsonify({
-            'reports': [
-                {
-                    'report_key': row['report_key'],
-                    'month': row['month_name'],
-                    'month_number': row['month_number'],
-                    'year': row['year'],
-                    'filename': row['filename'],
-                    'excel_filename': row['excel_filename'],
-                    'updated_at': row['updated_at'],
-                    'excel_contains_workings': bool(row['excel_contains_workings']),
-                    'skipped_sheet_count': row['skipped_sheet_count'],
-                    'export_warning': row['export_warning'],
-                    'original_upload_available': bool(row['original_upload_path']) and os.path.exists(row['original_upload_path']),
-                    'original_upload_filename': row['original_upload_filename'],
-                    'workings_available': os.path.exists(_build_workings_manifest_path(row['report_key'])),
-                    'notes_count': len(_load_report_notes(row['report_key']))
-                }
-                for row in rows
-            ]
-        })
-    except Exception as exc:
-        return jsonify({'error': f'Failed to list processed reports: {str(exc)}'}), 500
-
-
-@app.route('/processed-reports/<report_key>/metadata', methods=['GET'])
-def processed_report_metadata(report_key):
-    try:
-        row = _fetch_report_metadata(report_key)
-        if not row:
-            return jsonify({'error': 'Report version not found'}), 404
-
-        summaries = json.loads(row['summaries_json']) if row['summaries_json'] else {}
-        sheets = json.loads(row['sheets_json']) if row['sheets_json'] else {}
-        total_rows = sum((sheet_data.get('row_count') or 0) for currency in summaries.values() for sheet_data in currency.values())
-
-        return jsonify({
-            'report_key': row['report_key'],
-            'month': row['month_name'],
-            'month_number': row['month_number'],
-            'year': row['year'],
-            'filename': row['filename'],
-            'excel_filename': row['excel_filename'],
-            'original_upload_filename': row['original_upload_filename'],
-            'original_upload_available': bool(row['original_upload_path']) and os.path.exists(row['original_upload_path']),
-            'workings_available': os.path.exists(_build_workings_manifest_path(row['report_key'])),
-            'excel_contains_workings': bool(row['excel_contains_workings']),
-            'skipped_sheet_count': row['skipped_sheet_count'],
-            'export_warning': row['export_warning'],
-            'sheet_count': len(sheets),
-            'total_rows': total_rows,
-            'file_size_bytes': os.path.getsize(row['excel_output_path']) if row['excel_output_path'] and os.path.exists(row['excel_output_path']) else None,
-            'original_file_size_bytes': os.path.getsize(row['original_upload_path']) if row['original_upload_path'] and os.path.exists(row['original_upload_path']) else None,
-            'notes': _load_report_notes(report_key),
-        })
-    except Exception as exc:
-        return jsonify({'error': f'Failed to load report metadata: {str(exc)}'}), 500
-
-
-@app.route('/processed-reports/<report_key>/notes', methods=['GET', 'POST'])
-def processed_report_notes(report_key):
-    try:
-        if request.method == 'GET':
-            return jsonify({'notes': _load_report_notes(report_key)})
-
-        role_error = _require_role('admin', 'editor')
-        if role_error:
-            return role_error
-
-        payload = request.get_json(silent=True) or {}
-        note_text = str(payload.get('note', '')).strip()
-        if not note_text:
-            return jsonify({'error': 'note is required'}), 400
-
-        _ensure_processed_reports_db()
-        with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-            connection.execute(
-                'INSERT INTO report_notes (report_key, note_text, created_by, created_at) VALUES (?, ?, ?, ?)',
-                (report_key, note_text, _current_actor(), time.time())
-            )
-            connection.commit()
-
-        _audit_event('note_added', report_key=report_key, details={'note': note_text})
-        return jsonify({'status': 'success', 'notes': _load_report_notes(report_key)})
-    except Exception as exc:
-        return jsonify({'error': f'Failed to manage report notes: {str(exc)}'}), 500
-
-
-@app.route('/processed-reports/compare', methods=['GET'])
-def compare_processed_reports():
-    report_key_a = request.args.get('report_key_a')
-    report_key_b = request.args.get('report_key_b')
-    if not report_key_a or not report_key_b:
-        return jsonify({'error': 'report_key_a and report_key_b are required'}), 400
-
-    row_a = _fetch_report_metadata(report_key_a)
-    row_b = _fetch_report_metadata(report_key_b)
-    if not row_a or not row_b:
-        return jsonify({'error': 'One or both report versions were not found'}), 404
-
-    summaries_a = json.loads(row_a['summaries_json']) if row_a['summaries_json'] else {}
-    summaries_b = json.loads(row_b['summaries_json']) if row_b['summaries_json'] else {}
-
-    comparison = []
-    currencies = sorted(set(summaries_a.keys()) | set(summaries_b.keys()))
-    for currency in currencies:
-        sheets = sorted(set((summaries_a.get(currency) or {}).keys()) | set((summaries_b.get(currency) or {}).keys()))
-        for sheet in sheets:
-            left = (summaries_a.get(currency) or {}).get(sheet, {})
-            right = (summaries_b.get(currency) or {}).get(sheet, {})
-            comparison.append({
-                'currency': currency,
-                'sheet': sheet,
-                'exposure_delta': float((right.get('total_exposure') or 0) - (left.get('total_exposure') or 0)),
-                'ftp_delta': float((right.get('total_ftp_charge') or 0) - (left.get('total_ftp_charge') or 0)),
-                'row_count_delta': int((right.get('row_count') or 0) - (left.get('row_count') or 0)),
-            })
-
-    _audit_event('report_compared', details={'report_key_a': report_key_a, 'report_key_b': report_key_b})
-    return jsonify({'comparison': comparison})
-
-
-@app.route('/audit-log', methods=['GET'])
-def audit_log():
-    try:
-        limit = request.args.get('limit', default=100, type=int)
-        with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-            connection.row_factory = sqlite3.Row
-            rows = connection.execute(
-                'SELECT event_id, event_type, report_key, actor, actor_role, details_json, created_at FROM audit_log ORDER BY created_at DESC LIMIT ?',
-                (max(1, min(limit, 500)),)
-            ).fetchall()
-
-        return jsonify({
-            'events': [
-                {
-                    'event_id': row['event_id'],
-                    'event_type': row['event_type'],
-                    'report_key': row['report_key'],
-                    'actor': row['actor'],
-                    'actor_role': row['actor_role'],
-                    'details': json.loads(row['details_json']) if row['details_json'] else {},
-                    'created_at': row['created_at'],
-                }
-                for row in rows
-            ]
-        })
-    except Exception as exc:
-        return jsonify({'error': f'Failed to load audit log: {str(exc)}'}), 500
-
-
-@app.route('/notifications', methods=['GET'])
-def notifications():
-    try:
-        with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-            connection.row_factory = sqlite3.Row
-            rows = connection.execute(
-                "SELECT event_id, report_key, details_json, created_at FROM audit_log WHERE event_type = 'notification' ORDER BY created_at DESC LIMIT 20"
-            ).fetchall()
-
-        return jsonify({
-            'notifications': [
-                {
-                    'event_id': row['event_id'],
-                    'report_key': row['report_key'],
-                    'created_at': row['created_at'],
-                    **(json.loads(row['details_json']) if row['details_json'] else {})
-                }
-                for row in rows
-            ]
-        })
-    except Exception as exc:
-        return jsonify({'error': f'Failed to load notifications: {str(exc)}'}), 500
-
-
-@app.route('/settings/retention', methods=['GET'])
-def retention_settings():
-    return jsonify({
-        'max_versions_per_month': REPORT_RETENTION_MAX_VERSIONS,
-        'max_months': REPORT_RETENTION_MAX_MONTHS,
-        'role_enforced': FTP_REQUIRE_ROLE,
-        'default_role': FTP_DEFAULT_ROLE,
-        'scheduler_enabled': ENABLE_SCHEDULER,
-    })
-
-
-@app.route('/scheduler-jobs', methods=['GET', 'POST'])
-def scheduler_jobs():
-    try:
-        _ensure_processed_reports_db()
-        if request.method == 'GET':
-            with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-                connection.row_factory = sqlite3.Row
-                rows = connection.execute(
-                    'SELECT job_id, folder_path, include_workings, overwrite_existing, active, created_at, updated_at, last_run_at, last_status, last_message FROM scheduler_jobs ORDER BY updated_at DESC'
-                ).fetchall()
-            return jsonify({'jobs': [dict(row) for row in rows]})
-
-        role_error = _require_role('admin')
-        if role_error:
-            return role_error
-
-        payload = request.get_json(silent=True) or {}
-        folder_path = str(payload.get('folder_path', '')).strip()
-        if not folder_path:
-            return jsonify({'error': 'folder_path is required'}), 400
-
-        now_ts = time.time()
-        with sqlite3.connect(PROCESSED_REPORTS_DB_PATH) as connection:
-            connection.execute(
-                '''
-                INSERT INTO scheduler_jobs (folder_path, include_workings, overwrite_existing, active, created_at, updated_at)
-                VALUES (?, ?, ?, 1, ?, ?)
-                ''',
-                (folder_path, int(bool(payload.get('include_workings'))), int(bool(payload.get('overwrite_existing'))), now_ts, now_ts)
-            )
-            connection.commit()
-
-        _audit_event('scheduler_job_added', details={'folder_path': folder_path})
-        return scheduler_jobs()
-    except Exception as exc:
-        return jsonify({'error': f'Failed to manage scheduler jobs: {str(exc)}'}), 500
-
-
-@app.route('/scheduler-jobs/run', methods=['POST'])
-def run_scheduler_jobs():
-    try:
-        role_error = _require_role('admin')
-        if role_error:
-            return role_error
-
-        processed_files = _run_scheduler_cycle()
-        return jsonify({'status': 'success', 'processed_files': processed_files})
-    except Exception as exc:
-        return jsonify({'error': f'Failed to run scheduler: {str(exc)}'}), 500
-
-
-@app.route('/processed-reports/<report_key>', methods=['DELETE'])
-def delete_processed_report_route(report_key):
-    try:
-        if not report_key:
-            return jsonify({'error': 'report_key is required'}), 400
-
-        deleted = delete_processed_report(report_key)
-        if not deleted:
-            return jsonify({'error': 'Report version not found'}), 404
-
-        return jsonify({'status': 'success', 'report_key': report_key})
-    except Exception as exc:
-        return jsonify({'error': f'Failed to delete processed report: {str(exc)}'}), 500
-
-
-_ensure_processed_reports_db()
 
 
 @app.route('/convert-json', methods=['POST'])

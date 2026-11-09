@@ -1,2 +1,6 @@
 # Artifacto — generated semantic artifacts (auto-updated by plugin)
 artifacts/
+
+# Runtime scratch space (results are not archived)
+temp_uploads/
+*.db

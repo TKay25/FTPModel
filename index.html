@@ -357,8 +357,6 @@
         .modal-footer .btn-ghost { margin-right: auto; }
         .modal-card.large-modal { width: 820px; }
         .modal-card.branch-map-modal { width: 1100px; max-width: 98vw; }
-        .modal-card.ops-hub-modal { width: 1040px; max-width: 98vw; }
-        .modal-card.archive-modal { width: 760px; }
         .modal-card.upload-modal { width: 600px; }
         .modal-card.singular-ftp-modal { width: 750px; }
         .singular-ftp-modal .modal-body {
@@ -376,7 +374,7 @@
         }
 
         /* ===== Unified Button System ===== */
-        /* Base: inline ghost-style button used across ops panels, archive, tables */
+        /* Base: inline ghost-style button used across panels and tables */
         .btn-sm {
             display: inline-flex; align-items: center; gap: 6px;
             padding: 8px 14px; border-radius: var(--radius-sm);
@@ -438,149 +436,6 @@
             font-family: var(--font); line-height: 1.4;
         }
         .secondary-btn:hover { border-color: var(--accent); color: var(--accent); }
-
-        /* ===== Archive Browser Styles ===== */
-        .archive-browser { margin-top: 16px; }
-        .archive-browser.in-modal { margin-top: 16px; }
-        .archive-browser h4 {
-            font-size: 13px; font-weight: 700; color: var(--text);
-            margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
-            text-transform: uppercase; letter-spacing: 1px;
-        }
-        .archive-grid { display: grid; grid-template-columns: 1fr 0.9fr; gap: 10px; }
-        .archive-select, .archive-input {
-            width: 100%; background: var(--surface);
-            border: 1px solid var(--border); border-radius: var(--radius-sm);
-            padding: 10px 12px; font-size: 13px; color: var(--text);
-            outline: none; transition: border var(--transition);
-        }
-        .archive-select:focus, .archive-input:focus { border-color: var(--accent); }
-        .archive-actions { display: flex; gap: 8px; margin-top: 10px; }
-        .archive-actions button {
-            flex: 1; padding: 9px 14px; border-radius: var(--radius-sm);
-            border: 1px solid var(--border); background: var(--surface);
-            color: var(--text); font-weight: 600; font-size: 12px;
-            cursor: pointer; transition: all var(--transition);
-            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-            font-family: var(--font); line-height: 1.4;
-        }
-        .archive-actions button:hover:not(:disabled) {
-            border-color: var(--accent); color: var(--accent);
-            background: var(--surface-muted);
-        }
-        .archive-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
-        /* Delete button in archive - danger styling */
-        #deleteArchiveBtn {
-            border-color: #fecaca; background: #fef2f2; color: #b91c1c;
-        }
-        #deleteArchiveBtn:hover:not(:disabled) {
-            background: #fee2e2; border-color: #f87171; color: #991b1b;
-        }
-        #deleteArchiveBtn:disabled { opacity: 0.4; cursor: not-allowed; }
-        #deleteArchiveBtn i { color: #b91c1c; }
-        body.dark #deleteArchiveBtn {
-            background: #2d0a0a; border-color: #7f1d1d; color: #fca5a5;
-        }
-        body.dark #deleteArchiveBtn:hover:not(:disabled) {
-            background: #3d0f0f; border-color: #b91c1c; color: #fecaca;
-        }
-        .archive-status { margin-top: 10px; font-size: 12px; color: var(--text-soft); min-height: 18px; }
-
-        /* ===== Ops Hub ===== */
-        .ops-panel.in-modal { margin-top: 16px; }
-        .ops-panel h4 {
-            font-size: 13px; font-weight: 700; color: var(--text);
-            margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
-            text-transform: uppercase; letter-spacing: 1px;
-        }
-        .ops-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
-        .ops-tab {
-            border: 1px solid var(--border); background: var(--surface);
-            color: var(--text-soft); border-radius: 999px;
-            padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
-            transition: all var(--transition);
-        }
-        .ops-tab:hover { border-color: var(--accent); color: var(--accent); }
-        .ops-tab.is-active { background: var(--accent); border-color: var(--accent); color: white; }
-        .ops-tab-panel { display: none; }
-        .ops-tab-panel.is-active { display: block; animation: fadeIn 0.2s ease; }
-        .ops-stack { display: flex; flex-direction: column; gap: 10px; }
-        .ops-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .ops-panel textarea, .ops-panel input, .ops-panel select {
-            width: 100%; background: var(--surface);
-            border: 1px solid var(--border); border-radius: var(--radius-sm);
-            padding: 10px 12px; font-size: 13px; color: var(--text);
-            outline: none; transition: border var(--transition);
-        }
-        .ops-panel textarea:focus, .ops-panel input:focus { border-color: var(--accent); }
-        .ops-panel textarea { min-height: 64px; resize: vertical; }
-        .ops-panel button {
-            padding: 9px 14px; border-radius: var(--radius-sm);
-            border: 1px solid var(--border); background: var(--surface);
-            color: var(--text); font-weight: 600; font-size: 12px;
-            cursor: pointer; transition: all var(--transition);
-            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-            font-family: var(--font); line-height: 1.4;
-        }
-        .ops-panel button:hover:not(:disabled) {
-            border-color: var(--accent); color: var(--accent);
-            background: var(--surface-muted);
-        }
-        .ops-panel button:disabled { opacity: 0.4; cursor: not-allowed; }
-        .ops-panel button.is-busy { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
-        /* Color-code ops action buttons */
-        #saveReportNoteBtn, #saveSchedulerJobBtn {
-            border-color: #bbf7d0; background: #f0fdf4; color: #166534;
-        }
-        #saveReportNoteBtn:hover:not(:disabled), #saveSchedulerJobBtn:hover:not(:disabled) {
-            background: #dcfce7; border-color: #4ade80; color: #15803d;
-        }
-        body.dark #saveReportNoteBtn, body.dark #saveSchedulerJobBtn {
-            background: #052e16; border-color: #166534; color: #86efac;
-        }
-        body.dark #saveReportNoteBtn:hover:not(:disabled), body.dark #saveSchedulerJobBtn:hover:not(:disabled) {
-            background: #0a3d1e; border-color: #22c55e; color: #a7f3d0;
-        }
-        #compareReportsBtn {
-            border-color: #c7d2fe; background: #eef2ff; color: #4338ca;
-        }
-        #compareReportsBtn:hover:not(:disabled) {
-            background: #e0e7ff; border-color: #818cf8; color: #3730a3;
-        }
-        body.dark #compareReportsBtn {
-            background: #1e1b4b; border-color: #3730a3; color: #a5b4fc;
-        }
-        body.dark #compareReportsBtn:hover:not(:disabled) {
-            background: #2e2a6b; border-color: #6366f1; color: #c7d2fe;
-        }
-        .ops-list {
-            max-height: 130px; overflow-y: auto;
-            border: 1px solid var(--border); border-radius: var(--radius-sm);
-            padding: 10px; background: var(--surface-muted);
-            font-size: 12px; color: var(--text-soft);
-        }
-        .ops-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
-        .ops-item:last-child { border-bottom: none; }
-        .ops-meta { font-size: 11px; color: var(--text-muted); min-height: 16px; }
-        .ops-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-        .ops-summary-card {
-            border: 1px solid var(--border); border-radius: var(--radius-sm);
-            background: var(--surface); padding: 10px;
-        }
-        .ops-summary-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
-        .ops-summary-value { font-size: 15px; font-weight: 700; color: var(--text); }
-        .ops-muted { font-size: 12px; color: var(--text-muted); }
-        .ops-status {
-            min-height: 20px; padding: 8px 10px; border-radius: var(--radius-sm);
-            font-size: 12px; border: 1px solid var(--border);
-            background: var(--surface-muted); color: var(--text-soft);
-        }
-        .ops-status.is-loading { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
-        .ops-status.is-success { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
-        .ops-status.is-error { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
-        body.dark .ops-status.is-loading { background: #1e1b4b; border-color: #3730a3; color: #a5b4fc; }
-        body.dark .ops-status.is-success { background: #052e16; border-color: #166534; color: #86efac; }
-        body.dark .ops-status.is-error { background: #2d0a0a; border-color: #7f1d1d; color: #fca5a5; }
 
         /* ===== Curve Editor ===== */
         .curve-editor {
@@ -807,9 +662,6 @@
             .app-container { padding: 16px; }
             .header-row { flex-direction: column; align-items: flex-start; }
             .header-actions { width: 100%; justify-content: flex-end; }
-            .archive-grid { grid-template-columns: 1fr; }
-            .ops-row { grid-template-columns: 1fr; }
-            .ops-summary { grid-template-columns: 1fr; }
             .modal-card { padding: 20px; }
         }
 
@@ -905,13 +757,7 @@
         .btn-primary:focus-visible, .btn-secondary:focus-visible, .btn-ghost:focus-visible,
         .theme-toggle:focus-visible, .calculate-btn:focus-visible, .btn-sm:focus-visible,
         .btn-sm-danger:focus-visible, .btn-sm-success:focus-visible,
-        .sidebar-nav button:focus-visible, .ops-tab:focus-visible,
-        .archive-actions button:focus-visible, .ops-panel button:focus-visible {
-            outline: none; box-shadow: 0 0 0 3px var(--ring-color);
-        }
 
-        .archive-actions button:active:not(:disabled),
-        .ops-panel button:active:not(:disabled),
         .btn-sm:active, .btn-sm-danger:active, .btn-sm-success:active {
             transform: translateY(1px) scale(0.99);
         }
@@ -981,8 +827,7 @@
         .modal-header-close:hover { background: var(--accent-soft); color: var(--accent); transform: rotate(90deg); }
 
         /* ===== Forms ===== */
-        .archive-select:focus, .archive-input:focus, .editor-search:focus,
-        .ops-panel textarea:focus, .ops-panel input:focus, .ops-panel select:focus,
+        .editor-search:focus,
         .input-group input:focus, .currency-select:focus, .curve-table input:focus {
             border-color: var(--accent);
             box-shadow: 0 0 0 3px var(--ring-color);
@@ -1093,10 +938,8 @@
                     <div class="sidebar-label"><i class="fas fa-cube"></i> Actions</div>
                     <div class="sidebar-nav">
                         <button id="openUploadModalBtn2"><i class="fas fa-file-excel"></i> Upload FTP Data</button>
-                        <button id="openArchiveBrowserBtn"><i class="fas fa-archive"></i> Archive Browser</button>
                         <button id="viewCurveBtn"><i class="fas fa-chart-line"></i> FTP Curve Editor</button>
                         <button id="openBranchMapBtn"><i class="fas fa-sitemap"></i> Branch Map</button>
-                        <button id="openOperationsHubBtn"><i class="fas fa-tools"></i> Operations Hub</button>
                         <button id="openJsonExportModalBtn"><i class="fas fa-file-export"></i> JSON to CSV</button>
                     </div>
                 </div>
@@ -1107,7 +950,6 @@
                         <button id="downloadExcelBtn" disabled><i class="fas fa-file-excel"></i> Excel Results</button>
                         <button id="downloadExcelZipBtn" disabled><i class="fas fa-file-archive"></i> Excel Results (ZIP)</button>
                         <button id="downloadWorkingPaperBtn" disabled><i class="fas fa-calculator"></i> Working Paper (50 loans)</button>
-                        <button id="downloadOriginalBtn" disabled><i class="fas fa-file-upload"></i> Original Workbook</button>
                         <button id="downloadWorkingsBtn" disabled><i class="fas fa-file-alt"></i> Workings Excel</button>
                         <button id="downloadWorkingsJsonBtn" disabled><i class="fas fa-file-code"></i> Workings JSON</button>
                         <button id="downloadWorkingsZipBtn" disabled><i class="fas fa-file-archive"></i> Workings JSON (ZIP)</button>
@@ -1257,6 +1099,12 @@
                     <div class="curve-editor-header">
                         <h3>Edit yield curves</h3>
                         <div class="curve-editor-actions">
+                            <button class="btn-ghost" id="downloadCurveTemplateBtn" type="button">
+                                <i class="fas fa-file-download"></i> Template
+                            </button>
+                            <button class="btn-ghost" id="uploadCurveBtn" type="button">
+                                <i class="fas fa-file-upload"></i> Upload Curve
+                            </button>
                             <button class="btn-ghost" id="resetCurveBtn" type="button">Reset</button>
                             <button class="btn-primary" id="saveCurveBtn" type="button" style="padding: 10px 20px;">
                                 <i class="fas fa-save"></i> Save Curves
@@ -1276,6 +1124,7 @@
                         </table>
                     </div>
                     <div class="curve-status" id="curveStatus"></div>
+                    <input type="file" id="curveFileInput" accept=".xlsx,.xlsm,.xls,.csv" hidden>
                 </div>
             </div>
             <div class="modal-footer">
@@ -1321,147 +1170,6 @@
             <div class="modal-footer">
                 <button class="btn-ghost" id="closeBranchMapModalBtn2">Close</button>
                 <button class="btn-primary" id="saveBranchMapBtn" type="button"><i class="fas fa-save"></i> Save Map</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- MODAL 4: Archive browser -->
-    <div class="modal" id="archiveBrowserModal">
-        <div class="modal-card archive-modal">
-            <div class="modal-header">
-                <h2><i class="fas fa-archive"></i> ARCHIVE BROWSER</h2>
-                <button class="modal-header-close" id="closeArchiveBrowserModalBtn">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="archive-browser in-modal">
-                    <h4><i class="fas fa-database"></i> Saved FTP Versions</h4>
-                    <div class="archive-grid">
-                        <select id="archiveMonthSelect" class="archive-select">
-                            <option value="">Month</option>
-                            <option value="January">January</option>
-                            <option value="February">February</option>
-                            <option value="March">March</option>
-                            <option value="April">April</option>
-                            <option value="May">May</option>
-                            <option value="June">June</option>
-                            <option value="July">July</option>
-                            <option value="August">August</option>
-                            <option value="September">September</option>
-                            <option value="October">October</option>
-                            <option value="November">November</option>
-                            <option value="December">December</option>
-                        </select>
-                        <input type="number" id="archiveYearInput" class="archive-input" placeholder="Year" min="2000" max="2100">
-                    </div>
-                    <div class="archive-actions">
-                        <button type="button" id="loadArchiveBtn"><i class="fas fa-folder-open"></i> Load</button>
-                        <button type="button" id="clearArchiveBtn"><i class="fas fa-broom"></i> Clear</button>
-                    </div>
-                    <select id="archiveVersionSelect" class="archive-select" style="margin-top: 10px;" disabled>
-                        <option value="">Version</option>
-                    </select>
-                    <div class="archive-actions">
-                        <button type="button" id="openArchivePdfBtn" disabled><i class="fas fa-file-pdf"></i> PDF</button>
-                        <button type="button" id="openArchiveExcelBtn" disabled><i class="fas fa-file-excel"></i> Excel</button>
-                    </div>
-                    <div class="archive-actions">
-                        <button type="button" id="deleteArchiveBtn" disabled><i class="fas fa-trash-alt"></i> Delete version</button>
-                    </div>
-                    <div class="archive-status" id="archiveStatus">Load a month and year to browse saved versions.</div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-ghost" id="closeArchiveBrowserModalBtn2">Close</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- MODAL 5: Operations hub -->
-    <div class="modal" id="operationsHubModal">
-        <div class="modal-card ops-hub-modal">
-            <div class="modal-header">
-                <h2><i class="fas fa-tools"></i> OPERATIONS HUB</h2>
-                <button class="modal-header-close" id="closeOperationsHubModalBtn">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="ops-panel in-modal">
-                    <h4><i class="fas fa-sliders-h"></i> Archive Operations, Controls, And Monitoring</h4>
-                    <div class="ops-tabs" id="operationsHubTabs">
-                        <button type="button" class="ops-tab is-active" data-ops-tab="compare">Compare & Notes</button>
-                        <button type="button" class="ops-tab" data-ops-tab="monitoring">Audit & Notifications</button>
-                        <button type="button" class="ops-tab" data-ops-tab="scheduler">Scheduler</button>
-                        <button type="button" class="ops-tab" data-ops-tab="settings">Settings</button>
-                    </div>
-
-                    <div class="ops-tab-panel is-active" data-ops-panel="compare">
-                        <div class="ops-stack">
-                            <div class="ops-row">
-                                <input type="text" id="compareLeftInput" placeholder="Compare left report key">
-                                <input type="text" id="compareRightInput" placeholder="Compare right report key">
-                            </div>
-                            <div class="ops-row">
-                                <button type="button" id="useSelectedCompareLeftBtn"><i class="fas fa-arrow-left"></i> Selected -> Left</button>
-                                <button type="button" id="useLatestCompareRightBtn"><i class="fas fa-arrow-right"></i> Latest -> Right</button>
-                            </div>
-                            <div class="ops-row">
-                                <button type="button" id="presetSelectedLatestBtn"><i class="fas fa-layer-group"></i> Selected vs Latest</button>
-                                <button type="button" id="presetSelectedPreviousBtn"><i class="fas fa-clock-rotate-left"></i> Selected vs Previous</button>
-                            </div>
-                            <button type="button" id="compareReportsBtn"><i class="fas fa-code-compare"></i> Compare versions</button>
-                            <div class="ops-status" id="compareStatus">Ready to compare report versions.</div>
-                            <div class="ops-meta" id="compareMeta">Last refreshed: not yet.</div>
-                            <div class="ops-summary" id="compareSummary">No comparison summary yet.</div>
-                            <div class="ops-list" id="compareResultsList">No comparison loaded.</div>
-
-                            <textarea id="reportNoteInput" placeholder="Add a note to the selected report version..."></textarea>
-                            <button type="button" id="saveReportNoteBtn"><i class="fas fa-sticky-note"></i> Save note</button>
-                            <div class="ops-status" id="notesStatus">Select an archive version to view or save notes.</div>
-                            <div class="ops-meta" id="notesMeta">Last refreshed: not yet.</div>
-                            <div class="ops-list" id="reportNotesList">No notes loaded.</div>
-                        </div>
-                    </div>
-
-                    <div class="ops-tab-panel" data-ops-panel="monitoring">
-                        <div class="ops-stack">
-                            <div class="ops-row">
-                                <button type="button" id="refreshAuditBtn"><i class="fas fa-clipboard-list"></i> Audit log</button>
-                                <button type="button" id="refreshNotificationsBtn"><i class="fas fa-bell"></i> Notifications</button>
-                            </div>
-                            <div class="ops-status" id="auditStatus">Audit log not loaded yet.</div>
-                            <div class="ops-meta" id="auditMeta">Last refreshed: not yet.</div>
-                            <div class="ops-list" id="auditLogList">No audit entries loaded.</div>
-                            <div class="ops-status" id="notificationsStatus">Notifications not loaded yet.</div>
-                            <div class="ops-meta" id="notificationsMeta">Last refreshed: not yet.</div>
-                            <div class="ops-list" id="notificationsList">No notifications loaded.</div>
-                        </div>
-                    </div>
-
-                    <div class="ops-tab-panel" data-ops-panel="scheduler">
-                        <div class="ops-stack">
-                            <input type="text" id="schedulerFolderInput" placeholder="Scheduler folder path">
-                            <div class="ops-row">
-                                <button type="button" id="saveSchedulerJobBtn"><i class="fas fa-clock"></i> Save watcher</button>
-                                <button type="button" id="runSchedulerBtn"><i class="fas fa-play"></i> Run watcher</button>
-                            </div>
-                            <div class="ops-status" id="schedulerStatus">No scheduler action has run yet.</div>
-                            <div class="ops-meta" id="schedulerMeta">Last refreshed: not yet.</div>
-                            <div class="ops-list" id="schedulerJobsList">No scheduler jobs loaded.</div>
-                        </div>
-                    </div>
-
-                    <div class="ops-tab-panel" data-ops-panel="settings">
-                        <div class="ops-stack">
-                            <button type="button" id="loadSettingsBtn"><i class="fas fa-sliders-h"></i> Load settings</button>
-                            <div class="ops-status" id="settingsStatus">Settings not loaded yet.</div>
-                            <div class="ops-meta" id="settingsMeta">Last refreshed: not yet.</div>
-                            <div class="ops-list" id="settingsList">No settings loaded.</div>
-                            <div class="ops-muted">Role headers are optional unless role enforcement is enabled on the server.</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-ghost" id="closeOperationsHubModalBtn2">Close</button>
             </div>
         </div>
     </div>
@@ -1607,14 +1315,10 @@
     const curveModal = document.getElementById('curveModal');
     const uploadModal = document.getElementById('uploadModal');
     const branchMapModal = document.getElementById('branchMapModal');
-    const archiveBrowserModal = document.getElementById('archiveBrowserModal');
-    const operationsHubModal = document.getElementById('operationsHubModal');
     
     const openModalBtn = document.getElementById('openFtpModalBtn');
     const openUploadModalBtn = document.getElementById('openUploadModalBtn');
     const openUploadModalBtn2 = document.getElementById('openUploadModalBtn2');
-    const openArchiveBrowserBtn = document.getElementById('openArchiveBrowserBtn');
-    const openOperationsHubBtn = document.getElementById('openOperationsHubBtn');
     
     const closeModalBtn = document.getElementById('closeModalBtn');
     const closeModalBtn2 = document.getElementById('closeModalBtn2');
@@ -1624,10 +1328,6 @@
     const closeUploadModalBtn2 = document.getElementById('closeUploadModalBtn2');
     const closeBranchMapModalBtn = document.getElementById('closeBranchMapModalBtn');
     const closeBranchMapModalBtn2 = document.getElementById('closeBranchMapModalBtn2');
-    const closeArchiveBrowserModalBtn = document.getElementById('closeArchiveBrowserModalBtn');
-    const closeArchiveBrowserModalBtn2 = document.getElementById('closeArchiveBrowserModalBtn2');
-    const closeOperationsHubModalBtn = document.getElementById('closeOperationsHubModalBtn');
-    const closeOperationsHubModalBtn2 = document.getElementById('closeOperationsHubModalBtn2');
 
     // JSON Export modal elements
     const jsonExportModal = document.getElementById('jsonExportModal');
@@ -1640,52 +1340,6 @@
     
     const viewCurveBtn = document.getElementById('viewCurveBtn');
     const openBranchMapBtn = document.getElementById('openBranchMapBtn');
-    const archiveMonthSelect = document.getElementById('archiveMonthSelect');
-    const archiveYearInput = document.getElementById('archiveYearInput');
-    const loadArchiveBtn = document.getElementById('loadArchiveBtn');
-    const clearArchiveBtn = document.getElementById('clearArchiveBtn');
-    const archiveVersionSelect = document.getElementById('archiveVersionSelect');
-    const openArchivePdfBtn = document.getElementById('openArchivePdfBtn');
-    const openArchiveExcelBtn = document.getElementById('openArchiveExcelBtn');
-    const deleteArchiveBtn = document.getElementById('deleteArchiveBtn');
-    const archiveStatus = document.getElementById('archiveStatus');
-    const compareLeftInput = document.getElementById('compareLeftInput');
-    const compareRightInput = document.getElementById('compareRightInput');
-    const useSelectedCompareLeftBtn = document.getElementById('useSelectedCompareLeftBtn');
-    const useLatestCompareRightBtn = document.getElementById('useLatestCompareRightBtn');
-    const presetSelectedLatestBtn = document.getElementById('presetSelectedLatestBtn');
-    const presetSelectedPreviousBtn = document.getElementById('presetSelectedPreviousBtn');
-    const compareReportsBtn = document.getElementById('compareReportsBtn');
-    const compareResultsList = document.getElementById('compareResultsList');
-    const compareStatus = document.getElementById('compareStatus');
-    const compareMeta = document.getElementById('compareMeta');
-    const compareSummary = document.getElementById('compareSummary');
-    const reportNoteInput = document.getElementById('reportNoteInput');
-    const saveReportNoteBtn = document.getElementById('saveReportNoteBtn');
-    const reportNotesList = document.getElementById('reportNotesList');
-    const notesStatus = document.getElementById('notesStatus');
-    const notesMeta = document.getElementById('notesMeta');
-    const refreshAuditBtn = document.getElementById('refreshAuditBtn');
-    const refreshNotificationsBtn = document.getElementById('refreshNotificationsBtn');
-    const auditLogList = document.getElementById('auditLogList');
-    const notificationsList = document.getElementById('notificationsList');
-    const auditStatus = document.getElementById('auditStatus');
-    const notificationsStatus = document.getElementById('notificationsStatus');
-    const auditMeta = document.getElementById('auditMeta');
-    const notificationsMeta = document.getElementById('notificationsMeta');
-    const schedulerFolderInput = document.getElementById('schedulerFolderInput');
-    const saveSchedulerJobBtn = document.getElementById('saveSchedulerJobBtn');
-    const runSchedulerBtn = document.getElementById('runSchedulerBtn');
-    const schedulerJobsList = document.getElementById('schedulerJobsList');
-    const schedulerStatus = document.getElementById('schedulerStatus');
-    const schedulerMeta = document.getElementById('schedulerMeta');
-    const loadSettingsBtn = document.getElementById('loadSettingsBtn');
-    const settingsList = document.getElementById('settingsList');
-    const settingsStatus = document.getElementById('settingsStatus');
-    const settingsMeta = document.getElementById('settingsMeta');
-    const operationsHubTabs = document.getElementById('operationsHubTabs');
-    const opsTabButtons = Array.from(document.querySelectorAll('.ops-tab'));
-    const opsTabPanels = Array.from(document.querySelectorAll('.ops-tab-panel'));
     
     const calculateBtn = document.getElementById('calculateFtpBtn');
     const computeRangeBtn = document.getElementById('computeFtpRangeBtn');
@@ -1708,7 +1362,6 @@
     const downloadExcelBtn = document.getElementById('downloadExcelBtn');
     const downloadExcelZipBtn = document.getElementById('downloadExcelZipBtn');
     const downloadWorkingPaperBtn = document.getElementById('downloadWorkingPaperBtn');
-    const downloadOriginalBtn = document.getElementById('downloadOriginalBtn');
     const downloadWorkingsBtn = document.getElementById('downloadWorkingsBtn');
     const downloadWorkingsJsonBtn = document.getElementById('downloadWorkingsJsonBtn');
     const downloadWorkingsZipBtn = document.getElementById('downloadWorkingsZipBtn');
@@ -1730,6 +1383,9 @@
     const removeFileBtn = document.getElementById('removeFileBtn');
     const saveCurveBtn = document.getElementById('saveCurveBtn');
     const resetCurveBtn = document.getElementById('resetCurveBtn');
+    const downloadCurveTemplateBtn = document.getElementById('downloadCurveTemplateBtn');
+    const uploadCurveBtn = document.getElementById('uploadCurveBtn');
+    const curveFileInput = document.getElementById('curveFileInput');
     const curveTableBody = document.getElementById('curveTableBody');
     const curveStatus = document.getElementById('curveStatus');
     const addBranchRowBtn = document.getElementById('addBranchRowBtn');
@@ -1752,7 +1408,6 @@
     let lastComputedRange = { firstDay: null, lastDay: null, fileName: null, summary: null, period: null };
     let currentCurveData = null;
     let currentBranchMapData = [];
-    let currentArchiveReports = [];
     let currentReportMetadata = null;
     let activeOpsTab = 'compare';
 
@@ -1900,12 +1555,6 @@
         }
     }
 
-    function setOriginalWorkbookDownloadState(isAvailable) {
-        if (!downloadOriginalBtn) {
-            return;
-        }
-        downloadOriginalBtn.disabled = !Boolean(isAvailable);
-    }
 
     function setWorkingsDownloadState(isAvailable) {
         if (!downloadWorkingsBtn) {
@@ -1924,531 +1573,40 @@
         }
     }
 
-    function setArchiveStatus(message, type = '') {
-        if (!archiveStatus) {
-            return;
-        }
-        archiveStatus.textContent = message;
-        archiveStatus.style.color = type === 'error' ? '#b42318' : type === 'success' ? '#1f7a3c' : 'var(--text-soft)';
-    }
 
-    function getArchiveMonthYear() {
-        const month = archiveMonthSelect?.value || '';
-        const year = Number(archiveYearInput?.value || 0);
-        if (!month || !year) {
-            return null;
-        }
-        return { month, year };
-    }
 
-    function getVersionLabel(report) {
-        if (!report || !report.report_key) {
-            return 'Latest';
-        }
-        const parts = report.report_key.split('-');
-        if (parts.length >= 3) {
-            return `v${parts[2]}`;
-        }
-        return 'Base version';
-    }
 
-    function getArchiveBadges(report, index, selectedReportKey = archiveVersionSelect?.value || '') {
-        const badges = [];
-        if (index === 0) {
-            badges.push('latest');
-        } else if (index === 1) {
-            badges.push('previous');
-        }
-        if (report && report.report_key && report.report_key === selectedReportKey) {
-            badges.push('selected');
-        }
-        return badges;
-    }
 
-    function getArchiveDisplayLabel(report) {
-        if (!report) {
-            return 'Unknown report';
-        }
 
-        const suffix = report.report_key.split('-').length > 2 ? ` ${getVersionLabel(report)}` : '';
-        const reportIndex = currentArchiveReports.findIndex((item) => item.report_key === report.report_key);
-        const badges = getArchiveBadges(report, reportIndex).map((value) => `[${value}]`).join(' ');
-        return `${report.month} ${report.year}${suffix}${badges ? ` ${badges}` : ''}`;
-    }
 
-    function refreshArchiveVersionLabels() {
-        if (!archiveVersionSelect || !currentArchiveReports.length) {
-            return;
-        }
-        Array.from(archiveVersionSelect.options).forEach((option) => {
-            const report = currentArchiveReports.find((item) => item.report_key === option.value);
-            if (report) {
-                option.textContent = getArchiveDisplayLabel(report);
-            }
-        });
-    }
 
-    function setArchiveControlsEnabled(enabled) {
-        if (archiveVersionSelect) {
-            archiveVersionSelect.disabled = !enabled;
-        }
-        if (openArchivePdfBtn) {
-            openArchivePdfBtn.disabled = !enabled;
-        }
-        if (openArchiveExcelBtn) {
-            openArchiveExcelBtn.disabled = !enabled;
-        }
-        if (deleteArchiveBtn) {
-            deleteArchiveBtn.disabled = !enabled;
-        }
-    }
 
-    function populateArchiveVersions(reports) {
-        currentArchiveReports = Array.isArray(reports) ? reports : [];
-        archiveVersionSelect.innerHTML = '';
-
-        if (!currentArchiveReports.length) {
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = 'No saved versions found';
-            archiveVersionSelect.appendChild(option);
-            setArchiveControlsEnabled(false);
-            syncCompareShortcutButtons();
-            return;
-        }
-
-        currentArchiveReports.forEach((report, index) => {
-            const option = document.createElement('option');
-            option.value = report.report_key;
-            option.textContent = getArchiveDisplayLabel(report);
-            if (index === 0) {
-                option.selected = true;
-            }
-            archiveVersionSelect.appendChild(option);
-        });
-
-        setArchiveControlsEnabled(true);
-        refreshArchiveVersionLabels();
-        autoFillCompareInputs();
-        syncCompareShortcutButtons();
-        setArchiveStatus(`Found ${currentArchiveReports.length} saved version(s).`, 'success');
-    }
-
-    function getSelectedArchiveReport() {
-        const reportKey = archiveVersionSelect?.value;
-        return currentArchiveReports.find((report) => report.report_key === reportKey) || currentArchiveReports[0] || null;
-    }
 
     function buildReportQueryString() {
-        if (lastComputedRange && lastComputedRange.reportKey) {
-            return `?report_key=${encodeURIComponent(lastComputedRange.reportKey)}`;
-        }
-
-        const period = lastComputedRange && lastComputedRange.period;
-        if (period && period.month && period.year) {
-            return `?month=${encodeURIComponent(period.month)}&year=${encodeURIComponent(period.year)}`;
-        }
-
+        // Results are only kept for the current run, so downloads never select
+        // a stored report.
         return '';
     }
 
-    async function loadArchiveReport(reportKey) {
-        if (!reportKey) {
-            setArchiveStatus('Select a saved version first.', 'error');
-            return;
-        }
 
-        setArchiveStatus('Loading archived report...');
-        try {
-            const response = await fetch(`/get-preview?report_key=${encodeURIComponent(reportKey)}`);
-            const payload = await parseJsonSafely(response);
-            if (!response.ok || !payload || payload.message || payload.error) {
-                throw new Error((payload && (payload.error || payload.message)) || 'Unable to load archived report');
-            }
 
-            const period = payload.period || {};
-            const month = period.month || '';
-            const year = period.year || '';
-            const firstDay = period.first_day || 'N/A';
-            const lastDay = period.last_day || 'N/A';
-            const selectedReport = currentArchiveReports.find((report) => report.report_key === reportKey) || null;
-            const reportKeyValue = selectedReport?.report_key || reportKey;
 
-            lastComputedRange = {
-                firstDay,
-                lastDay,
-                fileName: payload.filename || 'Archived workbook',
-                summary: {},
-                period,
-                reportKey: reportKeyValue
-            };
 
-            downloadRangeX.textContent = firstDay;
-            downloadRangeY.textContent = lastDay;
-            downloadResultsBtn.disabled = false;
-            downloadExcelBtn.disabled = false;
-            setOriginalWorkbookDownloadState(Boolean(selectedReport?.original_upload_available));
-            setWorkingsDownloadState(Boolean(selectedReport?.workings_available));
-            updatePreviewBadgeMode(Boolean(selectedReport?.excel_contains_workings), Number(selectedReport?.skipped_sheet_count || 0));
-            if (archiveVersionSelect && archiveVersionSelect.value !== reportKey) {
-                archiveVersionSelect.value = reportKey;
-            }
-            updatePreviewWithData(`
-                <div style="text-align: center; padding: 20px;">
-                    <i class="fas fa-folder-open" style="font-size: 48px; color: #1d4ed8; margin-bottom: 15px;"></i>
-                    <h3 style="color: #1d4ed8; margin-bottom: 10px;">Archived Report Loaded</h3>
-                    <p style="color: #632424; margin-bottom: 8px;">${month} ${year}</p>
-                    <div style="background: #f8fafc; border-radius: 12px; padding: 14px; border-left: 5px solid #1d4ed8; text-align: left; display: inline-block; max-width: 520px;">
-                        <div><strong style="color: #1d4ed8;">Report key:</strong> ${reportKey}</div>
-                        <div style="margin-top: 4px; color: #5b6472; font-size: 13px;">Download buttons now target this archived run.</div>
-                    </div>
-                </div>
-            `);
-            await loadReportMetadata(reportKeyValue);
-            setArchiveStatus(`Loaded ${reportKey}.`, 'success');
-            showToast(`Loaded report ${reportKey}`, 'success');
-        } catch (error) {
-            console.error('Failed to load archive report:', error);
-            setArchiveStatus(error.message || 'Failed to load archived report.', 'error');
-        }
-    }
 
-    async function refreshArchiveVersions(month, year) {
-        if (!month || !year) {
-            setArchiveStatus('Select a month and year.', 'error');
-            return false;
-        }
 
-        setArchiveStatus(`Checking saved versions for ${month} ${year}...`);
-        try {
-            const response = await fetch(`/processed-reports?month=${encodeURIComponent(month)}&year=${encodeURIComponent(year)}`);
-            const payload = await parseJsonSafely(response);
-            if (!response.ok || !payload) {
-                throw new Error((payload && payload.error) || 'Failed to load archived reports');
-            }
 
-            populateArchiveVersions(payload.reports || []);
-            if (payload.reports && payload.reports.length > 0) {
-                await loadArchiveReport(payload.reports[0].report_key);
-            }
-            return true;
-        } catch (error) {
-            console.error('Archive lookup failed:', error);
-            currentArchiveReports = [];
-            populateArchiveVersions([]);
-            setArchiveStatus(error.message || 'Unable to load archive versions.', 'error');
-            return false;
-        }
-    }
 
-    function clearArchiveBrowser() {
-        if (archiveMonthSelect) archiveMonthSelect.value = '';
-        if (archiveYearInput) archiveYearInput.value = '';
-        if (archiveVersionSelect) archiveVersionSelect.innerHTML = '<option value="">Version</option>';
-        currentArchiveReports = [];
-        compareLeftInput.value = '';
-        compareRightInput.value = '';
-        if (compareSummary) {
-            compareSummary.textContent = 'No comparison summary yet.';
-        }
-        setArchiveControlsEnabled(false);
-        syncCompareShortcutButtons();
-        setArchiveStatus('Load a month and year to browse saved versions.');
-    }
 
-    function renderOpsList(container, items, emptyMessage, formatter) {
-        if (!container) {
-            return;
-        }
 
-        if (!items || !items.length) {
-            container.innerHTML = emptyMessage;
-            return;
-        }
 
-        container.innerHTML = items.map((item) => `<div class="ops-item">${formatter(item)}</div>`).join('');
-    }
 
-    function renderCompareSummary(items) {
-        if (!compareSummary) {
-            return;
-        }
 
-        if (!items || !items.length) {
-            compareSummary.textContent = 'No comparison summary yet.';
-            return;
-        }
 
-        const exposureDelta = items.reduce((sum, item) => sum + Math.abs(Number(item.exposure_delta || 0)), 0);
-        const ftpDelta = items.reduce((sum, item) => sum + Math.abs(Number(item.ftp_delta || 0)), 0);
-        const biggestShift = items.reduce((best, item) => {
-            const magnitude = Math.abs(Number(item.ftp_delta || 0));
-            return !best || magnitude > best.magnitude
-                ? { magnitude, label: `${item.currency} / ${item.sheet}` }
-                : best;
-        }, null);
 
-        compareSummary.innerHTML = `
-            <div class="ops-summary-card">
-                <div class="ops-summary-label">Total exposure delta</div>
-                <div class="ops-summary-value">${formatNumber(exposureDelta)}</div>
-            </div>
-            <div class="ops-summary-card">
-                <div class="ops-summary-label">Total FTP delta</div>
-                <div class="ops-summary-value">${formatNumber(ftpDelta)}</div>
-            </div>
-            <div class="ops-summary-card">
-                <div class="ops-summary-label">Largest FTP shift</div>
-                <div class="ops-summary-value">${biggestShift ? biggestShift.label : 'N/A'}</div>
-            </div>
-        `;
-    }
 
-    function formatRefreshTimestamp(date = new Date()) {
-        return date.toLocaleString([], {
-            year: 'numeric',
-            month: 'short',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    }
 
-    function setOpsMeta(container, label = 'Last refreshed') {
-        if (!container) {
-            return;
-        }
-        container.textContent = `${label}: ${formatRefreshTimestamp()}`;
-    }
 
-    function getLatestLoadedArchiveReport() {
-        return currentArchiveReports[0] || null;
-    }
 
-    function getPreviousLoadedArchiveReport(selectedReport = getSelectedArchiveReport()) {
-        if (!selectedReport || !currentArchiveReports.length) {
-            return null;
-        }
-        const selectedIndex = currentArchiveReports.findIndex((report) => report.report_key === selectedReport.report_key);
-        if (selectedIndex < 0) {
-            return null;
-        }
-        return currentArchiveReports[selectedIndex + 1] || null;
-    }
-
-    function autoFillCompareInputs() {
-        const selectedReport = getSelectedArchiveReport();
-        const latestReport = getLatestLoadedArchiveReport();
-        if (!selectedReport || !latestReport) {
-            return;
-        }
-
-        compareRightInput.value = latestReport.report_key;
-        if (selectedReport.report_key !== latestReport.report_key) {
-            compareLeftInput.value = selectedReport.report_key;
-            return;
-        }
-
-        const previousReport = getPreviousLoadedArchiveReport(selectedReport);
-        compareLeftInput.value = previousReport ? previousReport.report_key : selectedReport.report_key;
-    }
-
-    function syncCompareShortcutButtons() {
-        const selectedReport = getSelectedArchiveReport();
-        const latestReport = getLatestLoadedArchiveReport();
-        const previousReport = getPreviousLoadedArchiveReport(selectedReport);
-        if (useSelectedCompareLeftBtn) {
-            useSelectedCompareLeftBtn.disabled = !selectedReport;
-        }
-        if (useLatestCompareRightBtn) {
-            useLatestCompareRightBtn.disabled = !latestReport;
-        }
-        if (presetSelectedLatestBtn) {
-            presetSelectedLatestBtn.disabled = !selectedReport || !latestReport;
-        }
-        if (presetSelectedPreviousBtn) {
-            presetSelectedPreviousBtn.disabled = !selectedReport || !previousReport;
-        }
-    }
-
-    function setOpsStatus(container, message, tone = 'neutral') {
-        if (!container) {
-            return;
-        }
-
-        container.textContent = message || '';
-        container.classList.remove('is-loading', 'is-success', 'is-error');
-        if (tone === 'loading') {
-            container.classList.add('is-loading');
-        } else if (tone === 'success') {
-            container.classList.add('is-success');
-        } else if (tone === 'error') {
-            container.classList.add('is-error');
-        }
-    }
-
-    function setOpsButtonBusy(button, isBusy, busyLabel) {
-        if (!button) {
-            return;
-        }
-
-        if (!button.dataset.originalHtml) {
-            button.dataset.originalHtml = button.innerHTML;
-        }
-
-        button.disabled = Boolean(isBusy);
-        button.classList.toggle('is-busy', Boolean(isBusy));
-        button.innerHTML = isBusy
-            ? `<i class="fas fa-spinner fa-spin"></i> ${busyLabel || 'Working...'}`
-            : button.dataset.originalHtml;
-    }
-
-    function setOpsTab(tabName) {
-        const hasTab = opsTabButtons.some((button) => button.dataset.opsTab === tabName);
-        const resolvedTab = hasTab ? tabName : 'compare';
-        activeOpsTab = resolvedTab;
-
-        opsTabButtons.forEach((button) => {
-            const isActive = button.dataset.opsTab === resolvedTab;
-            button.classList.toggle('is-active', isActive);
-        });
-        opsTabPanels.forEach((panel) => {
-            const isActive = panel.dataset.opsPanel === resolvedTab;
-            panel.classList.toggle('is-active', isActive);
-        });
-
-        try {
-            localStorage.setItem('opsHubActiveTab', activeOpsTab);
-        } catch (error) {
-            console.warn('Could not persist operations tab preference', error);
-        }
-    }
-
-    async function initializeOperationsHub() {
-        setOpsTab(activeOpsTab);
-        syncCompareShortcutButtons();
-        setOpsStatus(auditStatus, 'Loading audit log...', 'loading');
-        setOpsStatus(notificationsStatus, 'Loading notifications...', 'loading');
-        setOpsStatus(schedulerStatus, 'Loading scheduler jobs...', 'loading');
-        setOpsStatus(settingsStatus, 'Loading settings...', 'loading');
-
-        await Promise.allSettled([
-            loadAuditLog().catch((error) => {
-                setOpsStatus(auditStatus, error.message || 'Failed to load audit log.', 'error');
-                auditLogList.innerHTML = error.message || 'Failed to load audit log.';
-            }),
-            loadNotifications().catch((error) => {
-                setOpsStatus(notificationsStatus, error.message || 'Failed to load notifications.', 'error');
-                notificationsList.innerHTML = error.message || 'Failed to load notifications.';
-            }),
-            loadSchedulerJobs().catch((error) => {
-                setOpsStatus(schedulerStatus, error.message || 'Failed to load scheduler jobs.', 'error');
-                schedulerJobsList.innerHTML = error.message || 'Failed to load scheduler jobs.';
-            }),
-            loadSettings().catch((error) => {
-                setOpsStatus(settingsStatus, error.message || 'Failed to load settings.', 'error');
-                settingsList.innerHTML = error.message || 'Failed to load settings.';
-            })
-        ]);
-    }
-
-    async function loadReportMetadata(reportKey) {
-        if (!reportKey) {
-            currentReportMetadata = null;
-            renderOpsList(reportNotesList, [], 'No notes loaded.', () => '');
-            setOpsStatus(notesStatus, 'Select an archive version to view or save notes.');
-            if (notesMeta) {
-                notesMeta.textContent = 'Last refreshed: not yet.';
-            }
-            return null;
-        }
-
-        setOpsStatus(notesStatus, `Loading notes for ${reportKey}...`, 'loading');
-        const response = await fetch(`/processed-reports/${encodeURIComponent(reportKey)}/metadata`);
-        const payload = await parseJsonSafely(response);
-        if (!response.ok || !payload || payload.error) {
-            throw new Error((payload && payload.error) || 'Failed to load report metadata');
-        }
-
-        currentReportMetadata = payload;
-        renderOpsList(
-            reportNotesList,
-            payload.notes || [],
-            'No notes loaded.',
-            (note) => `<strong>${note.created_by || 'unknown'}</strong><br>${note.note_text}`
-        );
-        setOpsStatus(notesStatus, `Loaded notes for ${reportKey}.`, 'success');
-        setOpsMeta(notesMeta);
-        return payload;
-    }
-
-    async function loadAuditLog() {
-        setOpsStatus(auditStatus, 'Loading audit log...', 'loading');
-        const response = await fetch('/audit-log?limit=20');
-        const payload = await parseJsonSafely(response);
-        if (!response.ok || !payload || payload.error) {
-            throw new Error((payload && payload.error) || 'Failed to load audit log');
-        }
-        renderOpsList(
-            auditLogList,
-            payload.events || [],
-            'No audit entries loaded.',
-            (event) => `<strong>${event.event_type}</strong> · ${event.report_key || 'n/a'}<br>${event.actor || 'unknown'} · ${new Date(event.created_at * 1000).toLocaleString()}`
-        );
-        setOpsStatus(auditStatus, `Loaded ${payload.events ? payload.events.length : 0} audit entries.`, 'success');
-        setOpsMeta(auditMeta);
-    }
-
-    async function loadNotifications() {
-        setOpsStatus(notificationsStatus, 'Loading notifications...', 'loading');
-        const response = await fetch('/notifications');
-        const payload = await parseJsonSafely(response);
-        if (!response.ok || !payload || payload.error) {
-            throw new Error((payload && payload.error) || 'Failed to load notifications');
-        }
-        renderOpsList(
-            notificationsList,
-            payload.notifications || [],
-            'No notifications loaded.',
-            (notification) => `<strong>${notification.level || 'info'}</strong><br>${notification.message || 'Notification'}<br>${new Date(notification.created_at * 1000).toLocaleString()}`
-        );
-        setOpsStatus(notificationsStatus, `Loaded ${payload.notifications ? payload.notifications.length : 0} notifications.`, 'success');
-        setOpsMeta(notificationsMeta);
-    }
-
-    async function loadSettings() {
-        setOpsStatus(settingsStatus, 'Loading settings...', 'loading');
-        const response = await fetch('/settings/retention');
-        const payload = await parseJsonSafely(response);
-        if (!response.ok || !payload || payload.error) {
-            throw new Error((payload && payload.error) || 'Failed to load settings');
-        }
-        renderOpsList(
-            settingsList,
-            [payload],
-            'No settings loaded.',
-            (settings) => `Retention: ${settings.max_versions_per_month} versions / ${settings.max_months} months<br>Role enforcement: ${settings.role_enforced ? 'Enabled' : 'Disabled'}<br>Scheduler: ${settings.scheduler_enabled ? 'Enabled' : 'Manual only'}`
-        );
-        setOpsStatus(settingsStatus, 'Settings loaded.', 'success');
-        setOpsMeta(settingsMeta);
-    }
-
-    async function loadSchedulerJobs() {
-        setOpsStatus(schedulerStatus, 'Loading scheduler jobs...', 'loading');
-        const response = await fetch('/scheduler-jobs');
-        const payload = await parseJsonSafely(response);
-        if (!response.ok || !payload || payload.error) {
-            throw new Error((payload && payload.error) || 'Failed to load scheduler jobs');
-        }
-        renderOpsList(
-            schedulerJobsList,
-            payload.jobs || [],
-            'No scheduler jobs loaded.',
-            (job) => `<strong>${job.folder_path}</strong><br>Status: ${job.last_status || 'idle'}${job.last_message ? ` · ${job.last_message}` : ''}`
-        );
-        setOpsStatus(schedulerStatus, `Loaded ${payload.jobs ? payload.jobs.length : 0} scheduler jobs.`, 'success');
-        setOpsMeta(schedulerMeta);
-    }
 
     async function runUploadPreflight(file) {
         const formData = new FormData();
@@ -2624,15 +1782,26 @@
 
     function renderCurveEditor(curveData) {
         curveTableBody.innerHTML = '';
-        curveData.tenors.forEach((tenor, index) => {
+        const boundaries = Array.isArray(curveData.tenors) ? curveData.tenors : [];
+        const usdRates = (curveData.usd && curveData.usd.rates) || [];
+        const zwgRates = (curveData.zwg && curveData.zwg.rates) || [];
+        // One row per bucket: the final bucket is open-ended, so its tenor is blank.
+        const rowCount = Math.max(boundaries.length, usdRates.length, zwgRates.length);
+
+        for (let index = 0; index < rowCount; index += 1) {
+            const tenorValue = index < boundaries.length ? boundaries[index] : '';
+            const usdValue = index < usdRates.length ? usdRates[index] : '';
+            const zwgValue = index < zwgRates.length ? zwgRates[index] : '';
+            const placeholder = index === rowCount - 1 ? 'open-ended' : '';
+
             const row = document.createElement('tr');
             row.innerHTML = `
-                <td><input type="number" min="1" step="1" value="${tenor}" data-field="tenor" data-index="${index}"></td>
-                <td><input type="number" min="0" step="0.01" value="${curveData.usd.rates[index]}" data-field="usd" data-index="${index}"></td>
-                <td><input type="number" min="0" step="0.01" value="${curveData.zwg.rates[index]}" data-field="zwg" data-index="${index}"></td>
+                <td><input type="number" min="1" step="1" value="${tenorValue}" placeholder="${placeholder}" data-field="tenor" data-index="${index}"></td>
+                <td><input type="number" min="0" step="0.0001" value="${usdValue}" data-field="usd" data-index="${index}"></td>
+                <td><input type="number" min="0" step="0.0001" value="${zwgValue}" data-field="zwg" data-index="${index}"></td>
             `;
             curveTableBody.appendChild(row);
-        });
+        }
         setCurveStatus('');
     }
 
@@ -2643,7 +1812,10 @@
             const usdInput = row.querySelector('[data-field="usd"]');
             const zwgInput = row.querySelector('[data-field="zwg"]');
 
-            accumulator.tenors.push(Number(tenorInput.value));
+            // A blank tenor marks the open-ended final bucket, so it is not sent.
+            if (tenorInput.value !== '') {
+                accumulator.tenors.push(Number(tenorInput.value));
+            }
             accumulator.usd_rates.push(Number(usdInput.value));
             accumulator.zwg_rates.push(Number(zwgInput.value));
 
@@ -2652,8 +1824,17 @@
     }
 
     function validateCurveFormData(curveFormData) {
-        if (!curveFormData.tenors.length) {
+        const rateCount = curveFormData.usd_rates.length;
+        if (!rateCount || !curveFormData.zwg_rates.length) {
             return 'Curve data is empty';
+        }
+
+        if (curveFormData.usd_rates.length !== curveFormData.zwg_rates.length) {
+            return 'The USD and ZWG curves must have the same number of rates';
+        }
+
+        if (curveFormData.tenors.length !== rateCount && curveFormData.tenors.length !== rateCount - 1) {
+            return `Enter a tenor on every row except the open-ended last bucket (${rateCount} rates, ${curveFormData.tenors.length} tenors)`;
         }
 
         const hasInvalidNumber = [
@@ -2668,6 +1849,10 @@
 
         if (curveFormData.tenors.some(value => value <= 0)) {
             return 'Tenors must be greater than zero';
+        }
+
+        if ([...curveFormData.usd_rates, ...curveFormData.zwg_rates].some(value => value < 0)) {
+            return 'Rates cannot be negative';
         }
 
         for (let index = 1; index < curveFormData.tenors.length; index += 1) {
@@ -2888,19 +2073,8 @@
         }
     });
 
-    openArchiveBrowserBtn.addEventListener('click', () => {
-        archiveBrowserModal.style.display = 'flex';
-    });
 
-    function closeArchiveModal() { archiveBrowserModal.style.display = 'none'; }
-    closeArchiveBrowserModalBtn.addEventListener('click', closeArchiveModal);
-    if (closeArchiveBrowserModalBtn2) closeArchiveBrowserModalBtn2.addEventListener('click', closeArchiveModal);
 
-    archiveBrowserModal.addEventListener('click', (e) => {
-        if (e.target === archiveBrowserModal) {
-            archiveBrowserModal.style.display = 'none';
-        }
-    });
 
     function closeBranchMapModal() { branchMapModal.style.display = 'none'; }
     closeBranchMapModalBtn.addEventListener('click', closeBranchMapModal);
@@ -2912,20 +2086,8 @@
         }
     });
 
-    openOperationsHubBtn.addEventListener('click', () => {
-        setOpsTab(activeOpsTab);
-        operationsHubModal.style.display = 'flex';
-    });
 
-    function closeOpsHubModal() { operationsHubModal.style.display = 'none'; }
-    closeOperationsHubModalBtn.addEventListener('click', closeOpsHubModal);
-    if (closeOperationsHubModalBtn2) closeOperationsHubModalBtn2.addEventListener('click', closeOpsHubModal);
 
-    operationsHubModal.addEventListener('click', (e) => {
-        if (e.target === operationsHubModal) {
-            operationsHubModal.style.display = 'none';
-        }
-    });
 
     // ===== JSON to CSV Converter =====
 
@@ -3019,13 +2181,6 @@
         }
     });
 
-    operationsHubTabs.addEventListener('click', (event) => {
-        const tabButton = event.target.closest('[data-ops-tab]');
-        if (!tabButton) {
-            return;
-        }
-        setOpsTab(tabButton.dataset.opsTab);
-    });
 
     addBranchRowBtn.addEventListener('click', () => {
         currentBranchMapData = collectBranchMapData();
@@ -3114,298 +2269,22 @@
 
     branchMapSearch.addEventListener('input', applyBranchMapFilter);
 
-    loadArchiveBtn.addEventListener('click', async () => {
-        const selection = getArchiveMonthYear();
-        if (!selection) {
-            setArchiveStatus('Select a month and year first.', 'error');
-            return;
-        }
 
-        await refreshArchiveVersions(selection.month, selection.year);
-    });
 
-    clearArchiveBtn.addEventListener('click', () => {
-        clearArchiveBrowser();
-        if (lastComputedRange && lastComputedRange.summary) {
-            setArchiveControlsEnabled(true);
-        }
-    });
 
-    useSelectedCompareLeftBtn.addEventListener('click', () => {
-        const selectedReport = getSelectedArchiveReport();
-        if (!selectedReport) {
-            setOpsStatus(compareStatus, 'Load or select an archive version first.', 'error');
-            return;
-        }
-        compareLeftInput.value = selectedReport.report_key;
-        setOpsStatus(compareStatus, `Selected ${selectedReport.report_key} for the left comparison side.`, 'success');
-    });
 
-    useLatestCompareRightBtn.addEventListener('click', () => {
-        const latestReport = getLatestLoadedArchiveReport();
-        if (!latestReport) {
-            setOpsStatus(compareStatus, 'Load archive versions first.', 'error');
-            return;
-        }
-        compareRightInput.value = latestReport.report_key;
-        setOpsStatus(compareStatus, `Selected ${latestReport.report_key} for the right comparison side.`, 'success');
-    });
 
-    presetSelectedLatestBtn.addEventListener('click', () => {
-        const selectedReport = getSelectedArchiveReport();
-        const latestReport = getLatestLoadedArchiveReport();
-        if (!selectedReport || !latestReport) {
-            setOpsStatus(compareStatus, 'Load archive versions first.', 'error');
-            return;
-        }
-        compareLeftInput.value = selectedReport.report_key;
-        compareRightInput.value = latestReport.report_key;
-        setOpsStatus(compareStatus, `Preset ready: ${selectedReport.report_key} vs ${latestReport.report_key}.`, 'success');
-    });
 
-    presetSelectedPreviousBtn.addEventListener('click', () => {
-        const selectedReport = getSelectedArchiveReport();
-        const previousReport = getPreviousLoadedArchiveReport(selectedReport);
-        if (!selectedReport || !previousReport) {
-            setOpsStatus(compareStatus, 'A previous version is not available for the selected report.', 'error');
-            return;
-        }
-        compareLeftInput.value = previousReport.report_key;
-        compareRightInput.value = selectedReport.report_key;
-        setOpsStatus(compareStatus, `Preset ready: ${previousReport.report_key} vs ${selectedReport.report_key}.`, 'success');
-    });
 
-    compareReportsBtn.addEventListener('click', async () => {
-        const reportKeyA = compareLeftInput.value.trim();
-        const reportKeyB = compareRightInput.value.trim() || lastComputedRange.reportKey || '';
-        if (!reportKeyA || !reportKeyB) {
-            setOpsStatus(compareStatus, 'Provide two report keys to compare.', 'error');
-            compareResultsList.innerHTML = 'Provide two report keys to compare.';
-            return;
-        }
-        try {
-            setOpsButtonBusy(compareReportsBtn, true, 'Comparing...');
-            setOpsStatus(compareStatus, `Comparing ${reportKeyA} to ${reportKeyB}...`, 'loading');
-            const response = await fetch(`/processed-reports/compare?report_key_a=${encodeURIComponent(reportKeyA)}&report_key_b=${encodeURIComponent(reportKeyB)}`);
-            const payload = await parseJsonSafely(response);
-            if (!response.ok || !payload || payload.error) {
-                throw new Error((payload && payload.error) || 'Failed to compare reports');
-            }
-            renderOpsList(
-                compareResultsList,
-                payload.comparison || [],
-                'No comparison data.',
-                (item) => `<strong>${item.currency} · ${item.sheet}</strong><br>Exposure Δ: ${formatNumber(item.exposure_delta)} · FTP Δ: ${formatNumber(item.ftp_delta)} · Rows Δ: ${item.row_count_delta}`
-            );
-            renderCompareSummary(payload.comparison || []);
-            setOpsStatus(compareStatus, `Comparison complete for ${reportKeyA} and ${reportKeyB}.`, 'success');
-            setOpsMeta(compareMeta);
-        } catch (error) {
-            setOpsStatus(compareStatus, error.message || 'Failed to compare reports.', 'error');
-            renderCompareSummary([]);
-            compareResultsList.innerHTML = error.message || 'Failed to compare reports.';
-        } finally {
-            setOpsButtonBusy(compareReportsBtn, false);
-        }
-    });
 
-    saveReportNoteBtn.addEventListener('click', async () => {
-        const selectedReport = getSelectedArchiveReport();
-        const note = reportNoteInput.value.trim();
-        if (!selectedReport || !note) {
-            setOpsStatus(notesStatus, 'Select a report version and enter a note first.', 'error');
-            reportNotesList.innerHTML = 'Select a report version and enter a note first.';
-            return;
-        }
-        try {
-            setOpsButtonBusy(saveReportNoteBtn, true, 'Saving...');
-            setOpsStatus(notesStatus, `Saving note to ${selectedReport.report_key}...`, 'loading');
-            const response = await fetch(`/processed-reports/${encodeURIComponent(selectedReport.report_key)}/notes`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ note })
-            });
-            const payload = await parseJsonSafely(response);
-            if (!response.ok || !payload || payload.error) {
-                throw new Error((payload && payload.error) || 'Failed to save note');
-            }
-            reportNoteInput.value = '';
-            renderOpsList(
-                reportNotesList,
-                payload.notes || [],
-                'No notes loaded.',
-                (item) => `<strong>${item.created_by || 'unknown'}</strong><br>${item.note_text}`
-            );
-            setOpsStatus(notesStatus, `Note saved to ${selectedReport.report_key}.`, 'success');
-            setOpsMeta(notesMeta);
-        } catch (error) {
-            setOpsStatus(notesStatus, error.message || 'Failed to save note.', 'error');
-            reportNotesList.innerHTML = error.message || 'Failed to save note.';
-        } finally {
-            setOpsButtonBusy(saveReportNoteBtn, false);
-        }
-    });
 
-    refreshAuditBtn.addEventListener('click', async () => {
-        try {
-            setOpsButtonBusy(refreshAuditBtn, true, 'Loading...');
-            await loadAuditLog();
-        } catch (error) {
-            setOpsStatus(auditStatus, error.message || 'Failed to load audit log.', 'error');
-            auditLogList.innerHTML = error.message || 'Failed to load audit log.';
-        } finally {
-            setOpsButtonBusy(refreshAuditBtn, false);
-        }
-    });
 
-    refreshNotificationsBtn.addEventListener('click', async () => {
-        try {
-            setOpsButtonBusy(refreshNotificationsBtn, true, 'Loading...');
-            await loadNotifications();
-        } catch (error) {
-            setOpsStatus(notificationsStatus, error.message || 'Failed to load notifications.', 'error');
-            notificationsList.innerHTML = error.message || 'Failed to load notifications.';
-        } finally {
-            setOpsButtonBusy(refreshNotificationsBtn, false);
-        }
-    });
 
-    saveSchedulerJobBtn.addEventListener('click', async () => {
-        const folderPath = schedulerFolderInput.value.trim();
-        if (!folderPath) {
-            setOpsStatus(schedulerStatus, 'Enter a folder path first.', 'error');
-            schedulerJobsList.innerHTML = 'Enter a folder path first.';
-            return;
-        }
-        try {
-            setOpsButtonBusy(saveSchedulerJobBtn, true, 'Saving...');
-            setOpsStatus(schedulerStatus, `Saving watcher for ${folderPath}...`, 'loading');
-            const response = await fetch('/scheduler-jobs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    folder_path: folderPath,
-                    include_workings: includeWorkingsCheckbox.checked,
-                    overwrite_existing: false
-                })
-            });
-            const payload = await parseJsonSafely(response);
-            if (!response.ok || !payload || payload.error) {
-                throw new Error((payload && payload.error) || 'Failed to save scheduler job');
-            }
-            await loadSchedulerJobs();
-            setOpsStatus(schedulerStatus, `Watcher saved for ${folderPath}.`, 'success');
-        } catch (error) {
-            setOpsStatus(schedulerStatus, error.message || 'Failed to save scheduler job.', 'error');
-            schedulerJobsList.innerHTML = error.message || 'Failed to save scheduler job.';
-        } finally {
-            setOpsButtonBusy(saveSchedulerJobBtn, false);
-        }
-    });
 
-    runSchedulerBtn.addEventListener('click', async () => {
-        try {
-            setOpsButtonBusy(runSchedulerBtn, true, 'Running...');
-            setOpsStatus(schedulerStatus, 'Running scheduler cycle...', 'loading');
-            const response = await fetch('/scheduler-jobs/run', { method: 'POST' });
-            const payload = await parseJsonSafely(response);
-            if (!response.ok || !payload || payload.error) {
-                throw new Error((payload && payload.error) || 'Failed to run scheduler');
-            }
-            await loadSchedulerJobs();
-            await loadNotifications();
-            setOpsStatus(schedulerStatus, `Scheduler cycle finished. Processed ${payload.processed_files || 0} files.`, 'success');
-        } catch (error) {
-            setOpsStatus(schedulerStatus, error.message || 'Failed to run scheduler.', 'error');
-            schedulerJobsList.innerHTML = error.message || 'Failed to run scheduler.';
-        } finally {
-            setOpsButtonBusy(runSchedulerBtn, false);
-        }
-    });
 
-    loadSettingsBtn.addEventListener('click', async () => {
-        try {
-            setOpsButtonBusy(loadSettingsBtn, true, 'Loading...');
-            await loadSettings();
-        } catch (error) {
-            setOpsStatus(settingsStatus, error.message || 'Failed to load settings.', 'error');
-            settingsList.innerHTML = error.message || 'Failed to load settings.';
-        } finally {
-            setOpsButtonBusy(loadSettingsBtn, false);
-        }
-    });
 
-    archiveVersionSelect.addEventListener('change', async () => {
-        const selectedReport = getSelectedArchiveReport();
-        autoFillCompareInputs();
-        syncCompareShortcutButtons();
-        refreshArchiveVersionLabels();
-        if (selectedReport) {
-            await loadArchiveReport(selectedReport.report_key);
-        }
-    });
 
-    openArchivePdfBtn.addEventListener('click', async () => {
-        const selectedReport = getSelectedArchiveReport();
-        if (!selectedReport) {
-            setArchiveStatus('Select a report version first.', 'error');
-            return;
-        }
-        lastComputedRange.reportKey = selectedReport.report_key;
-        await downloadFile('/download-pdf', 'pdf');
-    });
 
-    openArchiveExcelBtn.addEventListener('click', async () => {
-        const selectedReport = getSelectedArchiveReport();
-        if (!selectedReport) {
-            setArchiveStatus('Select a report version first.', 'error');
-            return;
-        }
-        lastComputedRange.reportKey = selectedReport.report_key;
-        await downloadFile('/download-excel', 'xlsx');
-    });
-
-    deleteArchiveBtn.addEventListener('click', async () => {
-        const selectedReport = getSelectedArchiveReport();
-        if (!selectedReport) {
-            setArchiveStatus('Select a report version first.', 'error');
-            return;
-        }
-
-        const label = getArchiveDisplayLabel(selectedReport);
-        const confirmed = window.confirm(`Delete ${label}? This cannot be undone.`);
-        if (!confirmed) {
-            return;
-        }
-
-        try {
-            setArchiveStatus(`Deleting ${label}...`);
-            const response = await fetch(`/processed-reports/${encodeURIComponent(selectedReport.report_key)}`, {
-                method: 'DELETE'
-            });
-            const payload = await parseJsonSafely(response);
-            if (!response.ok || !payload || payload.error) {
-                throw new Error((payload && payload.error) || 'Failed to delete archive version');
-            }
-
-            setArchiveStatus(`${label} deleted.`, 'success');
-
-            const month = archiveMonthSelect?.value || selectedReport.month;
-            const year = archiveYearInput?.value || selectedReport.year;
-            if (month && year) {
-                await refreshArchiveVersions(month, year);
-            } else {
-                clearArchiveBrowser();
-            }
-
-            if (lastComputedRange && lastComputedRange.reportKey === selectedReport.report_key) {
-                lastComputedRange.reportKey = null;
-            }
-        } catch (error) {
-            console.error('Error deleting archive version:', error);
-            setArchiveStatus(error.message || 'Unable to delete archived version.', 'error');
-        }
-    });
 
     resetCurveBtn.addEventListener('click', () => {
         if (!currentCurveData) {
@@ -3415,6 +2294,60 @@
         renderCurveEditor(currentCurveData);
         initChart(currentCurveData);
         setCurveStatus('Curve inputs reset to the last saved values.');
+    });
+
+    downloadCurveTemplateBtn.addEventListener('click', async () => {
+        try {
+            setCurveStatus('Preparing the curve template...');
+            await downloadFile('/ftp-curve-template', 'xlsx');
+            setCurveStatus('Template downloaded. Fill in the rates, then use Upload Curve.', 'success');
+        } catch (error) {
+            console.error('Error downloading curve template:', error);
+            setCurveStatus(error.message || 'Unable to download the curve template', 'error');
+        }
+    });
+
+    uploadCurveBtn.addEventListener('click', () => {
+        curveFileInput.value = '';
+        curveFileInput.click();
+    });
+
+    curveFileInput.addEventListener('change', async () => {
+        const file = curveFileInput.files && curveFileInput.files[0];
+        if (!file) {
+            return;
+        }
+
+        setCurveStatus(`Reading ${file.name}...`);
+        uploadCurveBtn.disabled = true;
+        saveCurveBtn.disabled = true;
+        resetCurveBtn.disabled = true;
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const response = await fetch('/ftp-curve-upload', { method: 'POST', body: formData });
+            const result = await parseJsonSafely(response);
+
+            if (!response.ok || !result || result.error) {
+                throw new Error((result && result.error) || 'Unable to import the curve');
+            }
+
+            currentCurveData = result;
+            renderCurveEditor(result);
+            await initChart(result);
+            setCurveStatus(`Curve imported from ${file.name}. New uploads will use these rates.`, 'success');
+            showToast('FTP curve imported from workbook', 'success');
+        } catch (error) {
+            console.error('Error importing FTP curve:', error);
+            setCurveStatus(error.message || 'Unable to import the curve', 'error');
+            showToast(error.message || 'Unable to import the curve', 'error');
+        } finally {
+            uploadCurveBtn.disabled = false;
+            saveCurveBtn.disabled = false;
+            resetCurveBtn.disabled = false;
+            curveFileInput.value = '';
+        }
     });
 
     saveCurveBtn.addEventListener('click', async () => {
@@ -3606,37 +2539,6 @@
         }
     }
 
-    async function recoverReportAfterServerRestart(savedJob) {
-        if (!savedJob) {
-            return null;
-        }
-
-        const fallbackPeriod = savedJob.fileName ? extractMonthYearFromFilename(savedJob.fileName) : null;
-        const month = savedJob.month || (fallbackPeriod && fallbackPeriod.month);
-        const year = Number(savedJob.year || (fallbackPeriod && fallbackPeriod.year) || 0);
-        if (!month || !year) {
-            return null;
-        }
-
-        const response = await fetch(`/processed-reports?month=${encodeURIComponent(month)}&year=${encodeURIComponent(year)}`);
-        const payload = await parseJsonSafely(response);
-        if (!response.ok || !payload || !Array.isArray(payload.reports) || !payload.reports.length) {
-            return null;
-        }
-
-        const startedAt = Number(savedJob.startedAt || 0);
-        if (!startedAt) {
-            return null;
-        }
-
-        const minimumAcceptedMs = startedAt - (2 * 60 * 1000);
-        const recovered = payload.reports.find((report) => {
-            const updatedAtMs = Number(report.updated_at || 0) * 1000;
-            return updatedAtMs >= minimumAcceptedMs;
-        });
-
-        return recovered || null;
-    }
 
     async function waitForFtpJobCompletion(jobId, onProgressUpdate) {
         return new Promise((resolve, reject) => {
@@ -3650,27 +2552,6 @@
                         statusResp.status === 404 ||
                         (statusJson && statusJson.error && String(statusJson.error).toLowerCase().includes('unknown job'))
                     ) {
-                        const recoveredReport = await recoverReportAfterServerRestart(activeFtpJob || { jobId });
-                        if (recoveredReport) {
-                            clearActiveFtpJob();
-                            resolve({
-                                status: 'success',
-                                summary: null,
-                                period: {
-                                    month: recoveredReport.month,
-                                    year: recoveredReport.year,
-                                    report_key: recoveredReport.report_key
-                                },
-                                report_key: recoveredReport.report_key,
-                                excel_contains_workings: Boolean(recoveredReport.excel_contains_workings),
-                                skipped_sheet_count: Number(recoveredReport.skipped_sheet_count || 0),
-                                export_warning: recoveredReport.export_warning || null,
-                                original_upload_available: Boolean(recoveredReport.original_upload_available),
-                                workings_available: Boolean(recoveredReport.workings_available),
-                                recovered_from_archive: true
-                            });
-                            return;
-                        }
                         clearActiveFtpJob();
                         reject(new Error('Processing session expired on server. Please start computation again.'));
                         return;
@@ -3753,7 +2634,6 @@
             downloadResultsBtn.disabled = false;
             downloadExcelBtn.disabled = false;
             if (downloadExcelZipBtn) downloadExcelZipBtn.disabled = false;
-            setOriginalWorkbookDownloadState(Boolean(result.original_upload_available));
             setWorkingsDownloadState(Boolean(result.workings_available));
             updatePreviewBadgeMode(Boolean(result.excel_contains_workings), Number(result.skipped_sheet_count || 0));
 
@@ -3833,29 +2713,10 @@
             return;
         }
 
-        let overwriteExisting = false;
-        if (extractedPeriod) {
-            try {
-                const existingResp = await fetch(`/processed-reports?month=${encodeURIComponent(extractedPeriod.month)}&year=${encodeURIComponent(extractedPeriod.year)}`);
-                const existingJson = await parseJsonSafely(existingResp);
-                const existingReports = existingJson && Array.isArray(existingJson.reports) ? existingJson.reports : [];
-                if (existingReports.length > 0) {
-                    overwriteExisting = window.confirm(
-                        `A processed report already exists for ${extractedPeriod.month} ${extractedPeriod.year}.\n\n` +
-                        'OK = overwrite the base report.\n' +
-                        'Cancel = create a separate version with a suffix.'
-                    );
-                }
-            } catch (lookupError) {
-                console.warn('Could not check archive for duplicates', lookupError);
-            }
-        }
-        
         try {
             const formData = new FormData();
             formData.append('file', file);
             formData.append('include_workings', includeWorkingsCheckbox.checked ? '1' : '0');
-            formData.append('overwrite_existing', overwriteExisting ? '1' : '0');
             updateProcessingOverlay(15, 'Uploading workbook to server');
 
             const uploadResp = await fetch('/upload', {
@@ -3899,19 +2760,11 @@
                     reportKey: result.report_key || result?.period?.report_key || null
                 };
 
-                if (result.report_key) {
-                    compareRightInput.value = result.report_key;
-                    await loadReportMetadata(result.report_key);
-                }
-                await loadAuditLog().catch(() => {});
-                await loadNotifications().catch(() => {});
-                
                 downloadRangeX.textContent = firstDay;
                 downloadRangeY.textContent = lastDay;
                 downloadResultsBtn.disabled = false;
                 downloadExcelBtn.disabled = false;
                 if (downloadExcelZipBtn) downloadExcelZipBtn.disabled = false;
-                setOriginalWorkbookDownloadState(Boolean(result.original_upload_available));
                 setWorkingsDownloadState(Boolean(result.workings_available));
                 updatePreviewBadgeMode(Boolean(result.excel_contains_workings), Number(result.skipped_sheet_count || 0));
                 
@@ -4101,31 +2954,6 @@
                 }
                 
                 updatePreviewWithData(summaryHtml);
-
-                if (result.recovered_from_archive && result.report_key) {
-                    await loadArchiveReport(result.report_key).catch(() => {});
-                }
-
-                const resultMonth = result?.period?.month;
-                const resultYear = result?.period?.year;
-                if (resultMonth && resultYear) {
-                    archiveMonthSelect.value = resultMonth;
-                    archiveYearInput.value = String(resultYear);
-                }
-                setArchiveStatus(
-                    result?.report_key
-                        ? `Run saved as ${result.report_key}. Click Load to browse versions.`
-                        : 'Run saved. Click Load to browse versions.',
-                    'success'
-                );
-                archiveBrowserModal.style.display = 'flex';
-                if (resultMonth && resultYear) {
-                    try {
-                        await refreshArchiveVersions(resultMonth, resultYear);
-                    } catch (archiveError) {
-                        console.warn('Could not auto-load archive versions after processing', archiveError);
-                    }
-                }
 
                 updateProcessingOverlay(100, 'Completed');
                 setTimeout(hideProcessingOverlay, 180);
@@ -4335,43 +3163,6 @@
                 <div style="text-align: center; padding: 20px;">
                     <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
                     <h3 style="color: #dc3545; margin-bottom: 10px;">✗ ZIP Download Failed</h3>
-                    <p style="color: #632424;">${error.message}</p>
-                </div>
-            `);
-        }
-    });
-
-    downloadOriginalBtn.addEventListener('click', async () => {
-        if (!lastComputedRange.firstDay || (!lastComputedRange.summary && !lastComputedRange.reportKey)) {
-            showToast('Please compute FTP range first', 'warning');
-            return;
-        }
-
-        updatePreviewWithData(`
-            <div style="text-align: center; padding: 20px;">
-                <i class="fas fa-spinner fa-pulse" style="font-size: 48px; color: #0f766e; margin-bottom: 20px;"></i>
-                <h3 style="color: #0f766e; margin-bottom: 10px;">Preparing Original Workbook...</h3>
-                <p style="color: #5b6472;">Please wait while we fetch the original uploaded workbook</p>
-            </div>
-        `);
-
-        try {
-            await downloadFile('/download-original-workbook', 'xlsx');
-
-            updatePreviewWithData(`
-                <div style="text-align: center; padding: 10px;">
-                    <i class="fas fa-file-upload" style="font-size: 48px; color: #0f766e; margin-bottom: 15px;"></i>
-                    <h3 style="color: #0f766e; margin-bottom: 10px;">✓ Original Workbook Downloaded</h3>
-                    <p style="color: #2f1a1a;">Your originally uploaded workbook has been downloaded.</p>
-                </div>
-            `);
-        } catch (error) {
-            console.error('Error downloading original workbook:', error);
-
-            updatePreviewWithData(`
-                <div style="text-align: center; padding: 20px;">
-                    <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #dc3545; margin-bottom: 20px;"></i>
-                    <h3 style="color: #dc3545; margin-bottom: 10px;">✗ Original Workbook Download Failed</h3>
                     <p style="color: #632424;">${error.message}</p>
                 </div>
             `);
@@ -4733,8 +3524,6 @@
             }
         });
     }
-
-    initializeOperationsHub();
 })();
 </script>
 
