@@ -1659,12 +1659,224 @@ def _build_methodology_grid(period_label, report_key_label, basis, blocks, limit
     return grid
 
 
+RESULTS_SUMMARY_SHEET = 'Results Summary'
+# Reference 'Results Summary' ordering, display names and which units are broken
+# down by the branches/units that roll up into them.
+RESULTS_SUMMARY_SBU_ORDER = ['Corporate Banking', 'Retail Banking', 'Shared Services', 'Treasury']
+RESULTS_SUMMARY_EXPANDED_SBUS = {'Corporate Banking', 'Retail Banking'}
+RESULTS_SUMMARY_UNIT_LABELS = {'Agribusiness': 'AgriBusiness'}
+
+
+def _summary_metric(entry, prefix):
+    for key, value in entry.items():
+        if str(key).strip().lower().startswith(prefix):
+            return _as_float(value)
+    return 0.0
+
+
+def _summary_assets(entry):
+    """Assets as reported by the reference summary: positive balances only.
+
+    Contra (negative) balances are not netted off the reported asset book.
+    """
+    if 'Positive Exposure' in entry:
+        return _as_float(entry.get('Positive Exposure'))
+    return _summary_metric(entry, 'currency exposure')
+
+
+def _build_results_summary(global_summaries, period_label):
+    """Business-unit summary in the layout of the reference 'Results Summary' sheet.
+
+    Each business unit is broken down by the branches/units that roll up into it
+    (the branch -> unit -> SBU mapping used for the loan computation), with assets
+    and the FTP charge shown as a charge to the unit (negative).
+    """
+    blocks = []
+    total_assets = 0.0
+    total_charge = 0.0
+    for sheet_name in ('FX LOANS', 'ZWG LOANS'):
+        currency = 'ZWG' if sheet_name == 'ZWG LOANS' else 'FX'
+        sheet_summary = (global_summaries.get(currency) or {}).get(sheet_name)
+        if not sheet_summary:
+            continue
+
+        sbu_totals = {}
+        unit_totals = {}
+        for entry in sheet_summary.get('by_sbu') or []:
+            sbu_name = str(entry.get('SBU') or 'Unknown').strip() or 'Unknown'
+            sbu_totals[sbu_name] = (_summary_assets(entry),
+                                    _as_float(entry.get('FTP Charge')))
+            for branch in (entry.get('by_branch') or {}).values():
+                unit_name = str(branch.get('unit') or '').strip() or 'Unknown'
+                unit_name = RESULTS_SUMMARY_UNIT_LABELS.get(unit_name, unit_name)
+                bucket = unit_totals.setdefault((sbu_name, unit_name), [0.0, 0.0])
+                bucket[0] += _summary_assets(branch)
+                bucket[1] += _as_float(branch.get('FTP Charge'))
+
+        ordered = [sbu for sbu in RESULTS_SUMMARY_SBU_ORDER if sbu in sbu_totals]
+        ordered += sorted(sbu for sbu in sbu_totals
+                          if sbu not in RESULTS_SUMMARY_SBU_ORDER and sbu != 'Unknown')
+        if 'Unknown' in sbu_totals:
+            ordered.append('Unknown')
+
+        rows = []
+        for sbu_name in ordered:
+            assets, charge = sbu_totals[sbu_name]
+            rows.append({'level': 0, 'name': sbu_name, 'assets': assets, 'charge': -charge})
+            if sbu_name not in RESULTS_SUMMARY_EXPANDED_SBUS:
+                continue
+            children = sorted(((unit, values) for (sbu, unit), values in unit_totals.items()
+                               if sbu == sbu_name), key=lambda item: -item[1][0])
+            for unit_name, values in children:
+                rows.append({'level': 1, 'name': unit_name,
+                             'assets': values[0], 'charge': -values[1]})
+
+        block_assets = sum(values[0] for values in sbu_totals.values())
+        block_charge = -float(sheet_summary.get('total_ftp_charge') or 0.0)
+        total_assets += block_assets
+        total_charge += block_charge
+        blocks.append({
+            'label': f"{sheet_name} ({'USD' if currency == 'FX' else 'ZWG'})",
+            'rows': rows,
+            'total_assets': block_assets,
+            'total_charge': block_charge,
+            'row_count': sheet_summary.get('row_count'),
+        })
+
+    return {
+        'title': f'CBZ Bank FTP Results Summary - {period_label}',
+        'blocks': blocks,
+        'total_assets': total_assets,
+        'total_charge': total_charge,
+    }
+
+
+def _write_results_summary(writer, summary):
+    """Write the business-unit summary as its own worksheet in the processed workbook."""
+    headers = ['Business Unit', 'Assets', 'Liabilities adjusted for Stats & MOB', 'FTP Charge']
+    book = getattr(writer, 'book', None)
+    if book is not None and hasattr(book, 'create_sheet'):
+        _write_results_summary_openpyxl(book, summary)
+        return
+    if book is not None and hasattr(book, 'add_format'):
+        _write_results_summary_xlsxwriter(book, summary)
+        return
+
+    grid = []
+    for block in summary['blocks']:
+        grid.append([block['label'], '', '', ''])
+        grid.append(list(headers))
+        for item in block['rows']:
+            label = item['name'] if item['level'] == 0 else f"    {item['name']}"
+            grid.append([label, item['assets'], '-', item['charge']])
+        grid.append([f"{block['label']} total", block['total_assets'], '-', block['total_charge']])
+        grid.append(['', '', '', ''])
+    grid.append(['Total', summary['total_assets'], '-', summary['total_charge']])
+    pd.DataFrame(grid, columns=headers).to_excel(
+        writer, sheet_name=RESULTS_SUMMARY_SHEET, index=False, header=False)
+
+
+def _write_results_summary_openpyxl(workbook, summary):
+    """Render the summary with openpyxl (the default engine of this deployment)."""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    headers = ['Business Unit', 'Assets', 'Liabilities adjusted for Stats & MOB', 'FTP Charge']
+    amount_format = '#,##0;(#,##0)'
+    thin = Side(style='thin', color='FFBFBFBF')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    head_fill = PatternFill('solid', fgColor='FFD9E1F2')
+    sbu_fill = PatternFill('solid', fgColor='FFF2F2F2')
+
+    worksheet = workbook.create_sheet(RESULTS_SUMMARY_SHEET)
+    for column, width in zip('ABCD', (34, 24, 36, 18)):
+        worksheet.column_dimensions[column].width = width
+    worksheet.cell(row=1, column=1, value=summary['title']).font = Font(bold=True, size=13)
+
+    def write_row(row_number, values, kind):
+        bold = kind in ('sbu', 'total', 'head')
+        for column, value in enumerate(values, start=1):
+            cell = worksheet.cell(row=row_number, column=column, value=value)
+            cell.border = border
+            if bold:
+                cell.font = Font(bold=True)
+            if kind == 'sbu' or kind == 'total':
+                cell.fill = sbu_fill
+            if kind == 'head':
+                cell.fill = head_fill
+                cell.alignment = Alignment(horizontal='center', wrap_text=True)
+            if column in (2, 4) and isinstance(value, (int, float)):
+                cell.number_format = amount_format
+            if column == 3:
+                cell.alignment = Alignment(horizontal='center')
+
+    row = 3
+    for block in summary['blocks']:
+        worksheet.cell(row=row, column=1, value=block['label']).font = Font(bold=True, italic=True)
+        row += 1
+        write_row(row, headers, 'head')
+        row += 1
+        for item in block['rows']:
+            write_row(row, [item['name'], item['assets'], '-', item['charge']],
+                      'sbu' if item['level'] == 0 else 'unit')
+            row += 1
+        write_row(row, [f"{block['label']} total", block['total_assets'], '-', block['total_charge']], 'total')
+        row += 2
+    write_row(row, ['Total', summary['total_assets'], '-', summary['total_charge']], 'total')
+
+
+def _write_results_summary_xlsxwriter(book, summary):
+    """Render the summary with xlsxwriter when that engine is the active one."""
+    headers = ['Business Unit', 'Assets', 'Liabilities adjusted for Stats & MOB', 'FTP Charge']
+    worksheet = book.add_worksheet(RESULTS_SUMMARY_SHEET)
+    title_fmt = book.add_format({'bold': True, 'font_size': 13})
+    block_fmt = book.add_format({'bold': True, 'italic': True})
+    head_fmt = book.add_format({'bold': True, 'bg_color': '#D9E1F2', 'border': 1})
+    sbu_fmt = book.add_format({'bold': True, 'border': 1, 'bg_color': '#F2F2F2'})
+    unit_fmt = book.add_format({'border': 1, 'indent': 1})
+    sbu_num_fmt = book.add_format({'num_format': '#,##0;(#,##0)', 'bold': True, 'border': 1, 'bg_color': '#F2F2F2'})
+    unit_num_fmt = book.add_format({'num_format': '#,##0;(#,##0)', 'border': 1})
+    sbu_dash_fmt = book.add_format({'bold': True, 'border': 1, 'align': 'center', 'bg_color': '#F2F2F2'})
+    unit_dash_fmt = book.add_format({'border': 1, 'align': 'center'})
+    total_fmt = book.add_format({'bold': True, 'top': 6})
+    total_num_fmt = book.add_format({'num_format': '#,##0;(#,##0)', 'bold': True, 'top': 6})
+
+    worksheet.set_column(0, 0, 34)
+    worksheet.set_column(1, 1, 24)
+    worksheet.set_column(2, 2, 36)
+    worksheet.set_column(3, 3, 18)
+    row = 0
+    worksheet.write(row, 0, summary['title'], title_fmt)
+    row += 2
+    for block in summary['blocks']:
+        worksheet.write(row, 0, block['label'], block_fmt)
+        row += 1
+        worksheet.write_row(row, 0, headers, head_fmt)
+        row += 1
+        for item in block['rows']:
+            is_sbu = item['level'] == 0
+            worksheet.write(row, 0, item['name'], sbu_fmt if is_sbu else unit_fmt)
+            worksheet.write_number(row, 1, item['assets'], sbu_num_fmt if is_sbu else unit_num_fmt)
+            worksheet.write(row, 2, '-', sbu_dash_fmt if is_sbu else unit_dash_fmt)
+            worksheet.write_number(row, 3, item['charge'], sbu_num_fmt if is_sbu else unit_num_fmt)
+            row += 1
+        worksheet.write(row, 0, f"{block['label']} total", total_fmt)
+        worksheet.write_number(row, 1, block['total_assets'], total_num_fmt)
+        worksheet.write(row, 2, '-', total_fmt)
+        worksheet.write_number(row, 3, block['total_charge'], total_num_fmt)
+        row += 2
+    worksheet.write(row, 0, 'Total', total_fmt)
+    worksheet.write_number(row, 1, summary['total_assets'], total_num_fmt)
+    worksheet.write(row, 2, '-', total_fmt)
+    worksheet.write_number(row, 3, summary['total_charge'], total_num_fmt)
+
+
 @app.route('/download-working-paper', methods=['GET'])
 def download_working_paper():
     """Download an Excel 'working paper' containing, for each currency
     (ZWG LOANS and FX LOANS), the first WORKING_PAPER_SAMPLE_ROWS loans
     shown row by row with every computed FTP calculation column:
-    TENOR, DimDays, DTM, MTM, the 13 cashflow buckets, Check and FTP Charge.
+    TENOR, DimDays, DTM, MTM, the cashflow buckets, Check and FTP Charge.
 
     A 'Methodology' sheet (first tab) reproduces the row-by-row derivation of
     the charge (DTM -> MTM -> bucket -> rate -> contribution) and reconciles
@@ -2582,27 +2794,37 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                     summary_exposure += chunk_exposure
                                     summary_ftp += chunk_ftp
 
+                                    # The results summary reports the gross (positive) asset book;
+                                    # contra/credit balances are not netted off.
+                                    chunk['Positive Exposure'] = np.maximum(
+                                        chunk[exposure_col].to_numpy(dtype=np.float64, copy=False), 0.0)
+
                                     chunk_sbu = chunk.groupby('SBU').agg({
                                         exposure_col: 'sum',
+                                        'Positive Exposure': 'sum',
                                         'FTP Charge': 'sum'
                                     }).reset_index()
                                     for _, row in chunk_sbu.iterrows():
                                         sbu_name = row['SBU']
                                         if sbu_name not in summary_by_sbu:
-                                            summary_by_sbu[sbu_name] = {exposure_col: 0.0, 'FTP Charge': 0.0, 'by_branch': {}}
+                                            summary_by_sbu[sbu_name] = {exposure_col: 0.0, 'Positive Exposure': 0.0,
+                                                                        'FTP Charge': 0.0, 'by_branch': {}}
                                         summary_by_sbu[sbu_name][exposure_col] += row[exposure_col]
+                                        summary_by_sbu[sbu_name]['Positive Exposure'] += row['Positive Exposure']
                                         summary_by_sbu[sbu_name]['FTP Charge'] += row['FTP Charge']
-                                    
+
                                     # Also accumulate branch-level details within each SBU
                                     if branch_col and branch_col in chunk.columns:
                                         chunk_branch = chunk.groupby([branch_col, 'SBU']).agg({
                                             exposure_col: 'sum',
+                                            'Positive Exposure': 'sum',
                                             'FTP Charge': 'sum'
                                         }).reset_index()
                                         for _, brow in chunk_branch.iterrows():
                                             branch_code = str(brow[branch_col]).strip()
                                             sbu_name = brow['SBU']
                                             exposure_val = brow[exposure_col]
+                                            positive_val = brow['Positive Exposure']
                                             ftp_val = brow['FTP Charge']
                                             
                                             # Get unit name from branch map
@@ -2611,7 +2833,8 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                             
                                             # Initialize branch entry if needed
                                             if sbu_name not in summary_by_sbu:
-                                                summary_by_sbu[sbu_name] = {exposure_col: 0.0, 'FTP Charge': 0.0, 'by_branch': {}}
+                                                summary_by_sbu[sbu_name] = {exposure_col: 0.0, 'Positive Exposure': 0.0,
+                                                                            'FTP Charge': 0.0, 'by_branch': {}}
                                             if 'by_branch' not in summary_by_sbu[sbu_name]:
                                                 summary_by_sbu[sbu_name]['by_branch'] = {}
                                             
@@ -2622,10 +2845,15 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                                                     'unit': unit_name,
                                                     'sbu': sbu_name,
                                                     exposure_col: 0.0,
+                                                    'Positive Exposure': 0.0,
                                                     'FTP Charge': 0.0
                                                 }
                                             summary_by_sbu[sbu_name]['by_branch'][branch_key][exposure_col] += exposure_val
+                                            summary_by_sbu[sbu_name]['by_branch'][branch_key]['Positive Exposure'] += positive_val
                                             summary_by_sbu[sbu_name]['by_branch'][branch_key]['FTP Charge'] += ftp_val
+
+                                    # Drop the helper column so it never reaches the exports.
+                                    del chunk['Positive Exposure']
 
                                     # Capture preview rows
                                     if len(preview_rows) < 100:
@@ -2718,9 +2946,13 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
         try:
             with pd.ExcelWriter(loan_results_output_path, engine=writer_engine, **writer_kwargs) as writer:
                 process_sheets(writer)
+                results_summary = _build_results_summary(global_summaries, f'{month_name} {year}')
+                _write_results_summary(writer, results_summary)
         except (ImportError, ModuleNotFoundError, ValueError):
             with pd.ExcelWriter(loan_results_output_path, engine='openpyxl') as writer:
                 process_sheets(writer)
+                results_summary = _build_results_summary(global_summaries, f'{month_name} {year}')
+                _write_results_summary(writer, results_summary)
 
         if include_non_loan_sheets:
             progress(90, 'Building workbook with workings sheets')
@@ -2743,6 +2975,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
         latest_data['filename'] = filename
         latest_data['sheets'] = sheets_data
         latest_data['summaries'] = global_summaries
+        latest_data['results_summary'] = results_summary
         latest_data['period'] = {
             'first_day': first_day.strftime('%d %B %Y'),
             'last_day': last_day.strftime('%d %B %Y'),
@@ -2774,6 +3007,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, overwri
                     result={
                         'status': 'success',
                         'summary': global_summaries,
+                        'results_summary': results_summary,
                         'period': latest_data['period'],
                         'excel_contains_workings': include_non_loan_sheets,
                         'skipped_sheet_count': skipped_sheet_count,
