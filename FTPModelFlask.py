@@ -55,9 +55,10 @@ CHARGE_BASIS_LABELS = {
 }
 
 # Reference-model time buckets. The layout follows the configured FTP curve (one
-# rate per bucket): 13 buckets for the 2026-02 model (Assets!V4:AE4 of that
-# workbook) and 10 buckets for the 2026-04 model. A cashflow landing exactly on a
-# boundary day belongs to the SHORTER bucket, as in the reference workbook.
+# rate per bucket): 13 buckets for the 2026-02 and 2026-09 models (Assets!U4:AF4
+# of the September 2026 workbooks) and 10 buckets for the 2026-04 model. A
+# cashflow landing exactly on a boundary day belongs to the SHORTER bucket, as in
+# the reference workbook.
 FTP_DEFAULT_BUCKET_UPPER_DAYS = [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800]
 FTP_BUCKET_LABELS_BY_BOUNDS = {
     tuple(FTP_DEFAULT_BUCKET_UPPER_DAYS): [
@@ -70,21 +71,40 @@ FTP_BUCKET_LABELS_BY_BOUNDS = {
 FTP_BUCKET_UPPER_DAYS = FTP_DEFAULT_BUCKET_UPPER_DAYS
 FTP_BUCKET_LABELS = FTP_BUCKET_LABELS_BY_BOUNDS[tuple(FTP_DEFAULT_BUCKET_UPPER_DAYS)]
 FTP_BUCKET_EDGES = [0] + FTP_DEFAULT_BUCKET_UPPER_DAYS + [float('inf')]
+# The reference workbooks changed their matured-loan handling between releases.
+# The 2026-02 model counted a full month of DinM for loans that had already
+# matured and forced MTM=3 once a loan was more than 45 days past due; the
+# 2026-04 model dropped both rules; the 2026-09 model brought both back and added
+# the rolled-forward DTM convention implemented further below.
+MODEL_VERSION = os.getenv('FTP_MODEL_VERSION', '2026-09').strip()
+
+
+def _model_version_at_least(year, month):
+    parts = MODEL_VERSION.split('-')
+    try:
+        return (int(parts[0]), int(parts[1])) >= (year, month)
+    except (IndexError, ValueError):
+        return False
+
+
+LEGACY_MATURED_LOAN_RULES = MODEL_VERSION.startswith('2026-02')
+# Full month of DinM for matured loans and MTM forced to 3 past 45 days.
+MATURED_LOAN_RULES = LEGACY_MATURED_LOAN_RULES or _model_version_at_least(2026, 9)
+# 2026-09 rolls the DTM of loans that matured just before or inside the reporting
+# period forward to 30/90 days (Assets!S6) and caps Treasury Bill DTM at 21 days.
+ROLLED_FORWARD_DTM_RULES = _model_version_at_least(2026, 9)
 # Day-count convention for loans booked inside the reporting month: the ZWG
 # 2026-04 reference workbook excludes the booking day, while the USD workbook and
-# every earlier workbook includes it. Set FTP_DINM_BOOKED_IN_MONTH_EXCLUSIVE=''
-# to apply the inclusive convention to both currencies.
+# every other generation include it. Set FTP_DINM_BOOKED_IN_MONTH_EXCLUSIVE to a
+# comma separated currency list to override.
 DINM_BOOKED_IN_MONTH_EXCLUSIVE = {
     part.strip().upper()
-    for part in os.getenv('FTP_DINM_BOOKED_IN_MONTH_EXCLUSIVE', 'ZWG').split(',')
+    for part in os.getenv(
+        'FTP_DINM_BOOKED_IN_MONTH_EXCLUSIVE',
+        'ZWG' if MODEL_VERSION.startswith('2026-04') else ''
+    ).split(',')
     if part.strip()
 }
-# The 2026-02 reference workbooks counted a full month of DinM for loans that had
-# already matured and forced MTM=3 once a loan was more than 45 days past due.
-# The 2026-04 model dropped both rules; set FTP_MODEL_VERSION=2026-02 to
-# reproduce the older generation of reports.
-MODEL_VERSION = os.getenv('FTP_MODEL_VERSION', '2026-04').strip()
-LEGACY_MATURED_LOAN_RULES = MODEL_VERSION.startswith('2026-02')
 # Disable non-loan sheet export by default to keep memory use below small-instance limits.
 INCLUDE_NON_LOAN_SHEETS = os.getenv('INCLUDE_NON_LOAN_SHEETS', '0').lower() in {'1', 'true', 'yes'}
 # Guardrail for low-memory hosts: downgrade full-workbook export if upload is too large.
@@ -412,11 +432,17 @@ init_branch_map_db()
 
 def load_curve_config():
     # Curve of the current reference model (CBZ Bank USD/ZWG New FTP Model -
-    # April 2026, Assets!U2:AE2). The bucket labels follow the number of rates.
+    # September 2026, Assets!U2:AG2). The bucket labels follow the number of
+    # rates, and the Offer Rate row is the curve the charge is calculated from.
     default_curves = {
-        'tenors': [30, 60, 90, 180, 270, 360, 720, 1080, 1800],
-        'usd_rates': [9.15, 10.15, 11.15, 12.15, 12.15, 12.15, 15.54, 18.26, 23.7, 23.7],
-        'zwg_rates': [12.0, 13.0, 14.0, 14.0, 14.0, 14.0, 15.94, 17.45, 20.47, 19.47]
+        'tenors': [7, 14, 21, 30, 60, 90, 180, 270, 360, 720, 1080, 1800],
+        'usd_rates': [3.2375, 3.356666666667, 5.315208333333, 6.017793809646, 6.298522897124,
+                      6.478991596217, 6.839928994402, 6.839928994402, 6.839928994402,
+                      7.763967489874, 8.50656838334, 9.249169276806, 9.991770170272],
+        'zwg_rates': [4.135134821229, 4.135134821229, 4.135134821229, 4.135134821229,
+                      4.135134821229, 4.180454470283, 4.220109163204, 4.220109163204,
+                      4.220109163204, 4.332349081855, 4.425749451018, 4.51914982018,
+                      4.612550189343]
     }
 
     if not os.path.exists(CURVE_CONFIG_PATH):
@@ -451,8 +477,10 @@ def save_curve_config(curve_config):
 
 def _curve_payload():
     """Curve definition in the shape the editor and chart consume."""
+    labels, _ = _bucket_layout()
     return {
         'tenors': list(tenors),
+        'labels': list(labels),
         'zwg': {'name': 'ZWG FTP Curve', 'rates': list(zwg_rates), 'color': '#b33a3a', 'borderColor': '#921f1f'},
         'usd': {'name': 'USD FTP Curve', 'rates': list(usd_rates), 'color': '#2563eb', 'borderColor': '#1d4ed8'}
     }
@@ -842,6 +870,10 @@ def _stream_workbook_sheet_to_ndjson(workbook_path, sheet_name, output_path):
             return None
 
         worksheet = workbook[sheet_name]
+        if worksheet.max_row <= 1 and worksheet.max_column <= 1:
+            # Some extracts omit the worksheet <dimension> element; read-only mode
+            # then reports a single cell and would silently stream no rows.
+            worksheet.reset_dimensions()
         rows = worksheet.iter_rows(values_only=True)
         header_row = next(rows, None)
         if header_row is None:
@@ -2201,7 +2233,7 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, export_
                                     # Compute DimDays, DTM, MTM
                                     bd = chunk['BOOKING_DATE']
                                     md = chunk['MATURITY_DATE']
-                                    # DinM (reference workbook column S) - days the loan is
+                                    # DinM (reference workbook column R) - days the loan is
                                     # actually on book during the reporting month.
                                     booked_in_month_days = (last_day_ts - bd).dt.days + (
                                         1 if dinm_booked_in_month_inclusive else 0)
@@ -2210,19 +2242,37 @@ def _run_ftp_job(job_id, upload_path, filename, include_non_loan_sheets, export_
                                         np.where((bd >= first_day_ts) & (md >= last_day_ts), booked_in_month_days,
                                         np.where((bd >= first_day_ts) & (md <= last_day_ts), (md - bd).dt.days,
                                         np.where((bd < first_day_ts) & (md < first_day_ts),
-                                                 full_period if LEGACY_MATURED_LOAN_RULES else full_period - 1,
+                                                 full_period if MATURED_LOAN_RULES else full_period - 1,
                                                  (md - first_day_ts).dt.days)))
                                     ).astype(np.int32)
-                                    chunk['DTM'] = (md - last_day_ts).dt.days.astype(np.int32)
-                                    # MTM = ROUNDUP(DTM/30, 0) as in the reference workbook
-                                    # (Excel rounds away from zero, so matured loans go negative).
+                                    dtm_days = (md - last_day_ts).dt.days
+                                    if ROLLED_FORWARD_DTM_RULES:
+                                        # Matured loans keep a full DinM month, so their DTM is
+                                        # rolled forward to 3 months; loans maturing just before
+                                        # the period end roll forward one month.
+                                        rolled_matured = ((chunk['TENOR'] > 30) & (dtm_days <= -31)
+                                                          & (chunk['DimDays'] == full_period))
+                                        rolled_current = ((chunk['TENOR'] > 30) & (dtm_days > -31)
+                                                          & (dtm_days <= 0)
+                                                          & (chunk['DimDays'] < full_period))
+                                        dtm_days = dtm_days.mask(rolled_matured, 90).mask(rolled_current, 30)
+                                        bill_type_col = next(
+                                            (c for c in loan_type_candidates if c in chunk.columns), None)
+                                        if bill_type_col:
+                                            treasury_bill = (chunk[bill_type_col].astype(str).str.strip()
+                                                             .str.upper() == 'TBS')
+                                            dtm_days = dtm_days.mask(treasury_bill & (dtm_days > 21), 21)
+                                    chunk['DTM'] = dtm_days.astype(np.int32)
+                                    # MTM = IF(DTM<-45, 3, ROUNDUP(DTM/30, 0)) as in the reference
+                                    # workbook (Excel rounds away from zero, so matured loans can
+                                    # still go negative on the 2026-04 layout).
                                     dtm_values = chunk['DTM'].to_numpy(dtype=np.float64, copy=False)
                                     chunk['MTM'] = np.where(
                                         dtm_values < 0,
                                         -np.ceil(-dtm_values / 30.0),
                                         np.ceil(dtm_values / 30.0),
                                     ).astype(np.float32)
-                                    if LEGACY_MATURED_LOAN_RULES:
+                                    if MATURED_LOAN_RULES:
                                         chunk.loc[chunk['DTM'] < -45, 'MTM'] = 3.0
 
                                     # Determine exposure column (handle both spaced and unspaced variants)

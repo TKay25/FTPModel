@@ -3426,9 +3426,15 @@
         const chartCurveData = curveData || await fetchFtpCurveData();
         if (!chartCurveData) return;
 
-        const tenors = chartCurveData.tenors.map(d => formatTenorLabel(d));
-        
-        while (tenors.length < chartCurveData.usd.rates.length) {
+        const rateCount = chartCurveData.usd.rates.length;
+        const bucketLabels = Array.isArray(chartCurveData.labels) ? chartCurveData.labels : [];
+        // The model publishes one bucket label per rate, so the chart always shows
+        // the configured tenor buckets (e.g. '<7days' .. '+5y').
+        const tenors = bucketLabels.length === rateCount
+            ? bucketLabels.slice()
+            : chartCurveData.tenors.map(d => formatTenorLabel(d));
+
+        while (tenors.length < rateCount) {
             tenors.push(formatTenorLabel(chartCurveData.tenors[chartCurveData.tenors.length - 1]));
         }
 
